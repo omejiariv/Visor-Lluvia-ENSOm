@@ -1,0 +1,15 @@
+streamlit
+pandas==2.2.2
+altair
+folium
+plotly==5.19.0
+geopandas
+pykrige
+scipy
+numpy
+shapely
+streamlit_folium
+pandas
+geopandas
+plotly
+pyproj
