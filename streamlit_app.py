@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Visor de Información Geoespacial de Precipitación y ENSO
+Visor de Información Geoespacial de Precipitación y ENSO (Versión Corregida)
 """
 
 import streamlit as st
@@ -10,7 +10,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import zipfile
-import io
 import pyproj
 from pyproj import Proj, transform
 
@@ -24,7 +23,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# =-===========================================================================
+# =============================================================================
 # Funciones de Carga y Procesamiento de Datos
 # (Se usan decoradores @st.cache_data para optimizar el rendimiento)
 # =============================================================================
@@ -95,12 +94,9 @@ def transform_coords(df, lon_col='Longitud', lat_col='Latitud'):
     """
     Transforma coordenadas planas (asumidas como MAGNA-SIRGAS / Origen-Nacional) a WGS 84.
     """
-    # Definir la proyección de origen para Colombia (MAGNA-SIRGAS / Origen-Nacional)
-    # EPSG:3116 es una opción común, pero podría ser otra. Ajustar si es necesario.
-    # Basado en los valores (ej. Longitud ~ 4,817,943), es un sistema proyectado.
-    # Este es el EPSG para MAGNA-SIRGAS / Colombia Bogota zone
+    # Definir la proyección de origen para Colombia (MAGNA-SIRGAS / Origen-Nacional, EPSG:3116)
     proj_origen = Proj('epsg:3116') 
-    # Proyección de destino (WGS 84)
+    # Proyección de destino (WGS 84, EPSG:4326)
     proj_destino = Proj('epsg:4326')
 
     # Aplicar la transformación
@@ -113,9 +109,9 @@ def transform_coords(df, lon_col='Longitud', lat_col='Latitud'):
     return df
 
 @st.cache_data
-def load_geodata(zip_path, df_stations):
+def load_geodata(zip_path):
     """
-    Carga el shapefile, lo transforma a WGS 84 y lo fusiona con datos de estaciones.
+    Carga el shapefile, lo transforma a WGS 84.
     """
     try:
         with zipfile.ZipFile(zip_path, 'r') as z:
@@ -124,12 +120,7 @@ def load_geodata(zip_path, df_stations):
             # Leer el shapefile directamente desde el zip
             gdf = gpd.read_file(f'/vsizip/{zip_path}/{shp_filename}')
         
-        # Renombrar columnas para evitar conflictos y estandarizar
-        gdf.rename(columns={'Id_estacio': 'Id_estacio_shp'}, inplace=True)
-
-        # Asumir que el shapefile está en el mismo CRS plano y transformar
-        # Si el CRS ya está definido en el shapefile, geopandas podría leerlo. 
-        # Si no, lo definimos manualmente.
+        # Si el CRS no está definido en el shapefile, lo definimos manualmente.
         if gdf.crs is None:
             gdf.set_crs('epsg:3116', inplace=True) # Asignar el CRS de origen
         
@@ -156,7 +147,7 @@ SHAPEFILE_ZIP_PATH = 'mapaCV.zip'
 
 # Cargar los datos usando las funciones
 data = load_data(STATIONS_CSV_PATH, PRECIP_CSV_PATH, ENSO_CSV_PATH)
-geodata = load_geodata(SHAPEFILE_ZIP_PATH, data) if data is not None else None
+geodata = load_geodata(SHAPEFILE_ZIP_PATH) if data is not None else None
 
 if data is None:
     st.warning("La carga de datos falló. El tablero no puede continuar. Por favor, revisa los errores mostrados arriba.")
@@ -186,7 +177,7 @@ sorted_depts = sorted(data['Departamento'].unique())
 selected_dept = st.sidebar.selectbox(
     "Selecciona un Departamento:",
     options=sorted_depts,
-    index=0 # Por defecto, selecciona el primero
+    index=0 
 )
 
 # Filtro de Municipio (dependiente del departamento)
@@ -194,7 +185,7 @@ municipios_in_dept = sorted(data[data['Departamento'] == selected_dept]['Municip
 selected_municipios = st.sidebar.multiselect(
     "Selecciona uno o más Municipios:",
     options=municipios_in_dept,
-    default=municipios_in_dept[:3] # Por defecto selecciona los primeros 3
+    default=municipios_in_dept[:3] 
 )
 
 # Filtro de Estaciones (dependiente de los municipios)
@@ -203,7 +194,7 @@ if selected_municipios:
     selected_stations = st.sidebar.multiselect(
         "Selecciona una o más Estaciones:",
         options=stations_in_mun,
-        default=stations_in_mun[:5] # Por defecto selecciona las primeras 5
+        default=stations_in_mun[:5] 
     )
 else:
     selected_stations = []
@@ -232,8 +223,7 @@ else:
     # --- Métricas Resumen ---
     col1, col2, col3 = st.columns(3)
     avg_precip = filtered_data['Precipitacion'].mean()
-    max_precip_row = filtered_data.loc[filtered_data['Precipitacion'].idxmax()]
-
+    
     col1.metric("Precipitación Promedio Mensual", f"{avg_precip:.2f} mm")
     col2.metric("Periodo Analizado", f"{selected_years[0]} - {selected_years[1]}")
     col3.metric("Estaciones Seleccionadas", len(selected_stations))
@@ -286,4 +276,112 @@ else:
             size="Precipitacion",
             color="Precipitacion",
             hover_name="Nom_Est",
-            hover_data={"Municipio": True, "Precipitacion": ":.2f mm
+            hover_data={"Municipio": True, "Precipitacion": ":.2f mm"}, # <-- LÍNEA CORREGIDA
+            color_continuous_scale=px.colors.sequential.Viridis,
+            size_max=20,
+            zoom=5,
+            mapbox_style="open-street-map",
+            title="Ubicación y Precipitación Promedio de Estaciones"
+        )
+        fig_map.update_layout(
+            mapbox_center={"lat": 4.5709, "lon": -74.2973}, # Centrado en Colombia
+            margin={"r":0,"t":40,"l":0,"b":0}
+        )
+        st.plotly_chart(fig_map, use_container_width=True)
+    
+    with tab3:
+        st.header("Análisis de Correlación: Precipitación vs. ENSO")
+        st.markdown("Esta sección visualiza la relación entre la precipitación promedio mensual y el Índice Oceánico El Niño (ONI).")
+
+        # Preparar datos para el gráfico combinado
+        enso_corr_data = filtered_data.groupby('Id_Fecha').agg({
+            'Precipitacion': 'mean',
+            'Anomalia_ONI': 'first'
+        }).reset_index()
+
+        # Crear figura con eje Y secundario
+        fig_corr = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # Añadir traza de Precipitación (eje izquierdo)
+        fig_corr.add_trace(
+            go.Bar(
+                x=enso_corr_data['Id_Fecha'], 
+                y=enso_corr_data['Precipitacion'], 
+                name='Precipitación Promedio',
+                marker_color='skyblue'
+            ),
+            secondary_y=False,
+        )
+
+        # Añadir traza de Anomalía ONI (eje derecho)
+        fig_corr.add_trace(
+            go.Scatter(
+                x=enso_corr_data['Id_Fecha'], 
+                y=enso_corr_data['Anomalia_ONI'], 
+                name='Anomalía ONI',
+                line=dict(color='red', width=2)
+            ),
+            secondary_y=True,
+        )
+        
+        # Añadir líneas de umbral para El Niño/La Niña
+        fig_corr.add_hline(y=0.5, line_dash="dot", line_color="orange", secondary_y=True, annotation_text="El Niño")
+        fig_corr.add_hline(y=-0.5, line_dash="dot", line_color="blue", secondary_y=True, annotation_text="La Niña")
+
+        # Configurar títulos y ejes
+        fig_corr.update_layout(
+            title_text='Precipitación Mensual vs. Anomalía del Índice ONI',
+            template='plotly_white',
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        fig_corr.update_xaxes(title_text="Fecha")
+        fig_corr.update_yaxes(title_text="Precipitación Promedio (mm)", secondary_y=False)
+        fig_corr.update_yaxes(title_text="Anomalía ONI (°C)", secondary_y=True)
+        
+        st.plotly_chart(fig_corr, use_container_width=True)
+
+        # --- Mapa Animado ---
+        st.subheader("Animación de Precipitación Anual por Estación")
+        annual_map_data = filtered_data.groupby(['año', 'Nom_Est', 'lon_wgs84', 'lat_wgs84'])['Precipitacion'].sum().reset_index()
+        
+        fig_animated = px.scatter_mapbox(
+            annual_map_data,
+            lat="lat_wgs84",
+            lon="lon_wgs84",
+            size="Precipitacion",
+            color="Precipitacion",
+            animation_frame="año",
+            animation_group="Nom_Est",
+            hover_name="Nom_Est",
+            color_continuous_scale=px.colors.sequential.YlOrRd,
+            size_max=25,
+            zoom=5,
+            mapbox_style="carto-positron",
+            title="Evolución Anual de la Precipitación por Estación"
+        )
+        fig_animated.update_layout(
+            mapbox_center={"lat": 4.5709, "lon": -74.2973},
+            margin={"r":0,"t":40,"l":0,"b":0}
+        )
+        st.plotly_chart(fig_animated, use_container_width=True)
+
+    with tab4:
+        st.header("Datos Filtrados y Descarga")
+        st.markdown("A continuación se muestra una tabla con los datos que corresponden a los filtros seleccionados. Puedes descargar esta tabla en formato CSV.")
+        
+        # Mostrar DataFrame
+        st.dataframe(filtered_data.drop(columns=['lon_wgs84', 'lat_wgs84']))
+        
+        # Funcionalidad de descarga
+        @st.cache_data
+        def convert_df_to_csv(df):
+            return df.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
+
+        csv_file = convert_df_to_csv(filtered_data)
+        
+        st.download_button(
+            label="📥 Descargar datos como CSV",
+            data=csv_file,
+            file_name=f"datos_filtrados_{selected_dept}.csv",
+            mime="text/csv",
+        )
