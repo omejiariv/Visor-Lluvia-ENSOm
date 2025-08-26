@@ -17,26 +17,6 @@ from shapely.geometry import Point
 import requests
 import json
 from pyproj import Transformer
-import subprocess
-import sys
-
-# --- Manejo de dependencias ---
-# Este bloque de código asegura que las bibliotecas necesarias estén instaladas.
-# Si el script falla, intentará instalar las dependencias faltantes.
-try:
-    import folium
-    import geopandas
-    import pyproj
-    import requests
-    from streamlit_folium import folium_static
-except ImportError:
-    st.warning("Se están instalando las bibliotecas requeridas. Por favor, espera y la aplicación se recargará automáticamente.")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "folium", "geopandas", "pyproj", "requests"])
-        st.experimental_rerun()
-    except Exception as e:
-        st.error(f"Error al instalar las dependencias: {e}")
-        st.stop()
 
 # --- Configuración de la página ---
 st.set_page_config(layout="wide", page_title="Visor de Precipitación y ENSO", page_icon="☔")
@@ -72,6 +52,7 @@ def download_file_from_github(url, file_path):
         st.error(f"Error al descargar {url}: {e}")
         return False
 
+@st.cache_data
 def load_shapefile(url):
     """Descarga un archivo zip de un shapefile y lo carga como un GeoDataFrame."""
     try:
