@@ -9,3 +9,7 @@ scipy
 numpy
 shapely
 streamlit_folium
+pandas
+geopandas
+plotly
+pyproj
