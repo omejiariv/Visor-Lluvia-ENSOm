@@ -19,17 +19,6 @@ from pykrige.ok import OrdinaryKriging
 from pykrige.kriging_tools import write_asc_grid
 from scipy.interpolate import griddata
 
-# --- Manejo del error de importación de ScaleControl ---
-try:
-    from folium.plugins import ScaleControl
-except ImportError:
-    st.warning("El plugin 'ScaleControl' de Folium no está disponible. El mapa funcionará, pero no mostrará la barra de escala.")
-    class ScaleControl:
-        def __init__(self, *args, **kwargs):
-            pass
-        def add_to(self, m):
-            pass
-
 # --- Configuración de la página ---
 st.set_page_config(layout="wide", page_title="Visor de Precipitación y ENSO", page_icon="☔")
 
