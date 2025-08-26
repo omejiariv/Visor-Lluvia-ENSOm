@@ -1,23 +1,12 @@
 import streamlit as st
 import pandas as pd
-import altair as alt
-import folium
-from streamlit_folium import folium_static
+import geopandas as gpd # Necesario para leer el shapefile
 import plotly.express as px
 import plotly.graph_objects as go
-import geopandas as gpd
+from plotly.subplots import make_subplots
 import zipfile
-import tempfile
-import os
-import io
-import numpy as np
-import re
-from datetime import datetime
-from shapely.geometry import Point
-import base64
-from pykrige.ok import OrdinaryKriging
-from pykrige.kriging_tools import write_asc_grid
-from scipy.interpolate import griddata
+import pyproj
+from pyproj import Proj, transform
 
 # --- VERIFICACIÓN TEMPORAL DE LA VERSIÓN DE PLOTLY ---
 try:
