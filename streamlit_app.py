@@ -112,30 +112,41 @@ if not all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
 
 # --- Carga y Preprocesamiento de Datos ---
 df_precip_anual = load_data(uploaded_file_mapa)
-df_precip_mensual = load_data(uploaded_file_precip)
+df_precip_mensual_raw = load_data(uploaded_file_precip)
 gdf_municipios = load_shapefile(uploaded_zip_shapefile)
-if any(df is None for df in [df_precip_anual, df_precip_mensual, gdf_municipios]):
+if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
     st.stop()
+    
+# Copiamos el dataframe para trabajar sobre el
+df_precip_mensual = df_precip_mensual_raw.copy()
 
-# 1. Extraer y procesar datos de ENSO (si existen)
-enso_cols_base = ['ENSO_año', 'ENSO_mes', 'Anomalia_ONI', 'Temp_media', 'Temp_SST']
+# 1. UNIFICACIÓN DE LÓGICA DE FECHAS
+df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
+year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
+if not year_col_precip:
+    st.error(f"No se encontró columna de año principal ('año' o 'ano') en el archivo de precipitación mensual.")
+    st.stop()
+df_precip_mensual.rename(columns={year_col_precip: 'Año'}, inplace=True)
+
+# 2. Procesar y crear tabla de referencia ENSO
+enso_cols_base = ['Año', 'mes', 'Anomalia_ONI', 'Temp_media', 'Temp_SST']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
-df_enso = pd.DataFrame()
-if 'ENSO_año' in enso_cols_present and 'ENSO_mes' in enso_cols_present:
+df_enso = pd.DataFrame() 
+if 'Año' in enso_cols_present and 'mes' in enso_cols_present:
     df_enso = df_precip_mensual[enso_cols_present].drop_duplicates().copy()
-    df_enso.dropna(subset=['ENSO_año', 'ENSO_mes'], inplace=True)
-    df_enso['ENSO_año'] = pd.to_numeric(df_enso['ENSO_año'], errors='coerce')
-    df_enso['ENSO_mes'] = pd.to_numeric(df_enso['ENSO_mes'], errors='coerce')
-    df_enso.dropna(subset=['ENSO_año', 'ENSO_mes'], inplace=True)
-    df_enso = df_enso.astype({'ENSO_año': int, 'ENSO_mes': int})
-    df_enso['Fecha'] = pd.to_datetime(df_enso['ENSO_año'].astype(str) + '-' + df_enso['ENSO_mes'].astype(str), errors='coerce')
+    df_enso.dropna(subset=['Año', 'mes'], inplace=True)
+    df_enso['Año'] = pd.to_numeric(df_enso['Año'], errors='coerce')
+    df_enso['mes'] = pd.to_numeric(df_enso['mes'], errors='coerce')
+    df_enso.dropna(subset=['Año', 'mes'], inplace=True)
+    df_enso = df_enso.astype({'Año': int, 'mes': int})
+    df_enso['Fecha'] = pd.to_datetime(df_enso['Año'].astype(str) + '-' + df_enso['mes'].astype(str), errors='coerce')
     df_enso['fecha_merge'] = df_enso['Fecha'].dt.strftime('%Y-%m')
     df_enso.dropna(subset=['Fecha'], inplace=True)
     for col in ['Anomalia_ONI', 'Temp_SST', 'Temp_media']:
         if col in df_enso.columns:
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
 
-# 2. Procesar estaciones (mapaCVENSO)
+# 3. Procesar estaciones (mapaCVENSO)
 lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
 lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
 if not all([lon_col, lat_col]):
@@ -149,29 +160,19 @@ gdf_stations = gdf_temp.to_crs("EPSG:4326")
 gdf_stations['Longitud_geo'] = gdf_stations.geometry.x
 gdf_stations['Latitud_geo'] = gdf_stations.geometry.y
 
-# 3. Procesar datos de Precipitación Mensual
-df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
-year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
-if not year_col_precip:
-    st.error(f"No se encontró columna de año ('ano' o 'año') en el archivo de precipitación mensual.")
-    st.stop()
-df_precip_mensual.rename(columns={year_col_precip: 'Año'}, inplace=True)
+# 4. Procesar datos de Precipitación Mensual
 station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
 if not station_cols:
     st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
     st.stop()
 id_vars = ['Año', 'mes']
 df_long = df_precip_mensual.melt(id_vars=id_vars, value_vars=station_cols, var_name='Id_estacion', value_name='Precipitation')
-
-# ---- FIX: Handle comma decimals in Precipitation data ----
 df_long['Precipitation'] = pd.to_numeric(df_long['Precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
-# ---- END FIX ----
-
 df_long.dropna(subset=['Precipitation'], inplace=True)
 df_long['Fecha'] = pd.to_datetime(df_long['Año'].astype(str) + '-' + df_long['mes'].astype(str), errors='coerce')
 df_long.dropna(subset=['Fecha'], inplace=True)
 
-# 4. Mapeo y Fusión
+# 5. Mapeo y Fusión
 gdf_stations['Id_estacio'] = gdf_stations['Id_estacio'].astype(str).str.strip()
 df_long['Id_estacion'] = df_long['Id_estacion'].astype(str).str.strip()
 station_mapping = gdf_stations.set_index('Id_estacio')['Nom_Est'].to_dict()
