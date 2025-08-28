@@ -1,2 +1,1 @@
-# Visor-Lluvia-ENSOm
-Plataforma de visualización geoespacial de datos hidrometeorológicos y ENSO
+Plataforma de visualización de datos hidro-climatológicos
