@@ -98,6 +98,41 @@ def complete_series(df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
+# --- MEJORA: Función para crear el gráfico ENSO ---
+def create_enso_chart(enso_data):
+    if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
+        return go.Figure()
+
+    fig = go.Figure()
+    
+    # Añadir rectángulos de fondo para las fases
+    for i, row in enso_data.iterrows():
+        oni_value = row['anomalia_oni']
+        color = 'rgba(200, 200, 200, 0.3)' # Neutral
+        if oni_value >= 0.5:
+            color = 'rgba(255, 100, 100, 0.3)' # El Niño
+        elif oni_value <= -0.5:
+            color = 'rgba(100, 100, 255, 0.3)' # La Niña
+        
+        fig.add_vrect(x0=row['Fecha'], x1=row['Fecha'] + pd.DateOffset(months=1), 
+                      fillcolor=color, layer="below", line_width=0)
+
+    # Añadir línea de la anomalía ONI
+    fig.add_trace(go.Scatter(x=enso_data['Fecha'], y=enso_data['anomalia_oni'],
+                             mode='lines', name='Anomalía ONI', line=dict(color='black', width=2)))
+
+    # Añadir líneas de umbral
+    fig.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="El Niño")
+    fig.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="La Niña")
+
+    fig.update_layout(
+        title="Fases del Fenómeno ENSO y Anomalía ONI",
+        yaxis_title="Anomalía ONI (°C)",
+        xaxis_title="Fecha",
+        showlegend=False
+    )
+    return fig
+
 # --- Interfaz y Carga de Archivos ---
 st.title('Visor de Precipitación y Fenómeno ENSO')
 st.sidebar.header("Panel de Control")
@@ -244,6 +279,17 @@ with tab1:
             st.subheader("Precipitación Mensual (mm)")
             chart_mensual = alt.Chart(df_monthly_filtered).mark_line().encode(x=alt.X('Fecha:T', title='Fecha'), y=alt.Y('Precipitation:Q', title='Precipitación (mm)'), color='Nom_Est:N', tooltip=[alt.Tooltip('Fecha', format='%Y-%m'), 'Precipitation', 'Nom_Est']).interactive()
             st.altair_chart(chart_mensual, use_container_width=True)
+            
+            # MEJORA: Añadir gráfico ENSO
+            st.markdown("---")
+            enso_filtered = df_enso[
+                (df_enso['Fecha'].dt.year >= year_range[0]) & 
+                (df_enso['Fecha'].dt.year <= year_range[1]) &
+                (df_enso['Fecha'].dt.month.isin(meses_numeros))
+            ]
+            fig_enso_mensual = create_enso_chart(enso_filtered)
+            st.plotly_chart(fig_enso_mensual, use_container_width=True, key="enso_chart_mensual")
+
 
     with sub_tab_box:
         if not df_anual_melted.empty:
@@ -255,10 +301,8 @@ with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
     if not gdf_filtered.empty:
-        # --- MEJORA: Opciones de escala y zoom ---
         map_centering = st.radio("Opciones de centrado del mapa", ("Automático", "Vistas Predefinidas"), horizontal=True, key="map_centering_radio")
         
-        # Inicializar el estado de la sesión para la vista del mapa
         if 'map_view' not in st.session_state:
             st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
 
@@ -308,10 +352,11 @@ with tab_anim:
             color_range = st.sidebar.slider("Rango de Escala de Color (mm)", min_precip, max_precip, (min_precip, max_precip))
             col1, col2 = st.columns(2)
 
+            # MEJORA: Sliders para selección de años
             with col1:
-                year1 = st.selectbox("Seleccione el año para el Mapa 1", available_years, index=len(available_years)-1, key='y1')
+                year1 = st.slider("Seleccione el año para el Mapa 1", min(available_years), max(available_years), max(available_years))
             with col2:
-                year2 = st.selectbox("Seleccione el año para el Mapa 2", available_years, index=len(available_years)-2 if len(available_years) > 1 else 0, key='y2')
+                year2 = st.slider("Seleccione el año para el Mapa 2", min(available_years), max(available_years), max(available_years)-1 if len(available_years)>1 else max(available_years))
 
             if st.button("Generar Mapas de Comparación"):
                 if year1 == year2:
