@@ -256,11 +256,14 @@ df_anual_melted = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)].
     id_vars=['Nom_Est', 'Longitud_geo', 'Latitud_geo'],
     value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
     var_name='Año', value_name='Precipitación')
+
+# ---- FIX: Corrected parenthesis for filtering ----
 df_monthly_filtered = df_monthly_for_analysis[
     (df_monthly_for_analysis['Nom_Est'].isin(selected_stations)) &
     (df_monthly_for_analysis['Fecha'].dt.year >= year_range[0]) &
     (df_monthly_for_analysis['Fecha'].dt.year <= year_range[1]) &
-    (df_monthly_for_analysis['Fecha'].dt.month.isin(meses_numeros))]
+    (df_monthly_for_analysis['Fecha'].dt.month.isin(meses_numeros))
+]
 
 # --- Pestañas Principales ---
 tab1, tab2, tab_anim, tab3, tab4, tab5 = st.tabs(["Gráficos", "Mapa de Estaciones", "Mapas Avanzados", "Tabla de Estaciones", "Análisis ENSO", "Descargas"])
