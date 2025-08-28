@@ -98,6 +98,41 @@ def complete_series(df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
+# --- MEJORA 5: Función para crear el gráfico ENSO ---
+def create_enso_chart(enso_data):
+    if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
+        return go.Figure()
+
+    fig = go.Figure()
+    
+    # Añadir rectángulos de fondo para las fases
+    for i, row in enso_data.iterrows():
+        oni_value = row['anomalia_oni']
+        color = 'rgba(200, 200, 200, 0.3)' # Neutral
+        if oni_value >= 0.5:
+            color = 'rgba(255, 100, 100, 0.3)' # El Niño
+        elif oni_value <= -0.5:
+            color = 'rgba(100, 100, 255, 0.3)' # La Niña
+        
+        fig.add_vrect(x0=row['Fecha'], x1=row['Fecha'] + pd.DateOffset(months=1), 
+                      fillcolor=color, layer="below", line_width=0)
+
+    # Añadir línea de la anomalía ONI
+    fig.add_trace(go.Scatter(x=enso_data['Fecha'], y=enso_data['anomalia_oni'],
+                             mode='lines', name='Anomalía ONI', line=dict(color='black', width=2)))
+
+    # Añadir líneas de umbral
+    fig.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="El Niño")
+    fig.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="La Niña")
+
+    fig.update_layout(
+        title="Fases del Fenómeno ENSO y Anomalía ONI",
+        yaxis_title="Anomalía ONI (°C)",
+        xaxis_title="Fecha",
+        showlegend=False
+    )
+    return fig
+
 # --- Interfaz y Carga de Archivos ---
 st.title('Visor de Precipitación y Fenómeno ENSO')
 st.sidebar.header("Panel de Control")
@@ -118,17 +153,13 @@ if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municip
     st.stop()
     
 df_precip_mensual = df_precip_mensual_raw.copy()
-
-# 1. ESTANDARIZACIÓN DE COLUMNAS (A MINÚSCULAS)
 df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
 year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
 if not year_col_precip:
     st.error(f"No se encontró columna de año principal ('año' o 'ano') en el archivo de precipitación mensual.")
     st.stop()
-df_precip_mensual.rename(columns={year_col_precip: 'año'}, inplace=True) # Renombrar a 'año' minúscula
+df_precip_mensual.rename(columns={year_col_precip: 'año'}, inplace=True)
 
-# 2. Procesar y crear tabla de referencia ENSO (usando nombres en minúscula)
-# FIX: Use lowercase for all column names to match standardization
 enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 df_enso = pd.DataFrame() 
@@ -146,7 +177,6 @@ if 'año' in enso_cols_present and 'mes' in enso_cols_present:
         if col in df_enso.columns:
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
 
-# 3. Procesar estaciones (mapaCVENSO)
 lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
 lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
 if not all([lon_col, lat_col]):
@@ -160,7 +190,6 @@ gdf_stations = gdf_temp.to_crs("EPSG:4326")
 gdf_stations['Longitud_geo'] = gdf_stations.geometry.x
 gdf_stations['Latitud_geo'] = gdf_stations.geometry.y
 
-# 4. Procesar datos de Precipitación Mensual
 station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
 if not station_cols:
     st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
@@ -172,15 +201,14 @@ df_long.dropna(subset=['Precipitation'], inplace=True)
 df_long['Fecha'] = pd.to_datetime(df_long['año'].astype(str) + '-' + df_long['mes'].astype(str), errors='coerce')
 df_long.dropna(subset=['Fecha'], inplace=True)
 
-# 5. Mapeo y Fusión
 gdf_stations['Id_estacio'] = gdf_stations['Id_estacio'].astype(str).str.strip()
 df_long['Id_estacion'] = df_long['Id_estacion'].astype(str).str.strip()
 station_mapping = gdf_stations.set_index('Id_estacio')['Nom_Est'].to_dict()
 df_long['Nom_Est'] = df_long['Id_estacion'].map(station_mapping)
 df_long.dropna(subset=['Nom_Est'], inplace=True)
-df_long.rename(columns={'año': 'Año'}, inplace=True) # Devolver a Mayúscula para filtros y visualizaciones
+df_long.rename(columns={'año': 'Año'}, inplace=True)
 if df_long.empty:
-    st.warning("El dataframe de precipitación mensual está vacío después del preprocesamiento. Verifique el formato de los datos de precipitación.")
+    st.warning("El dataframe de precipitación mensual está vacío después del preprocesamiento.")
     st.stop()
 
 # --- Controles en la Barra Lateral ---
@@ -195,9 +223,23 @@ if selected_municipios:
 if selected_celdas:
     stations_available = stations_available[stations_available['Celda_XY'].isin(selected_celdas)]
 stations_options = sorted(stations_available['Nom_Est'].unique())
-select_all = st.sidebar.checkbox("Seleccionar/Deseleccionar Todas las Estaciones", value=True)
-default_selection = stations_options if select_all else []
+select_all = st.sidebar.checkbox("Seleccionar/Deseleccionar Todas las Estaciones", value=False)
+
+# MEJORA 1: Carga inicial con una sola estación
+if select_all:
+    default_selection = stations_options
+else:
+    # Si hay una sesión con estaciones seleccionadas, usarla. Si no, usar la primera de la lista.
+    if 'selected_stations' in st.session_state and st.session_state.selected_stations:
+        default_selection = st.session_state.selected_stations
+    elif stations_options:
+        default_selection = [stations_options[0]]
+    else:
+        default_selection = []
+        
 selected_stations = st.sidebar.multiselect('3. Seleccionar Estaciones', options=stations_options, default=default_selection)
+st.session_state.selected_stations = selected_stations # Guardar selección para recargas
+
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
 if not años_disponibles:
     st.error("No se encontraron columnas de años (ej: '2020', '2021') en el archivo de estaciones.")
@@ -231,34 +273,81 @@ tab1, tab2, tab_anim, tab3, tab4, tab5 = st.tabs(["Gráficos", "Mapa de Estacion
 
 with tab1:
     st.header("Visualizaciones de Precipitación")
-    sub_tab_anual, sub_tab_mensual, sub_tab_box = st.tabs(["Serie Anual", "Serie Mensual", "Box Plot Anual"])
+    sub_tab_anual, sub_tab_mensual = st.tabs(["Serie Anual", "Serie Mensual"])
+    
     with sub_tab_anual:
         if not df_anual_melted.empty:
             st.subheader("Precipitación Anual (mm)")
             chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(x=alt.X('Año:O', title='Año'), y=alt.Y('Precipitación:Q', title='Precipitación (mm)'), color='Nom_Est:N', tooltip=['Nom_Est', 'Año', 'Precipitación']).interactive()
             st.altair_chart(chart_anual, use_container_width=True)
+            
+            # MEJORA 5: Añadir gráfico ENSO
+            st.markdown("---")
+            enso_filtered = df_enso[(df_enso['Fecha'].dt.year >= year_range[0]) & (df_enso['Fecha'].dt.year <= year_range[1])]
+            fig_enso_anual = create_enso_chart(enso_filtered)
+            st.plotly_chart(fig_enso_anual, use_container_width=True)
+
     with sub_tab_mensual:
         if not df_monthly_filtered.empty:
             st.subheader("Precipitación Mensual (mm)")
             chart_mensual = alt.Chart(df_monthly_filtered).mark_line().encode(x=alt.X('Fecha:T', title='Fecha'), y=alt.Y('Precipitation:Q', title='Precipitación (mm)'), color='Nom_Est:N', tooltip=[alt.Tooltip('Fecha', format='%Y-%m'), 'Precipitation', 'Nom_Est']).interactive()
             st.altair_chart(chart_mensual, use_container_width=True)
-    with sub_tab_box:
-        if not df_anual_melted.empty:
-            st.subheader("Distribución de la Precipitación Anual por Estación")
-            fig_box = px.box(df_anual_melted, x='Año', y='Precipitación', color='Nom_Est', title='Distribución Anual por Estación', labels={"Año": "Año", "Precipitación": "Precipitación Anual (mm)"})
-            st.plotly_chart(fig_box, use_container_width=True)
+
+            # MEJORA 5: Añadir gráfico ENSO
+            st.markdown("---")
+            enso_filtered = df_enso[
+                (df_enso['Fecha'].dt.year >= year_range[0]) & 
+                (df_enso['Fecha'].dt.year <= year_range[1]) &
+                (df_enso['Fecha'].dt.month.isin(meses_numeros))
+            ]
+            fig_enso_mensual = create_enso_chart(enso_filtered)
+            st.plotly_chart(fig_enso_mensual, use_container_width=True)
 
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
     if not gdf_filtered.empty:
-        lat_center, lon_center = gdf_filtered['Latitud_geo'].mean(), gdf_filtered['Longitud_geo'].mean()
-        m = folium.Map(location=[lat_center, lon_center], zoom_start=8)
+        # MEJORA 2: Opciones de escala y zoom
+        map_centering = st.radio("Opciones de centrado del mapa", ("Automático", "Vistas Predefinidas"), horizontal=True)
+        
+        if 'map_view' not in st.session_state:
+            st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+
+        if map_centering == "Vistas Predefinidas":
+            c1, c2, c3 = st.columns(3)
+            if c1.button("Ver Colombia"):
+                st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+            if c2.button("Ver Antioquia"):
+                st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
+            if c3.button("Ajustar a Selección"):
+                bounds = gdf_filtered.total_bounds
+                center_lat = (bounds[1] + bounds[3]) / 2
+                center_lon = (bounds[0] + bounds[2]) / 2
+                st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
+        
+        m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
+        
+        if map_centering == "Automático":
+            bounds = gdf_filtered.total_bounds
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+
+        # MEJORA 3: Tooltip mejorado
+        df_mean_precip = df_anual_melted.groupby('Nom_Est')['Precipitación'].mean().round(1).reset_index()
+        df_mean_precip.rename(columns={'Precipitación': 'Pptn Media Anual (mm)'}, inplace=True)
+        gdf_filtered_map = gdf_filtered.merge(df_mean_precip, on='Nom_Est', how='left')
+
         folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
-        for _, row in gdf_filtered.iterrows():
-            folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=f"<b>{row['Nom_Est']}</b><br>{row['municipio']}").add_to(m)
-        bounds = gdf_filtered.total_bounds
-        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        for _, row in gdf_filtered_map.iterrows():
+            html = f"""
+            <b>Estación:</b> {row['Nom_Est']}<br>
+            <b>Municipio:</b> {row['municipio']}<br>
+            <b>Pptn Media Anual:</b> {row.get('Pptn Media Anual (mm)', 'N/A')} mm
+            """
+            if 'Porc_datos' in row and pd.notna(row['Porc_datos']):
+                 html += f"<br><b>% Datos:</b> {row['Porc_datos']}"
+
+            folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=html).add_to(m)
+        
         folium_static(m, width=900, height=600)
     else:
         st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
@@ -281,8 +370,12 @@ with tab_anim:
             min_precip, max_precip = int(df_anual_melted['Precipitación'].min()), int(df_anual_melted['Precipitación'].max())
             color_range = st.sidebar.slider("Rango de Escala de Color (mm)", min_precip, max_precip, (min_precip, max_precip))
             col1, col2 = st.columns(2)
-            year1 = col1.selectbox("Seleccione el año para el Mapa 1", available_years, index=len(available_years)-1, key='y1')
-            year2 = col2.selectbox("Seleccione el año para el Mapa 2", available_years, index=len(available_years)-2 if len(available_years) > 1 else 0, key='y2')
+            # MEJORA 4: Sliders para selección de años
+            with col1:
+                year1 = st.slider("Seleccione el año para el Mapa 1", min(available_years), max(available_years), max(available_years))
+            with col2:
+                year2 = st.slider("Seleccione el año para el Mapa 2", min(available_years), max(available_years), max(available_years)-1 if len(available_years)>1 else max(available_years))
+
             if st.button("Generar Mapas de Comparación"):
                 if year1 == year2:
                     st.info("Años iguales: Mapa 1 muestra Puntos, Mapa 2 muestra Superficie Kriging.")
@@ -339,17 +432,13 @@ with tab4:
         df_analisis['fecha_merge'] = df_analisis['Fecha'].dt.strftime('%Y-%m')
         df_analisis = pd.merge(df_analisis, df_enso, on='fecha_merge', how='left')
         
-        # FIX: Use lowercase for all column name checks
         if 'anomalia_oni' in df_analisis.columns:
             df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
 
             def classify_enso(oni):
-                if oni >= 0.5:
-                    return 'El Niño'
-                elif oni <= -0.5:
-                    return 'La Niña'
-                else:
-                    return 'Neutral'
+                if oni >= 0.5: return 'El Niño'
+                elif oni <= -0.5: return 'La Niña'
+                else: return 'Neutral'
             
             df_analisis['ENSO'] = df_analisis['anomalia_oni'].apply(classify_enso)
             
@@ -372,7 +461,6 @@ with tab4:
             
     with enso_series_tab:
         st.subheader("Visualización de Variables ENSO")
-        # FIX: Use lowercase for all column name checks
         enso_vars_available = [v for v in ['anomalia_oni', 'temp_sst', 'temp_media'] if v in df_enso.columns]
         if not enso_vars_available:
             st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
