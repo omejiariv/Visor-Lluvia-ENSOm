@@ -141,12 +141,25 @@ lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower
 if not all([lon_col, lat_col]):
     st.error(f"No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
     st.stop()
+
 df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
 df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
 df_precip_anual.dropna(subset=[lon_col, lat_col], inplace=True)
-gdf_stations = gpd.GeoDataFrame(df_precip_anual, geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]), crs="EPSG:4326")
+
+# ---- FIX: Correct Coordinate Transformation ----
+# First, create the GeoDataFrame specifying the SOURCE CRS (the planar one)
+gdf_temp = gpd.GeoDataFrame(
+    df_precip_anual, 
+    geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]), 
+    crs="EPSG:9377"  # Assume MAGNA-SIRGAS / Colombia Bogota zone
+)
+# Second, TRANSFORM the CRS to the geographic one used by maps
+gdf_stations = gdf_temp.to_crs("EPSG:4326")
+
+# Third, extract the now-correct geographic coordinates
 gdf_stations['Longitud_geo'] = gdf_stations.geometry.x
 gdf_stations['Latitud_geo'] = gdf_stations.geometry.y
+# ---- END FIX ----
 
 # 3. Procesar datos de Precipitación Mensual
 df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
@@ -249,7 +262,11 @@ with tab2:
         folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
         for _, row in gdf_filtered.iterrows():
             folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=f"<b>{row['Nom_Est']}</b><br>{row['municipio']}").add_to(m)
-        m.fit_bounds(m.get_bounds())
+        
+        # Fit map to the bounds of the visible stations
+        bounds = gdf_filtered.total_bounds
+        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        
         folium_static(m, width=900, height=600)
     else:
         st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
@@ -313,9 +330,14 @@ with tab_anim:
 with tab3:
     st.header("Información Detallada de las Estaciones")
     if not df_anual_melted.empty:
+        # Select columns to display, excluding the 'geometry' column for clarity
+        display_cols = [col for col in gdf_stations.columns if col != 'geometry']
+        df_info_table = gdf_stations[display_cols]
+
         df_mean_precip = df_anual_melted.groupby('Nom_Est')['Precipitación'].mean().round(2).reset_index()
         df_mean_precip.rename(columns={'Precipitación': 'Precipitación media anual (mm)'}, inplace=True)
-        df_info_table = gdf_stations.merge(df_mean_precip, on='Nom_Est', how='left')
+        
+        df_info_table = df_info_table.merge(df_mean_precip, on='Nom_Est', how='left')
         st.dataframe(df_info_table[df_info_table['Nom_Est'].isin(selected_stations)])
     else:
         st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
