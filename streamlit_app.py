@@ -213,12 +213,12 @@ with tab1:
     sub_tab_anual, sub_tab_mensual, sub_tab_box = st.tabs(["Serie Anual", "Serie Mensual", "Box Plot Anual"])
     with sub_tab_anual:
         if not df_anual_melted.empty:
-            st.subheader("Precipitación Anual Total (mm)")
+            st.subheader("Precipitación Anual (mm)")
             chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(x=alt.X('Año:O'), y=alt.Y('Precipitación:Q'), color='Nom_Est:N', tooltip=['Nom_Est', 'Año', 'Precipitación']).interactive()
             st.altair_chart(chart_anual, use_container_width=True)
     with sub_tab_mensual:
         if not df_monthly_filtered.empty:
-            st.subheader("Precipitación Mensual Total (mm)")
+            st.subheader("Precipitación Mensual (mm)")
             chart_mensual = alt.Chart(df_monthly_filtered).mark_line().encode(x=alt.X('Fecha:T'), y=alt.Y('Precipitation:Q'), color='Nom_Est:N', tooltip=[alt.Tooltip('Fecha', format='%Y-%m'), 'Precipitation', 'Nom_Est']).interactive()
             st.altair_chart(chart_mensual, use_container_width=True)
     with sub_tab_box:
