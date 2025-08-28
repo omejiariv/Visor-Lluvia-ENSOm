@@ -117,32 +117,32 @@ gdf_municipios = load_shapefile(uploaded_zip_shapefile)
 if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
     st.stop()
     
-# Copiamos el dataframe para trabajar sobre el
 df_precip_mensual = df_precip_mensual_raw.copy()
 
-# 1. UNIFICACIÓN DE LÓGICA DE FECHAS
+# 1. ESTANDARIZACIÓN DE COLUMNAS (A MINÚSCULAS)
 df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
 year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
 if not year_col_precip:
     st.error(f"No se encontró columna de año principal ('año' o 'ano') en el archivo de precipitación mensual.")
     st.stop()
-df_precip_mensual.rename(columns={year_col_precip: 'Año'}, inplace=True)
+df_precip_mensual.rename(columns={year_col_precip: 'año'}, inplace=True) # Renombrar a 'año' minúscula
 
-# 2. Procesar y crear tabla de referencia ENSO
-enso_cols_base = ['Año', 'mes', 'Anomalia_ONI', 'Temp_media', 'Temp_SST']
+# 2. Procesar y crear tabla de referencia ENSO (usando nombres en minúscula)
+# FIX: Use lowercase for all column names to match standardization
+enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 df_enso = pd.DataFrame() 
-if 'Año' in enso_cols_present and 'mes' in enso_cols_present:
+if 'año' in enso_cols_present and 'mes' in enso_cols_present:
     df_enso = df_precip_mensual[enso_cols_present].drop_duplicates().copy()
-    df_enso.dropna(subset=['Año', 'mes'], inplace=True)
-    df_enso['Año'] = pd.to_numeric(df_enso['Año'], errors='coerce')
+    df_enso.dropna(subset=['año', 'mes'], inplace=True)
+    df_enso['año'] = pd.to_numeric(df_enso['año'], errors='coerce')
     df_enso['mes'] = pd.to_numeric(df_enso['mes'], errors='coerce')
-    df_enso.dropna(subset=['Año', 'mes'], inplace=True)
-    df_enso = df_enso.astype({'Año': int, 'mes': int})
-    df_enso['Fecha'] = pd.to_datetime(df_enso['Año'].astype(str) + '-' + df_enso['mes'].astype(str), errors='coerce')
+    df_enso.dropna(subset=['año', 'mes'], inplace=True)
+    df_enso = df_enso.astype({'año': int, 'mes': int})
+    df_enso['Fecha'] = pd.to_datetime(df_enso['año'].astype(str) + '-' + df_enso['mes'].astype(str), errors='coerce')
     df_enso['fecha_merge'] = df_enso['Fecha'].dt.strftime('%Y-%m')
     df_enso.dropna(subset=['Fecha'], inplace=True)
-    for col in ['Anomalia_ONI', 'Temp_SST', 'Temp_media']:
+    for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
         if col in df_enso.columns:
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
 
@@ -165,11 +165,11 @@ station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
 if not station_cols:
     st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
     st.stop()
-id_vars = ['Año', 'mes']
+id_vars = ['año', 'mes']
 df_long = df_precip_mensual.melt(id_vars=id_vars, value_vars=station_cols, var_name='Id_estacion', value_name='Precipitation')
 df_long['Precipitation'] = pd.to_numeric(df_long['Precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
 df_long.dropna(subset=['Precipitation'], inplace=True)
-df_long['Fecha'] = pd.to_datetime(df_long['Año'].astype(str) + '-' + df_long['mes'].astype(str), errors='coerce')
+df_long['Fecha'] = pd.to_datetime(df_long['año'].astype(str) + '-' + df_long['mes'].astype(str), errors='coerce')
 df_long.dropna(subset=['Fecha'], inplace=True)
 
 # 5. Mapeo y Fusión
@@ -178,6 +178,7 @@ df_long['Id_estacion'] = df_long['Id_estacion'].astype(str).str.strip()
 station_mapping = gdf_stations.set_index('Id_estacio')['Nom_Est'].to_dict()
 df_long['Nom_Est'] = df_long['Id_estacion'].map(station_mapping)
 df_long.dropna(subset=['Nom_Est'], inplace=True)
+df_long.rename(columns={'año': 'Año'}, inplace=True) # Devolver a Mayúscula para filtros y visualizaciones
 if df_long.empty:
     st.warning("El dataframe de precipitación mensual está vacío después del preprocesamiento. Verifique el formato de los datos de precipitación.")
     st.stop()
@@ -210,9 +211,9 @@ analysis_mode = st.sidebar.radio("Análisis de Series Mensuales", ("Usar datos o
 if not selected_stations or not meses_numeros:
     st.warning("Por favor, seleccione al menos una estación y un mes.")
     st.stop()
-df_monthly_for_analysis = df_long[df_long['Nom_Est'].isin(selected_stations)].copy()
+df_monthly_for_analysis = df_long.copy()
 if analysis_mode == "Completar series (interpolación)":
-    df_monthly_for_analysis = complete_series(df_monthly_for_analysis)
+    df_monthly_for_analysis = complete_series(df_monthly_for_analysis[df_monthly_for_analysis['Nom_Est'].isin(selected_stations)])
 
 # --- Preparación de datos filtrados ---
 df_anual_melted = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)].melt(
@@ -220,6 +221,7 @@ df_anual_melted = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)].
     value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
     var_name='Año', value_name='Precipitación')
 df_monthly_filtered = df_monthly_for_analysis[
+    (df_monthly_for_analysis['Nom_Est'].isin(selected_stations)) &
     (df_monthly_for_analysis['Fecha'].dt.year >= year_range[0]) &
     (df_monthly_for_analysis['Fecha'].dt.year <= year_range[1]) &
     (df_monthly_for_analysis['Fecha'].dt.month.isin(meses_numeros))]
@@ -337,8 +339,9 @@ with tab4:
         df_analisis['fecha_merge'] = df_analisis['Fecha'].dt.strftime('%Y-%m')
         df_analisis = pd.merge(df_analisis, df_enso, on='fecha_merge', how='left')
         
-        if 'Anomalia_ONI' in df_analisis.columns:
-            df_analisis.dropna(subset=['Anomalia_ONI'], inplace=True)
+        # FIX: Use lowercase for all column name checks
+        if 'anomalia_oni' in df_analisis.columns:
+            df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
 
             def classify_enso(oni):
                 if oni >= 0.5:
@@ -348,7 +351,7 @@ with tab4:
                 else:
                     return 'Neutral'
             
-            df_analisis['ENSO'] = df_analisis['Anomalia_ONI'].apply(classify_enso)
+            df_analisis['ENSO'] = df_analisis['anomalia_oni'].apply(classify_enso)
             
             if not df_analisis.empty:
                 st.subheader("Precipitación Media por Evento ENSO")
@@ -357,19 +360,20 @@ with tab4:
                 st.plotly_chart(fig_enso, use_container_width=True)
                 
                 st.subheader("Correlación entre Anomalía ONI y Precipitación")
-                if df_analisis['Anomalia_ONI'].nunique() > 1 and df_analisis['Precipitation'].nunique() > 1:
-                    correlation = df_analisis['Anomalia_ONI'].corr(df_analisis['Precipitation'])
+                if df_analisis['anomalia_oni'].nunique() > 1 and df_analisis['Precipitation'].nunique() > 1:
+                    correlation = df_analisis['anomalia_oni'].corr(df_analisis['Precipitation'])
                     st.metric("Coeficiente de Correlación de Pearson", f"{correlation:.2f}")
                 else:
                     st.warning("No hay suficientes datos variados para calcular la correlación.")
             else:
                 st.warning("No hay datos suficientes para realizar el análisis ENSO con la selección actual.")
         else:
-            st.warning(f"Análisis no disponible. Falta la columna 'Anomalia_ONI' en el archivo de datos.")
+            st.warning(f"Análisis no disponible. Falta la columna 'anomalia_oni' en el archivo de datos.")
             
     with enso_series_tab:
         st.subheader("Visualización de Variables ENSO")
-        enso_vars_available = [v for v in ['Anomalia_ONI', 'Temp_SST', 'Temp_media'] if v in df_enso.columns]
+        # FIX: Use lowercase for all column name checks
+        enso_vars_available = [v for v in ['anomalia_oni', 'temp_sst', 'temp_media'] if v in df_enso.columns]
         if not enso_vars_available:
             st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
         else:
