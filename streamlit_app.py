@@ -282,4 +282,112 @@ with tab_anim:
                         st.warning(f"Se necesitan al menos 3 estaciones para generar el mapa Kriging del año {year1}.")
                     else:
                         with col1:
-                            st.subheader(f"Estaciones -
+                            st.subheader(f"Estaciones - Año: {year1}")
+                            fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
+                            fig1.update_geos(fitbounds="locations", visible=True)
+                            st.plotly_chart(fig1, use_container_width=True)
+                        with col2, st.spinner("Generando mapa Kriging..."):
+                            st.subheader(f"Interpolación Kriging - Año: {year1}")
+                            lons, lats, vals = data_year['Longitud_geo'].values, data_year['Latitud_geo'].values, data_year['Precipitación'].values
+                            grid_lon, grid_lat = np.linspace(lons.min()-0.1, lons.max()+0.1, 100), np.linspace(lats.min()-0.1, lats.max()+0.1, 100)
+                            OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
+                            z, ss = OK.execute('grid', grid_lon, grid_lat)
+                            fig2 = go.Figure(data=go.Contour(z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu', zmin=color_range[0], zmax=color_range[1]))
+                            fig2.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=4), name='Estaciones'))
+                            st.plotly_chart(fig2, use_container_width=True)
+                else:
+                    st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
+                    for i, (col, year) in enumerate(zip([col1, col2], [year1, year2])):
+                        with col:
+                            st.subheader(f"Estaciones Año: {year}")
+                            data_year = df_anual_melted[df_anual_melted['Año'].astype(int) == year]
+                            if data_year.empty:
+                                st.warning(f"No hay datos para el año {year}.")
+                                continue
+                            fig = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
+                            fig.update_geos(fitbounds="locations", visible=True)
+                            st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
+        else:
+            st.warning("No hay años disponibles en la selección actual para la comparación.")
+
+with tab3:
+    st.header("Información Detallada de las Estaciones")
+    if not df_anual_melted.empty:
+        df_mean_precip = df_anual_melted.groupby('Nom_Est')['Precipitación'].mean().round(2).reset_index()
+        df_mean_precip.rename(columns={'Precipitación': 'Precipitación media anual (mm)'}, inplace=True)
+        df_info_table = gdf_stations.merge(df_mean_precip, on='Nom_Est', how='left')
+        st.dataframe(df_info_table[df_info_table['Nom_Est'].isin(selected_stations)])
+    else:
+        st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
+
+with tab4:
+    st.header("Análisis de Precipitación y el Fenómeno ENSO")
+    enso_corr_tab, enso_series_tab = st.tabs(["Correlación Precipitación-ENSO", "Series de Tiempo ENSO"])
+    with enso_corr_tab:
+        df_analisis = df_monthly_filtered.copy()
+        df_analisis['fecha_merge'] = df_analisis['Fecha'].dt.strftime('%Y-%m')
+        df_analisis = pd.merge(df_analisis, df_enso, on='fecha_merge', how='left')
+        
+        if 'Anomalia_ONI' in df_analisis.columns:
+            df_analisis.dropna(subset=['Anomalia_ONI'], inplace=True)
+
+            def classify_enso(oni):
+                if oni >= 0.5:
+                    return 'El Niño'
+                elif oni <= -0.5:
+                    return 'La Niña'
+                else:
+                    return 'Neutral'
+            
+            df_analisis['ENSO'] = df_analisis['Anomalia_ONI'].apply(classify_enso)
+            
+            if not df_analisis.empty:
+                st.subheader("Precipitación Media por Evento ENSO")
+                df_enso_group = df_analisis.groupby('ENSO')['Precipitation'].mean().reset_index()
+                fig_enso = px.bar(df_enso_group, x='ENSO', y='Precipitation', color='ENSO', labels={'Precipitation': 'Precipitación Media (mm)'})
+                st.plotly_chart(fig_enso, use_container_width=True)
+                
+                st.subheader("Correlación entre Anomalía ONI y Precipitación")
+                if df_analisis['Anomalia_ONI'].nunique() > 1 and df_analisis['Precipitation'].nunique() > 1:
+                    correlation = df_analisis['Anomalia_ONI'].corr(df_analisis['Precipitation'])
+                    st.metric("Coeficiente de Correlación de Pearson", f"{correlation:.2f}")
+                else:
+                    st.warning("No hay suficientes datos variados para calcular la correlación.")
+            else:
+                st.warning("No hay datos suficientes para realizar el análisis ENSO con la selección actual.")
+        else:
+            st.warning(f"Análisis no disponible. Falta la columna 'Anomalia_ONI' en el archivo de datos.")
+            
+    with enso_series_tab:
+        st.subheader("Visualización de Variables ENSO")
+        enso_vars_available = [v for v in ['Anomalia_ONI', 'Temp_SST', 'Temp_media'] if v in df_enso.columns]
+        if not enso_vars_available:
+            st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
+        else:
+            variable_enso = st.selectbox("Seleccione la variable ENSO a visualizar:", enso_vars_available)
+            df_enso_filtered = df_enso[
+                (df_enso['Fecha'].dt.year >= year_range[0]) &
+                (df_enso['Fecha'].dt.year <= year_range[1]) &
+                (df_enso['Fecha'].dt.month.isin(meses_numeros))]
+            if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
+                fig_enso_series = px.line(df_enso_filtered, x='Fecha', y=variable_enso, title=f"Serie de Tiempo para {variable_enso}")
+                st.plotly_chart(fig_enso_series, use_container_width=True)
+            else:
+                st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
+
+with tab5:
+    st.header("Opciones de Descarga")
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False).encode('utf-8')
+    st.markdown("**Datos de Precipitación Anual (Filtrados)**")
+    csv_anual = convert_df_to_csv(df_anual_melted)
+    st.download_button("Descargar CSV Anual", csv_anual, 'precipitacion_anual.csv', 'text/csv', key='download-anual')
+    st.markdown("**Datos de Precipitación Mensual (Filtrados)**")
+    csv_mensual = convert_df_to_csv(df_monthly_filtered)
+    st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv', key='download-mensual')
+    if analysis_mode == "Completar series (interpolación)":
+        st.markdown("**Datos de Precipitación Mensual (Series Completadas y Filtradas)**")
+        st.download_button("Descargar CSV con Series Completadas", csv_mensual, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
+    else:
+        st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
