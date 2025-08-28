@@ -403,4 +403,4 @@ with tab5:
         st.markdown("**Datos de Precipitación Mensual (Series Completadas y Filtradas)**")
         st.download_button("Descargar CSV con Series Completadas", csv_mensual, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
     else:
-        st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.
+        st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
