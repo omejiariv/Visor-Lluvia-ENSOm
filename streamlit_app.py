@@ -1,11 +1,12 @@
 # Visor de Información Geoespacial de Precipitación y el Fenómeno ENSO
-# Versión simplificada basada en VisorPptnENSO.pdf, adaptada a datos enriquecidos
+# Versión final simplificada con datos pre-procesados
 import streamlit as st
 import pandas as pd
 import altair as alt
 import folium
 from streamlit_folium import folium_static
 import plotly.express as px
+import plotly.graph_objects as go
 import geopandas as gpd
 import zipfile
 import tempfile
@@ -81,10 +82,10 @@ def load_shapefile(file_path):
 st.title('Visor de Precipitación y Fenómeno ENSO')
 st.sidebar.header("Panel de Control")
 with st.sidebar.expander("**Cargar Archivos**", expanded=True):
-    # --- Interfaz simplificada: ya no se necesita el archivo ENSO por separado ---
-    uploaded_file_mapa = st.file_uploader("1. Cargar archivo de estaciones (mapaCVENSO.csv)", type="csv")
-    uploaded_file_precip = st.file_uploader("2. Cargar archivo de precipitación mensual con datos ENSO", type="csv")
-    uploaded_zip_shapefile = st.file_uploader("3. Cargar shapefile de municipios (.zip)", type="zip")
+    st.info("Cargue los archivos de precipitación que ya contienen las columnas ENSO.")
+    uploaded_file_mapa = st.file_uploader("1. Archivo de estaciones con ENSO Anual", type="csv")
+    uploaded_file_precip = st.file_uploader("2. Archivo de precipitación con ENSO Mensual", type="csv")
+    uploaded_zip_shapefile = st.file_uploader("3. Shapefile de municipios (.zip)", type="zip")
 
 if not all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
     st.info("Por favor, suba los 3 archivos requeridos para habilitar la aplicación.")
@@ -92,9 +93,9 @@ if not all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
 
 #--- Carga y Preprocesamiento de Datos ---
 df_precip_anual = load_data(uploaded_file_mapa)
-df_precip_mensual_enriquecido = load_data(uploaded_file_precip)
+df_precip_mensual = load_data(uploaded_file_precip)
 gdf_municipios = load_shapefile(uploaded_zip_shapefile)
-if any(df is None for df in [df_precip_anual, df_precip_mensual_enriquecido, gdf_municipios]):
+if any(df is None for df in [df_precip_anual, df_precip_mensual, gdf_municipios]):
     st.stop()
     
 # Estaciones (mapaCVENSO)
@@ -110,25 +111,25 @@ gdf_stations = gpd.GeoDataFrame(df_precip_anual, geometry=gpd.points_from_xy(df_
 gdf_stations['Longitud_geo'] = gdf_stations.geometry.x
 gdf_stations['Latitud_geo'] = gdf_stations.geometry.y
 
-# Precipitación Mensual (ya enriquecida con datos ENSO)
-df_precip_mensual_enriquecido.columns = [col.lower() for col in df_precip_mensual_enriquecido.columns]
-# Estandarizar nombres de columnas
-df_precip_mensual_enriquecido.rename(columns=lambda col: col.replace('enso-mes', 'enso_mes'), inplace=True)
-df_precip_mensual_enriquecido.rename(columns=lambda col: col.replace('enso_año', 'enso_anual'), inplace=True)
-df_precip_mensual_enriquecido.rename(columns=lambda col: col.replace('ano', 'año'), inplace=True)
+# Precipitación Mensual (ya enriquecida)
+df_precip_mensual.columns = [col.lower() for col in df_precip_mensual.columns]
+year_col_precip = next((col for col in df_precip_mensual.columns if 'año' in col or 'ano' in col), None)
+enso_mes_col_precip = next((col for col in df_precip_mensual.columns if 'enso_mes' in col or 'enso-mes' in col), None)
+if not all([year_col_precip, enso_mes_col_precip]):
+    st.error(f"No se encontraron 'año'/'ano' o 'enso_mes' en el archivo de precipitación mensual.")
+    st.stop()
+df_precip_mensual.rename(columns={year_col_precip: 'Año', enso_mes_col_precip: 'ENSO'}, inplace=True)
 
-# Transformar a formato largo
-station_cols = [col for col in df_precip_mensual_enriquecido.columns if col.isdigit()]
-id_vars = [col for col in df_precip_mensual_enriquecido.columns if not col.isdigit()]
-df_long = df_precip_mensual_enriquecido.melt(id_vars=id_vars, value_vars=station_cols, var_name='Id_estacion', value_name='Precipitation')
+station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
+id_vars = [col for col in df_precip_mensual.columns if not col.isdigit()]
 
-# Limpieza final
+df_long = df_precip_mensual.melt(id_vars=id_vars, value_vars=station_cols, var_name='Id_estacion', value_name='Precipitation')
 df_long['Precipitation'] = pd.to_numeric(df_long['Precipitation'], errors='coerce')
 df_long.dropna(subset=['Precipitation'], inplace=True)
-df_long['Fecha'] = pd.to_datetime(df_long['año'].astype(str) + '-' + df_long['mes'].astype(str), errors='coerce')
+df_long['Fecha'] = pd.to_datetime(df_long['Año'].astype(str) + '-' + df_long['mes'].astype(str), errors='coerce')
 df_long.dropna(subset=['Fecha'], inplace=True)
 
-# Mapeo de Estaciones
+# Mapeo y Fusión
 gdf_stations['Id_estacio'] = gdf_stations['Id_estacio'].astype(str).str.strip()
 df_long['Id_estacion'] = df_long['Id_estacion'].astype(str).str.strip()
 station_mapping = gdf_stations.set_index('Id_estacio')['Nom_Est'].to_dict()
@@ -162,11 +163,11 @@ df_anual_filtered = df_anual_melted[(df_anual_melted['Año'] >= year_range[0]) &
 df_monthly_filtered = df_long[(df_long['Nom_Est'].isin(selected_stations)) & (df_long['Fecha'].dt.year >= year_range[0]) & (df_long['Fecha'].dt.year <= year_range[1])]
 
 #--- Pestañas Principales ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Series de Tiempo", "Mapas", "Tabla de Estaciones", "Análisis ENSO", "Descargas"])
+tab1, tab2, tab3, tab4 = st.tabs(["Series de Tiempo", "Mapas", "Tabla de Estaciones", "Análisis ENSO"])
 
 with tab1:
     st.header("Visualizaciones de Precipitación")
-    st.subheader("Precipitación Anual Total (mm)")
+    st.subheader("Precipitación Anual (mm)")
     if not df_anual_filtered.empty:
         chart_anual = alt.Chart(df_anual_filtered).mark_line().encode(
             x=alt.X('Año:O', title='Año'),
@@ -176,7 +177,7 @@ with tab1:
         ).interactive()
         st.altair_chart(chart_anual, use_container_width=True)
 
-    st.subheader("Precipitación Mensual Total (mm)")
+    st.subheader("Precipitación Mensual (mm)")
     if not df_monthly_filtered.empty:
         chart_mensual = alt.Chart(df_monthly_filtered).mark_line().encode(
             x=alt.X('Fecha:T', title='Fecha'),
@@ -203,35 +204,16 @@ with tab3:
 
 with tab4:
     st.header("Análisis de Precipitación y Fenómeno ENSO")
-    df_analisis = df_monthly_filtered.copy() # Los datos ENSO ya están incluidos
+    df_analisis = df_monthly_filtered.copy()
     if not df_analisis.empty:
         st.subheader("Precipitación Media por Fase ENSO")
-        # Estandarizar nombre de la columna ENSO por si tiene mayúsculas
-        enso_col = next((col for col in df_analisis.columns if 'enso_mes' in col.lower()), None)
+        enso_col = next((col for col in df_analisis.columns if 'enso' in col.lower()), None)
         if enso_col:
-            df_analisis.rename(columns={enso_col: 'ENSO'}, inplace=True)
-            df_enso_group = df_analisis.groupby('ENSO')['Precipitation'].mean().reset_index()
-            fig_enso = px.bar(df_enso_group, x='ENSO', y='Precipitation', color='ENSO')
+            df_enso_group = df_analisis.groupby(enso_col)['Precipitation'].mean().reset_index()
+            fig_enso = px.bar(df_enso_group, x=enso_col, y='Precipitation', color=enso_col,
+                              labels={'Precipitation': 'Precipitación Media (mm)', enso_col: 'Fase ENSO'})
             st.plotly_chart(fig_enso, use_container_width=True)
-
-        st.subheader("Correlación con Variables ENSO")
-        # Buscar columnas de análisis
-        anomalia_col = next((col for col in df_analisis.columns if 'anomalia' in col.lower()), None)
-        if anomalia_col:
-            df_analisis.dropna(subset=[anomalia_col, 'Precipitation'], inplace=True)
-            correlation = df_analisis[anomalia_col].corr(df_analisis['Precipitation'])
-            st.metric(f"Correlación con {anomalia_col}", f"{correlation:.2f}")
         else:
-            st.warning("No se encontró la columna de 'Anomalia_ONI' en los datos de precipitación.")
+            st.warning("No se encontró la columna ENSO en los datos de precipitación mensual.")
     else: 
         st.warning("No hay datos para realizar el análisis ENSO.")
-        
-with tab5:
-    st.header("Opciones de Descarga")
-    st.markdown("**Datos de Precipitación Anual (Filtrados)**")
-    csv_anual = df_anual_filtered.to_csv(index=False).encode('utf-8')
-    st.download_button("Descargar CSV Anual", csv_anual, 'precipitacion_anual.csv', 'text/csv')
-
-    st.markdown("**Datos de Precipitación Mensual (Filtrados)**")
-    csv_mensual = df_monthly_filtered.to_csv(index=False).encode('utf-8')
-    st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv')
