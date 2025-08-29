@@ -381,10 +381,8 @@ with tab_anim:
             col1, col2 = st.columns(2)
             min_year, max_year = int(df_anual_melted['Año'].min()), int(df_anual_melted['Año'].max())
             
-            with col1:
-                year1 = st.slider("Seleccione el año para el Mapa 1", min_year, max_year, max_year)
-            with col2:
-                year2 = st.slider("Seleccione el año para el Mapa 2", min_year, max_year, max_year - 1 if max_year > min_year else max_year)
+            year1 = col1.slider("Seleccione el año para el Mapa 1", min_year, max_year, max_year)
+            year2 = col2.slider("Seleccione el año para el Mapa 2", min_year, max_year, max_year - 1 if max_year > min_year else max_year)
 
             if st.button("Generar Mapas de Comparación"):
                 if year1 == year2:
@@ -422,8 +420,19 @@ with tab_anim:
                             fig2.update_layout(xaxis_title="Longitud", yaxis_title="Latitud")
                             st.plotly_chart(fig2, use_container_width=True)
                 else:
+                    # --- CÓDIGO RESTAURADO PARA AÑOS DIFERENTES ---
                     st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
-                    # ...código para años diferentes...
+                    for i, (col, year) in enumerate(zip([col1, col2], [year1, year2])):
+                        with col:
+                            st.subheader(f"Estaciones - Año: {year}")
+                            data_year = df_anual_melted[df_anual_melted['Año'].astype(int) == year]
+                            if data_year.empty:
+                                st.warning(f"No hay datos para el año {year}.")
+                                continue
+                            fig = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
+                                                 hover_name='Nom_Est', color_continuous_scale='YlGnBu', projection='natural earth')
+                            fig.update_geos(fitbounds="locations", visible=True)
+                            st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
         else:
             st.warning("No hay años disponibles en la selección actual para la comparación.")
 
