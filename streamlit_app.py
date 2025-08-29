@@ -330,11 +330,20 @@ with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
     if not gdf_filtered.empty:
+        # Lógica de centrado mejorada para evitar "puntos fantasma"
+        current_selection_tuple = tuple(sorted(gdf_filtered['Nom_Est'].unique()))
+        last_selection_tuple = st.session_state.get('last_map_selection', None)
+
+        bounds = gdf_filtered.total_bounds
+        center_lat = (bounds[1] + bounds[3]) / 2
+        center_lon = (bounds[0] + bounds[2]) / 2
+
+        if 'map_view' not in st.session_state or current_selection_tuple != last_selection_tuple:
+            st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
+            st.session_state.last_map_selection = current_selection_tuple
+
         map_centering = st.radio("Opciones de centrado del mapa", ("Automático", "Vistas Predefinidas"), horizontal=True, key="map_centering_radio")
         
-        if 'map_view' not in st.session_state:
-            st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
-
         if map_centering == "Vistas Predefinidas":
             c1, c2, c3 = st.columns(3)
             if c1.button("Ver Colombia"):
@@ -342,15 +351,11 @@ with tab2:
             if c2.button("Ver Antioquia"):
                 st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
             if c3.button("Ajustar a Selección"):
-                bounds = gdf_filtered.total_bounds
-                center_lat = (bounds[1] + bounds[3]) / 2
-                center_lon = (bounds[0] + bounds[2]) / 2
                 st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
         
         m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
         
         if map_centering == "Automático":
-            bounds = gdf_filtered.total_bounds
             m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
         df_mean_precip = df_anual_melted.groupby('Nom_Est')['Precipitación'].mean().round(1).reset_index()
@@ -372,6 +377,7 @@ with tab2:
         folium_static(m, width=900, height=600)
     else:
         st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
+
 
 with tab_anim:
     st.header("Mapas Avanzados")
