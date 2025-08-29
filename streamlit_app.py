@@ -98,7 +98,6 @@ def complete_series(df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
-# --- FUNCIÓN OPTIMIZADA PARA CREAR GRÁFICO ENSO CON LEYENDA ---
 def create_enso_chart(enso_data):
     if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
         return go.Figure()
@@ -135,10 +134,9 @@ def create_enso_chart(enso_data):
             x0=block['start_date'],
             x1=block['end_date'] + pd.DateOffset(months=1),
             fillcolor=colors[block['phase']],
-            layer="below", line_width=0
+            line_width=0
         )
     
-    # Añadir trazas "fantasma" para generar la leyenda
     for phase, color in legend_colors.items():
         fig.add_trace(go.Scatter(
             x=[None], y=[None], mode='markers',
