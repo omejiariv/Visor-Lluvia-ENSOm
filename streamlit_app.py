@@ -173,7 +173,7 @@ def create_enso_chart(enso_data):
 logo_path = "CuencaVerdeLogo_V1.JPG"
 logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 
-title_col1, title_col2 = st.columns([1, 5])
+title_col1, title_col2 = st.columns([1, 4], vertical_alignment="center")
 with title_col1:
     if os.path.exists(logo_path):
         st.image(logo_path, use_column_width='auto')
@@ -600,43 +600,41 @@ with tab_anim:
         if not df_enso.empty and not gdf_stations.empty:
             st.info("El color de cada estación representa la fase del fenómeno ENSO a nivel global para cada mes.")
             
-            stations_subset = gdf_stations[['Nom_Est', 'Latitud_geo', 'Longitud_geo']]
+            stations_subset = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)][['Nom_Est', 'Latitud_geo', 'Longitud_geo']]
             
-            enso_anim_data = df_enso[['Fecha', 'anomalia_oni']].copy()
-            enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
-            
-            conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
-            phases = ['El Niño', 'La Niña']
-            enso_anim_data['Fase'] = np.select(conditions, phases, default='Neutral')
-            enso_anim_data['Fecha_str'] = enso_anim_data['Fecha'].dt.strftime('%Y-%m')
+            if not stations_subset.empty:
+                enso_anim_data = df_enso[['Fecha', 'anomalia_oni']].copy()
+                enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
+                
+                conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
+                phases = ['El Niño', 'La Niña']
+                enso_anim_data['Fase'] = np.select(conditions, phases, default='Neutral')
+                enso_anim_data['Fecha_str'] = enso_anim_data['Fecha'].dt.strftime('%Y-%m')
 
-            # Filtrar por el rango de años del slider principal
-            enso_anim_data = enso_anim_data[
-                (enso_anim_data['Fecha'].dt.year >= year_range[0]) &
-                (enso_anim_data['Fecha'].dt.year <= year_range[1])
-            ]
+                enso_anim_data = enso_anim_data[
+                    (enso_anim_data['Fecha'].dt.year >= year_range[0]) &
+                    (enso_anim_data['Fecha'].dt.year <= year_range[1])
+                ]
 
-            # Crear una clave para el merge
-            enso_anim_data['key'] = 1
-            stations_subset['key'] = 1
+                enso_anim_data['key'] = 1
+                stations_subset['key'] = 1
 
-            # Merge cruzado
-            animation_df = pd.merge(stations_subset, enso_anim_data, on='key').drop('key', axis=1)
-            
-            fig_enso_anim = px.scatter_geo(
-                animation_df,
-                lat='Latitud_geo',
-                lon='Longitud_geo',
-                color='Fase',
-                animation_frame='Fecha_str',
-                hover_name='Nom_Est',
-                color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
-                category_orders={"Fase": ["El Niño", "La Niña", "Neutral"]},
-                projection='natural earth'
-            )
-            fig_enso_anim.update_geos(fitbounds="locations", visible=True)
-            fig_enso_anim.update_layout(height=700, title="Fase ENSO por Mes en las Estaciones Seleccionadas")
-            st.plotly_chart(fig_enso_anim, use_container_width=True)
+                animation_df = pd.merge(stations_subset, enso_anim_data, on='key').drop('key', axis=1)
+                
+                fig_enso_anim = px.scatter_geo(
+                    animation_df,
+                    lat='Latitud_geo',
+                    lon='Longitud_geo',
+                    color='Fase',
+                    animation_frame='Fecha_str',
+                    hover_name='Nom_Est',
+                    color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
+                    category_orders={"Fase": ["El Niño", "La Niña", "Neutral"]},
+                    projection='natural earth'
+                )
+                fig_enso_anim.update_geos(fitbounds="locations", visible=True)
+                fig_enso_anim.update_layout(height=700, title="Fase ENSO por Mes en las Estaciones Seleccionadas")
+                st.plotly_chart(fig_enso_anim, use_container_width=True)
 
 with tab3:
     st.header("Información Detallada de las Estaciones")
@@ -736,7 +734,7 @@ with tab4:
     if df_enso.empty:
         st.warning("No se encontraron datos del fenómeno ENSO en el archivo de precipitación cargado. El análisis ENSO no está disponible.")
     else:
-        enso_series_tab, enso_corr_tab = st.tabs(["Series de Tiempo ENSO", "Correlación Precipitación-ENSO"])
+        enso_series_tab, enso_corr_tab, enso_anim_tab = st.tabs(["Series de Tiempo ENSO", "Correlación Precipitación-ENSO", "Mapa Animado ENSO"])
         
         with enso_series_tab:
             st.subheader("Visualización de Variables ENSO")
@@ -749,9 +747,24 @@ with tab4:
                     (df_enso['Fecha'].dt.year >= year_range[0]) &
                     (df_enso['Fecha'].dt.year <= year_range[1]) &
                     (df_enso['Fecha'].dt.month.isin(meses_numeros))]
+                
                 if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
-                    fig_enso_series = px.line(df_enso_filtered, x='Fecha', y=variable_enso, title=f"Serie de Tiempo para {variable_enso}")
+                    fig_enso_series = px.line(df_enso_filtered, x='Fecha', y=variable_enso, 
+                                            title=f"Serie de Tiempo para {variable_enso}",
+                                            trendline="ols")
                     st.plotly_chart(fig_enso_series, use_container_width=True)
+                    
+                    try:
+                        results = px.get_trendline_results(fig_enso_series)
+                        model = results.iloc[0]["px_fit_results"]
+                        slope = model.params[1]
+                        r_squared = model.rsquared
+                        with st.expander("Ver Ecuación de la Línea de Tendencia"):
+                            st.write(f"**Pendiente (cambio por mes):** `{slope:.6f}`")
+                            st.write(f"**Coeficiente de Determinación (R²):** `{r_squared:.4f}`")
+                    except Exception as e:
+                        st.warning(f"No se pudo calcular la línea de tendencia. Error: {e}")
+
                 else:
                     st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
         
@@ -786,6 +799,47 @@ with tab4:
                     st.warning("No hay datos suficientes para realizar el análisis ENSO con la selección actual.")
             else:
                 st.warning(f"Análisis no disponible. Falta la columna 'anomalia_oni' en el archivo de datos.")
+
+        with enso_anim_tab:
+            st.subheader("Evolución Mensual del Fenómeno ENSO")
+            if not df_enso.empty and not gdf_stations.empty:
+                st.info("El color de cada estación representa la fase del fenómeno ENSO a nivel global para cada mes.")
+                
+                stations_subset = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)][['Nom_Est', 'Latitud_geo', 'Longitud_geo']]
+                
+                if not stations_subset.empty:
+                    enso_anim_data = df_enso[['Fecha', 'anomalia_oni']].copy()
+                    enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
+                    
+                    conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
+                    phases = ['El Niño', 'La Niña']
+                    enso_anim_data['Fase'] = np.select(conditions, phases, default='Neutral')
+                    enso_anim_data['Fecha_str'] = enso_anim_data['Fecha'].dt.strftime('%Y-%m')
+
+                    enso_anim_data = enso_anim_data[
+                        (enso_anim_data['Fecha'].dt.year >= year_range[0]) &
+                        (enso_anim_data['Fecha'].dt.year <= year_range[1])
+                    ]
+
+                    enso_anim_data['key'] = 1
+                    stations_subset['key'] = 1
+
+                    animation_df = pd.merge(stations_subset, enso_anim_data, on='key').drop('key', axis=1)
+                    
+                    fig_enso_anim = px.scatter_geo(
+                        animation_df,
+                        lat='Latitud_geo',
+                        lon='Longitud_geo',
+                        color='Fase',
+                        animation_frame='Fecha_str',
+                        hover_name='Nom_Est',
+                        color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
+                        category_orders={"Fase": ["El Niño", "La Niña", "Neutral"]},
+                        projection='natural earth'
+                    )
+                    fig_enso_anim.update_geos(fitbounds="locations", visible=True)
+                    fig_enso_anim.update_layout(height=700, title="Fase ENSO por Mes en las Estaciones Seleccionadas")
+                    st.plotly_chart(fig_enso_anim, use_container_width=True)
 
 with tab5:
     st.header("Opciones de Descarga")
