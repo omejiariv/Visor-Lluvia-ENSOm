@@ -87,8 +87,16 @@ def complete_series(df):
         df_station.set_index('Fecha', inplace=True)
         if not df_station.index.is_unique:
             df_station = df_station[~df_station.index.duplicated(keep='first')]
+        
+        original_data = df_station[['Precipitation', 'Origen']].copy()
         df_resampled = df_station.resample('MS').asfreq()
+        
+        df_resampled['Precipitation'] = original_data['Precipitation']
+        df_resampled['Origen'] = original_data['Origen']
+        
+        df_resampled['Origen'] = df_resampled['Origen'].fillna('Completado')
         df_resampled['Precipitation'] = df_resampled['Precipitation'].interpolate(method='time')
+        
         df_resampled['Nom_Est'] = station
         df_resampled['Año'] = df_resampled.index.year
         df_resampled['mes'] = df_resampled.index.month
@@ -220,6 +228,7 @@ df_long['Precipitation'] = pd.to_numeric(df_long['Precipitation'].astype(str).st
 df_long.dropna(subset=['Precipitation'], inplace=True)
 df_long['Fecha'] = pd.to_datetime(df_long['año'].astype(str) + '-' + df_long['mes'].astype(str), errors='coerce')
 df_long.dropna(subset=['Fecha'], inplace=True)
+df_long['Origen'] = 'Original'
 
 gdf_stations['Id_estacio'] = gdf_stations['Id_estacio'].astype(str).str.strip()
 df_long['Id_estacion'] = df_long['Id_estacion'].astype(str).str.strip()
@@ -275,20 +284,21 @@ analysis_mode = st.sidebar.radio("Análisis de Series Mensuales", ("Usar datos o
 if not selected_stations or not meses_numeros:
     st.warning("Por favor, seleccione al menos una estación y un mes.")
     st.stop()
-df_monthly_for_analysis = df_long.copy()
+
+df_monthly_to_process = df_long.copy()
 if analysis_mode == "Completar series (interpolación)":
-    df_monthly_for_analysis = complete_series(df_monthly_for_analysis[df_monthly_for_analysis['Nom_Est'].isin(selected_stations)])
+    df_monthly_to_process = complete_series(df_long[df_long['Nom_Est'].isin(selected_stations)])
 
 # --- Preparación de datos filtrados ---
 df_anual_melted = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)].melt(
     id_vars=['Nom_Est', 'Longitud_geo', 'Latitud_geo'],
     value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
     var_name='Año', value_name='Precipitación')
-df_monthly_filtered = df_monthly_for_analysis[
-    (df_monthly_for_analysis['Nom_Est'].isin(selected_stations)) &
-    (df_monthly_for_analysis['Fecha'].dt.year >= year_range[0]) &
-    (df_monthly_for_analysis['Fecha'].dt.year <= year_range[1]) &
-    (df_monthly_for_analysis['Fecha'].dt.month.isin(meses_numeros))
+df_monthly_filtered = df_monthly_to_process[
+    (df_monthly_to_process['Nom_Est'].isin(selected_stations)) &
+    (df_monthly_to_process['Fecha'].dt.year >= year_range[0]) &
+    (df_monthly_to_process['Fecha'].dt.year <= year_range[1]) &
+    (df_monthly_to_process['Fecha'].dt.month.isin(meses_numeros))
 ]
 
 # --- Pestañas Principales ---
@@ -330,8 +340,26 @@ with tab1:
     with sub_tab_mensual:
         if not df_monthly_filtered.empty:
             st.subheader("Precipitación Mensual (mm)")
-            chart_mensual = alt.Chart(df_monthly_filtered).mark_line().encode(x=alt.X('Fecha:T', title='Fecha'), y=alt.Y('Precipitation:Q', title='Precipitación (mm)'), color='Nom_Est:N', tooltip=[alt.Tooltip('Fecha', format='%Y-%m'), 'Precipitation', 'Nom_Est']).interactive()
-            st.altair_chart(chart_mensual, use_container_width=True)
+            
+            line_chart = alt.Chart(df_monthly_filtered).mark_line(opacity=0.7).encode(
+                x=alt.X('Fecha:T', title='Fecha'),
+                y=alt.Y('Precipitation:Q', title='Precipitación (mm)'),
+                color='Nom_Est:N'
+            )
+            
+            point_chart = alt.Chart(df_monthly_filtered).mark_point(filled=True, size=60).encode(
+                x='Fecha:T',
+                y='Precipitation:Q',
+                color=alt.Color('Origen:N', 
+                                scale=alt.Scale(
+                                    domain=['Original', 'Completado'],
+                                    range=['#1f77b4', '#ff7f0e']
+                                ),
+                                legend=alt.Legend(title="Origen del Dato")),
+                tooltip=[alt.Tooltip('Fecha', format='%Y-%m'), 'Precipitation', 'Nom_Est', 'Origen']
+            )
+
+            st.altair_chart((line_chart + point_chart).interactive(), use_container_width=True)
 
             st.markdown("---")
             enso_filtered = df_enso[
@@ -341,18 +369,48 @@ with tab1:
             ]
             fig_enso_mensual = create_enso_chart(enso_filtered)
             st.plotly_chart(fig_enso_mensual, use_container_width=True, key="enso_chart_mensual")
+            
+            st.markdown("---")
+            st.subheader("Datos de Precipitación Mensual Detallados")
+
+            if not df_monthly_filtered.empty:
+                df_values = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Precipitation')
+                df_origin = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Origen', aggfunc='first')
+
+                def style_imputed(df_values):
+                    style_df = pd.DataFrame('', index=df_values.index, columns=df_values.columns)
+                    style_df[df_origin == 'Completado'] = 'background-color: #ffcccb'
+                    return style_df
+
+                st.dataframe(df_values.style.apply(style_imputed, axis=None).format("{:.1f}", na_value="-"))
+
 
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
     if not gdf_filtered.empty:
-        map_center_lat = gdf_filtered['Latitud_geo'].mean()
-        map_center_lon = gdf_filtered['Longitud_geo'].mean()
+        if 'map_view' not in st.session_state:
+            st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+
+        map_centering = st.radio("Opciones de centrado del mapa", ("Automático", "Vistas Predefinidas"), horizontal=True, key="map_centering_radio")
         
-        m = folium.Map(location=[map_center_lat, map_center_lon], tiles="cartodbpositron")
+        if map_centering == "Vistas Predefinidas":
+            c1, c2, c3 = st.columns(3)
+            if c1.button("Ver Colombia"):
+                st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+            if c2.button("Ver Antioquia"):
+                st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
+            if c3.button("Ajustar a Selección"):
+                bounds = gdf_filtered.total_bounds
+                center_lat = (bounds[1] + bounds[3]) / 2
+                center_lon = (bounds[0] + bounds[2]) / 2
+                st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
         
-        bounds = gdf_filtered.total_bounds
-        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
+        
+        if map_centering == "Automático":
+            bounds = gdf_filtered.total_bounds
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
         folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
         for _, row in gdf_filtered.iterrows():
@@ -376,8 +434,6 @@ with tab_anim:
     with anim_kriging_tab:
         st.subheader("Comparación de Mapas de Precipitación Anual (Kriging)")
         if not df_anual_melted.empty and len(df_anual_melted['Año'].unique()) > 0:
-            
-            # --- MEJORA: Restaurar slider de escala de color ---
             st.sidebar.markdown("### Opciones de Mapa Comparativo")
             min_precip, max_precip = int(df_anual_melted['Precipitación'].min()), int(df_anual_melted['Precipitación'].max())
             color_range = st.sidebar.slider("Rango de Escala de Color (mm)", min_precip, max_precip, (min_precip, max_precip))
@@ -420,7 +476,6 @@ with tab_anim:
                             OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
                             z, ss = OK.execute('grid', grid_lon, grid_lat)
                             
-                            # MEJORA: Añadir valores a las curvas de contorno
                             fig2 = go.Figure(data=go.Contour(
                                 z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu',
                                 zmin=color_range[0], zmax=color_range[1],
@@ -558,6 +613,7 @@ with tab5:
     csv_anual = convert_df_to_csv(df_anual_melted)
     st.download_button("Descargar CSV Anual", csv_anual, 'precipitacion_anual.csv', 'text/csv', key='download-anual')
     st.markdown("**Datos de Precipitación Mensual (Filtrados)**")
+    # Enviar el dataframe que incluye la columna Origen
     csv_mensual = convert_df_to_csv(df_monthly_filtered)
     st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv', key='download-mensual')
     if analysis_mode == "Completar series (interpolación)":
