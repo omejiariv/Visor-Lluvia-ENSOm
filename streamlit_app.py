@@ -176,7 +176,7 @@ logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 title_col1, title_col2 = st.columns([1, 5], vertical_alignment="center")
 with title_col1:
     if os.path.exists(logo_path):
-        st.image(logo_path, use_column_width='auto')
+        st.image(logo_path, use_container_width=True)
 with title_col2:
     st.title('Visor de Precipitación y Fenómeno ENSO')
 
@@ -463,7 +463,7 @@ with tab2:
             m1, m2 = st.columns([1,3])
             with m1:
                 if os.path.exists(logo_gota_path):
-                    st.image(logo_gota_path, width=50)
+                    st.image(logo_gota_path, use_container_width=True)
             with m2:
                 st.metric("Estaciones en Vista", len(gdf_filtered))
 
@@ -518,7 +518,7 @@ with tab_anim:
             m1, m2 = st.columns([1,3])
             with m1:
                 if os.path.exists(logo_gota_path):
-                    st.image(logo_gota_path, width=40)
+                    st.image(logo_gota_path, use_container_width=True)
             with m2:
                 st.metric("Estaciones para Análisis", len(df_anual_melted['Nom_Est'].unique()))
 
