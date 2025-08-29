@@ -330,54 +330,23 @@ with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
     if not gdf_filtered.empty:
-        # Lógica de centrado mejorada para evitar "puntos fantasma"
-        current_selection_tuple = tuple(sorted(gdf_filtered['Nom_Est'].unique()))
-        last_selection_tuple = st.session_state.get('last_map_selection', None)
-
+        # FIX: Lógica de centrado robusta para evitar "puntos fantasma"
+        map_center_lat = gdf_filtered['Latitud_geo'].mean()
+        map_center_lon = gdf_filtered['Longitud_geo'].mean()
+        
+        m = folium.Map(location=[map_center_lat, map_center_lon], tiles="cartodbpositron")
+        
         bounds = gdf_filtered.total_bounds
-        center_lat = (bounds[1] + bounds[3]) / 2
-        center_lon = (bounds[0] + bounds[2]) / 2
-
-        if 'map_view' not in st.session_state or current_selection_tuple != last_selection_tuple:
-            st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
-            st.session_state.last_map_selection = current_selection_tuple
-
-        map_centering = st.radio("Opciones de centrado del mapa", ("Automático", "Vistas Predefinidas"), horizontal=True, key="map_centering_radio")
-        
-        if map_centering == "Vistas Predefinidas":
-            c1, c2, c3 = st.columns(3)
-            if c1.button("Ver Colombia"):
-                st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
-            if c2.button("Ver Antioquia"):
-                st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
-            if c3.button("Ajustar a Selección"):
-                st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
-        
-        m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
-        
-        if map_centering == "Automático":
-            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-
-        df_mean_precip = df_anual_melted.groupby('Nom_Est')['Precipitación'].mean().round(1).reset_index()
-        df_mean_precip.rename(columns={'Precipitación': 'Pptn Media Anual (mm)'}, inplace=True)
-        gdf_filtered_map = gdf_filtered.merge(df_mean_precip, on='Nom_Est', how='left')
+        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
         folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
-        for _, row in gdf_filtered_map.iterrows():
-            html = f"""
-            <b>Estación:</b> {row['Nom_Est']}<br>
-            <b>Municipio:</b> {row['municipio']}<br>
-            <b>Pptn Media Anual:</b> {row.get('Pptn Media Anual (mm)', 'N/A')} mm
-            """
-            if 'porc_datos' in row.index and pd.notna(row['porc_datos']):
-                 html += f"<br><b>% Datos:</b> {row['porc_datos']}"
-
+        for _, row in gdf_filtered.iterrows():
+            html = f"<b>Estación:</b> {row['Nom_Est']}<br><b>Municipio:</b> {row['municipio']}"
             folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=html).add_to(m)
         
         folium_static(m, width=900, height=600)
     else:
         st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
-
 
 with tab_anim:
     st.header("Mapas Avanzados")
