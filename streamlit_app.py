@@ -377,12 +377,15 @@ with tab1:
                 df_values = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Precipitation')
                 df_origin = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Origen', aggfunc='first')
 
-                def style_imputed(df_values):
-                    style_df = pd.DataFrame('', index=df_values.index, columns=df_values.columns)
+                def apply_cell_color(df):
+                    style_df = pd.DataFrame('', index=df.index, columns=df.columns)
                     style_df[df_origin == 'Completado'] = 'background-color: #ffcccb'
                     return style_df
-
-                st.dataframe(df_values.style.apply(style_imputed, axis=None).format("{:.1f}", na_value="-"))
+                
+                # FIX for TypeError
+                styled_df = df_values.style.format("{:.1f}", na_value="-")
+                styled_df = styled_df.apply(apply_cell_color, axis=None)
+                st.dataframe(styled_df)
 
 
 with tab2:
@@ -613,7 +616,6 @@ with tab5:
     csv_anual = convert_df_to_csv(df_anual_melted)
     st.download_button("Descargar CSV Anual", csv_anual, 'precipitacion_anual.csv', 'text/csv', key='download-anual')
     st.markdown("**Datos de Precipitación Mensual (Filtrados)**")
-    # Enviar el dataframe que incluye la columna Origen
     csv_mensual = convert_df_to_csv(df_monthly_filtered)
     st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv', key='download-mensual')
     if analysis_mode == "Completar series (interpolación)":
