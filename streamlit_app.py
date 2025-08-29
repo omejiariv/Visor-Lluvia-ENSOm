@@ -98,14 +98,12 @@ def complete_series(df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
-# --- FUNCIÓN CORREGIDA Y ROBUSTA PARA CREAR GRÁFICO ENSO ---
 def create_enso_chart(enso_data):
     if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
         return go.Figure()
 
     data = enso_data.copy().sort_values('Fecha')
     
-    # Clasificar cada registro en una fase y asignar color
     conditions = [data['anomalia_oni'] >= 0.5, data['anomalia_oni'] <= -0.5]
     phases = ['El Niño', 'La Niña']
     colors = ['red', 'blue']
@@ -116,19 +114,17 @@ def create_enso_chart(enso_data):
 
     fig = go.Figure()
     
-    # Usar un gráfico de barras como fondo para las franjas de color
     fig.add_trace(go.Bar(
         x=data['Fecha'],
         y=[y_range[1] - y_range[0]] * len(data),
         base=y_range[0],
         marker_color=data['color'],
-        width=30*24*60*60*1000, # Ancho de la barra ~1 mes en milisegundos
+        width=30*24*60*60*1000, 
         opacity=0.3,
         hoverinfo='none',
         showlegend=False
     ))
     
-    # Trazas "fantasma" para generar la leyenda
     legend_map = {'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'grey'}
     for phase, color in legend_map.items():
         fig.add_trace(go.Scatter(
@@ -137,7 +133,6 @@ def create_enso_chart(enso_data):
             name=phase, showlegend=True
         ))
     
-    # Línea de la anomalía ONI
     fig.add_trace(go.Scatter(
         x=data['Fecha'], y=data['anomalia_oni'],
         mode='lines', name='Anomalía ONI',
@@ -361,8 +356,7 @@ with tab_anim:
         available_years = sorted(df_anual_melted['Año'].astype(int).unique())
         if available_years:
             col1, col2 = st.columns(2)
-            # FIX: Asegurar que los datos para los límites del slider existan
-            min_year, max_year = int(df_anual_melted['Año'].min()), int(df_anual_melted['Año'].max())
+            min_year, max_year = min(available_years), max(available_years)
             
             with col1:
                 year1 = st.slider("Seleccione el año para el Mapa 1", min_year, max_year, max_year)
@@ -374,34 +368,41 @@ with tab_anim:
                     st.info("Años iguales: Mapa 1 muestra Puntos, Mapa 2 muestra Superficie Kriging.")
                     data_year = df_anual_melted[df_anual_melted['Año'].astype(int) == year1]
                     
-                    bounds = data_year.total_bounds
-                    lon_range = [bounds[0], bounds[2]]
-                    lat_range = [bounds[1], bounds[3]]
-
                     if len(data_year) < 3:
                         st.warning(f"Se necesitan al menos 3 estaciones para generar el mapa Kriging del año {year1}.")
-                    else:
-                        with col1:
-                            st.subheader(f"Estaciones - Año: {year1}")
-                            fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', projection='natural earth')
-                            fig1.update_geos(fitbounds="locations", visible=True)
-                            st.plotly_chart(fig1, use_container_width=True)
-                        with col2, st.spinner("Generando mapa Kriging..."):
-                            st.subheader(f"Interpolación Kriging - Año: {year1}")
-                            lons, lats, vals = data_year['Longitud_geo'].values, data_year['Latitud_geo'].values, data_year['Precipitación'].values
-                            grid_lon, grid_lat = np.linspace(lons.min()-0.1, lons.max()+0.1, 100), np.linspace(lats.min()-0.1, lats.max()+0.1, 100)
-                            OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
-                            z, ss = OK.execute('grid', grid_lon, grid_lat)
-                            fig2 = go.Figure(data=go.Contour(z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu'))
-                            fig2.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=4), name='Estaciones'))
-                            # FIX: Sincronizar ejes y escala
-                            fig2.update_xaxes(range=lon_range)
-                            fig2.update_yaxes(range=lat_range, scaleanchor="x", scaleratio=1)
-                            fig2.update_layout(xaxis_title="Longitud", yaxis_title="Latitud")
-                            st.plotly_chart(fig2, use_container_width=True)
+                        st.stop()
+
+                    # FIX: Convertir data_year a GeoDataFrame para usar .total_bounds
+                    gdf_data_year = gpd.GeoDataFrame(
+                        data_year, 
+                        geometry=gpd.points_from_xy(data_year['Longitud_geo'], data_year['Latitud_geo']),
+                        crs="EPSG:4326"
+                    )
+                    bounds = gdf_data_year.total_bounds
+                    lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
+                    lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
+                    
+                    with col1:
+                        st.subheader(f"Estaciones - Año: {year1}")
+                        fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', projection='natural earth')
+                        fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True)
+                        st.plotly_chart(fig1, use_container_width=True)
+
+                    with col2, st.spinner("Generando mapa Kriging..."):
+                        st.subheader(f"Interpolación Kriging - Año: {year1}")
+                        lons, lats, vals = data_year['Longitud_geo'].values, data_year['Latitud_geo'].values, data_year['Precipitación'].values
+                        grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
+                        OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
+                        z, ss = OK.execute('grid', grid_lon, grid_lat)
+                        fig2 = go.Figure(data=go.Contour(z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu'))
+                        fig2.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=4), name='Estaciones'))
+                        fig2.update_xaxes(range=lon_range)
+                        fig2.update_yaxes(range=lat_range, scaleanchor="x", scaleratio=1)
+                        fig2.update_layout(xaxis_title="Longitud", yaxis_title="Latitud")
+                        st.plotly_chart(fig2, use_container_width=True)
                 else:
                     st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
-                    # ... (código para años diferentes no requiere cambios de escala)
+                    # ...código para años diferentes...
         else:
             st.warning("No hay años disponibles en la selección actual para la comparación.")
 
