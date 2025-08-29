@@ -98,28 +98,51 @@ def complete_series(df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
-# --- MEJORA: Función para crear el gráfico ENSO ---
+# --- FUNCIÓN OPTIMIZADA PARA CREAR GRÁFICO ENSO ---
 def create_enso_chart(enso_data):
     if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
         return go.Figure()
 
+    data = enso_data.copy().sort_values('Fecha')
+    
+    # Clasificar cada registro en una fase
+    conditions = [data['anomalia_oni'] >= 0.5, data['anomalia_oni'] <= -0.5]
+    phases = ['El Niño', 'La Niña']
+    data['phase'] = np.select(conditions, phases, default='Neutral')
+
+    # Identificar bloques de fases continuas
+    data['block'] = (data['phase'] != data['phase'].shift()).cumsum()
+    
+    # Agrupar por bloques para obtener fechas de inicio/fin y la fase
+    phase_blocks = data.groupby('block').agg(
+        start_date=('Fecha', 'min'),
+        end_date=('Fecha', 'max'),
+        phase=('phase', 'first')
+    )
+
     fig = go.Figure()
     
-    # Añadir rectángulos de fondo para las fases
-    for i, row in enso_data.iterrows():
-        oni_value = row['anomalia_oni']
-        color = 'rgba(200, 200, 200, 0.3)' # Neutral
-        if oni_value >= 0.5:
-            color = 'rgba(255, 100, 100, 0.3)' # El Niño
-        elif oni_value <= -0.5:
-            color = 'rgba(100, 100, 255, 0.3)' # La Niña
-        
-        fig.add_vrect(x0=row['Fecha'], x1=row['Fecha'] + pd.DateOffset(months=1), 
-                      fillcolor=color, layer="below", line_width=0)
+    colors = {
+        'El Niño': 'rgba(255, 100, 100, 0.3)',
+        'La Niña': 'rgba(100, 100, 255, 0.3)',
+        'Neutral': 'rgba(200, 200, 200, 0.3)'
+    }
 
-    # Añadir línea de la anomalía ONI
-    fig.add_trace(go.Scatter(x=enso_data['Fecha'], y=enso_data['anomalia_oni'],
-                             mode='lines', name='Anomalía ONI', line=dict(color='black', width=2)))
+    # Dibujar un solo rectángulo por cada bloque de fase continua
+    for _, block in phase_blocks.iterrows():
+        fig.add_vrect(
+            x0=block['start_date'],
+            x1=block['end_date'] + pd.DateOffset(months=1),
+            fillcolor=colors[block['phase']],
+            layer="below", line_width=0
+        )
+
+    # Dibujar la línea de la anomalía ONI
+    fig.add_trace(go.Scatter(
+        x=data['Fecha'], y=data['anomalia_oni'],
+        mode='lines', name='Anomalía ONI',
+        line=dict(color='black', width=2)
+    ))
 
     # Añadir líneas de umbral
     fig.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="El Niño")
@@ -132,6 +155,7 @@ def create_enso_chart(enso_data):
         showlegend=False
     )
     return fig
+
 
 # --- Interfaz y Carga de Archivos ---
 st.title('Visor de Precipitación y Fenómeno ENSO')
@@ -223,14 +247,18 @@ if selected_municipios:
 if selected_celdas:
     stations_available = stations_available[stations_available['Celda_XY'].isin(selected_celdas)]
 stations_options = sorted(stations_available['Nom_Est'].unique())
-select_all = st.sidebar.checkbox("Seleccionar/Deseleccionar Todas las Estaciones", value=True)
+select_all = st.sidebar.checkbox("Seleccionar/Deseleccionar Todas las Estaciones", value=False)
+
+if 'selected_stations' not in st.session_state:
+    st.session_state.selected_stations = [stations_options[0]] if stations_options else []
 
 if select_all:
     default_selection = stations_options
 else:
-    default_selection = []
+    default_selection = st.session_state.selected_stations if st.session_state.selected_stations else []
         
 selected_stations = st.sidebar.multiselect('3. Seleccionar Estaciones', options=stations_options, default=default_selection)
+st.session_state.selected_stations = selected_stations
 
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
 if not años_disponibles:
@@ -266,21 +294,25 @@ tab1, tab2, tab_anim, tab3, tab4, tab5 = st.tabs(["Gráficos", "Mapa de Estacion
 
 with tab1:
     st.header("Visualizaciones de Precipitación")
-    sub_tab_anual, sub_tab_mensual, sub_tab_box = st.tabs(["Serie Anual", "Serie Mensual", "Box Plot Anual"])
+    sub_tab_anual, sub_tab_mensual = st.tabs(["Serie Anual", "Serie Mensual"])
     
     with sub_tab_anual:
         if not df_anual_melted.empty:
             st.subheader("Precipitación Anual (mm)")
             chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(x=alt.X('Año:O', title='Año'), y=alt.Y('Precipitación:Q', title='Precipitación (mm)'), color='Nom_Est:N', tooltip=['Nom_Est', 'Año', 'Precipitación']).interactive()
             st.altair_chart(chart_anual, use_container_width=True)
+            
+            st.markdown("---")
+            enso_filtered = df_enso[(df_enso['Fecha'].dt.year >= year_range[0]) & (df_enso['Fecha'].dt.year <= year_range[1])]
+            fig_enso_anual = create_enso_chart(enso_filtered)
+            st.plotly_chart(fig_enso_anual, use_container_width=True, key="enso_chart_anual")
 
     with sub_tab_mensual:
         if not df_monthly_filtered.empty:
             st.subheader("Precipitación Mensual (mm)")
             chart_mensual = alt.Chart(df_monthly_filtered).mark_line().encode(x=alt.X('Fecha:T', title='Fecha'), y=alt.Y('Precipitation:Q', title='Precipitación (mm)'), color='Nom_Est:N', tooltip=[alt.Tooltip('Fecha', format='%Y-%m'), 'Precipitation', 'Nom_Est']).interactive()
             st.altair_chart(chart_mensual, use_container_width=True)
-            
-            # MEJORA: Añadir gráfico ENSO
+
             st.markdown("---")
             enso_filtered = df_enso[
                 (df_enso['Fecha'].dt.year >= year_range[0]) & 
@@ -289,13 +321,6 @@ with tab1:
             ]
             fig_enso_mensual = create_enso_chart(enso_filtered)
             st.plotly_chart(fig_enso_mensual, use_container_width=True, key="enso_chart_mensual")
-
-
-    with sub_tab_box:
-        if not df_anual_melted.empty:
-            st.subheader("Distribución de la Precipitación Anual por Estación")
-            fig_box = px.box(df_anual_melted, x='Año', y='Precipitación', color='Nom_Est', title='Distribución Anual por Estación', labels={"Año": "Año", "Precipitación": "Precipitación Anual (mm)"})
-            st.plotly_chart(fig_box, use_container_width=True)
 
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
@@ -324,14 +349,25 @@ with tab2:
             bounds = gdf_filtered.total_bounds
             m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
+        df_mean_precip = df_anual_melted.groupby('Nom_Est')['Precipitación'].mean().round(1).reset_index()
+        df_mean_precip.rename(columns={'Precipitación': 'Pptn Media Anual (mm)'}, inplace=True)
+        gdf_filtered_map = gdf_filtered.merge(df_mean_precip, on='Nom_Est', how='left')
+
         folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
-        for _, row in gdf_filtered.iterrows():
-            folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=f"<b>{row['Nom_Est']}</b><br>{row['municipio']}").add_to(m)
+        for _, row in gdf_filtered_map.iterrows():
+            html = f"""
+            <b>Estación:</b> {row['Nom_Est']}<br>
+            <b>Municipio:</b> {row['municipio']}<br>
+            <b>Pptn Media Anual:</b> {row.get('Pptn Media Anual (mm)', 'N/A')} mm
+            """
+            if 'porc_datos' in row.index and pd.notna(row['porc_datos']):
+                 html += f"<br><b>% Datos:</b> {row['porc_datos']}"
+
+            folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=html).add_to(m)
         
         folium_static(m, width=900, height=600)
     else:
         st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
-
 
 with tab_anim:
     st.header("Mapas Avanzados")
@@ -352,7 +388,6 @@ with tab_anim:
             color_range = st.sidebar.slider("Rango de Escala de Color (mm)", min_precip, max_precip, (min_precip, max_precip))
             col1, col2 = st.columns(2)
 
-            # MEJORA: Sliders para selección de años
             with col1:
                 year1 = st.slider("Seleccione el año para el Mapa 1", min(available_years), max(available_years), max(available_years))
             with col2:
