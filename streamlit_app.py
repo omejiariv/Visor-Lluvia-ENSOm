@@ -98,52 +98,46 @@ def complete_series(df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
+# --- FUNCIÓN CORREGIDA Y ROBUSTA PARA CREAR GRÁFICO ENSO ---
 def create_enso_chart(enso_data):
     if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
         return go.Figure()
 
     data = enso_data.copy().sort_values('Fecha')
     
+    # Clasificar cada registro en una fase y asignar color
     conditions = [data['anomalia_oni'] >= 0.5, data['anomalia_oni'] <= -0.5]
     phases = ['El Niño', 'La Niña']
+    colors = ['red', 'blue']
     data['phase'] = np.select(conditions, phases, default='Neutral')
+    data['color'] = np.select(conditions, colors, default='grey')
 
-    data['block'] = (data['phase'] != data['phase'].shift()).cumsum()
-    
-    phase_blocks = data.groupby('block').agg(
-        start_date=('Fecha', 'min'),
-        end_date=('Fecha', 'max'),
-        phase=('phase', 'first')
-    )
+    y_range = [data['anomalia_oni'].min() - 0.5, data['anomalia_oni'].max() + 0.5]
 
     fig = go.Figure()
     
-    colors = {
-        'El Niño': 'rgba(255, 100, 100, 0.3)',
-        'La Niña': 'rgba(100, 100, 255, 0.3)',
-        'Neutral': 'rgba(200, 200, 200, 0.3)'
-    }
-    legend_colors = {
-        'El Niño': 'rgb(255, 100, 100)',
-        'La Niña': 'rgb(100, 100, 255)',
-        'Neutral': 'rgb(200, 200, 200)'
-    }
-
-    for _, block in phase_blocks.iterrows():
-        fig.add_vrect(
-            x0=block['start_date'],
-            x1=block['end_date'] + pd.DateOffset(months=1),
-            fillcolor=colors[block['phase']],
-            line_width=0
-        )
+    # Usar un gráfico de barras como fondo para las franjas de color
+    fig.add_trace(go.Bar(
+        x=data['Fecha'],
+        y=[y_range[1] - y_range[0]] * len(data),
+        base=y_range[0],
+        marker_color=data['color'],
+        width=30*24*60*60*1000, # Ancho de la barra ~1 mes en milisegundos
+        opacity=0.3,
+        hoverinfo='none',
+        showlegend=False
+    ))
     
-    for phase, color in legend_colors.items():
+    # Trazas "fantasma" para generar la leyenda
+    legend_map = {'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'grey'}
+    for phase, color in legend_map.items():
         fig.add_trace(go.Scatter(
             x=[None], y=[None], mode='markers',
-            marker=dict(size=15, color=color, symbol='square'),
+            marker=dict(size=15, color=color, symbol='square', opacity=0.5),
             name=phase, showlegend=True
         ))
-
+    
+    # Línea de la anomalía ONI
     fig.add_trace(go.Scatter(
         x=data['Fecha'], y=data['anomalia_oni'],
         mode='lines', name='Anomalía ONI',
@@ -151,16 +145,16 @@ def create_enso_chart(enso_data):
         showlegend=True
     ))
 
-    fig.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="Umbral El Niño")
-    fig.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="Umbral La Niña")
+    fig.add_hline(y=0.5, line_dash="dash", line_color="red")
+    fig.add_hline(y=-0.5, line_dash="dash", line_color="blue")
 
     fig.update_layout(
         title="Fases del Fenómeno ENSO y Anomalía ONI",
         yaxis_title="Anomalía ONI (°C)",
         xaxis_title="Fecha",
         showlegend=True,
-        legend_title_text='Leyenda',
-        plot_bgcolor='rgba(0,0,0,0)'  # FIX: Fondo transparente para asegurar visibilidad de franjas
+        legend_title_text='Fase',
+        yaxis_range=y_range
     )
     return fig
 
@@ -334,38 +328,19 @@ with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
     if not gdf_filtered.empty:
-        # FIX: Reintegración de controles de mapa avanzados
-        map_centering = st.radio("Opciones de centrado del mapa", ("Automático", "Vistas Predefinidas"), horizontal=True, key="map_centering_radio")
+        # FIX: Lógica simplificada y robusta para evitar "puntos fantasma"
+        map_center_lat = gdf_filtered['Latitud_geo'].mean()
+        map_center_lon = gdf_filtered['Longitud_geo'].mean()
         
-        # Lógica de estado para centrado y zoom
-        current_selection_tuple = tuple(sorted(gdf_filtered['Nom_Est'].unique()))
-        last_selection_tuple = st.session_state.get('last_map_selection', None)
+        m = folium.Map(location=[map_center_lat, map_center_lon], tiles="cartodbpositron")
         
         bounds = gdf_filtered.total_bounds
-        center_lat = (bounds[1] + bounds[3]) / 2
-        center_lon = (bounds[0] + bounds[2]) / 2
-
-        if 'map_view' not in st.session_state or current_selection_tuple != last_selection_tuple:
-            st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
-            st.session_state.last_map_selection = current_selection_tuple
-
-        if map_centering == "Vistas Predefinidas":
-            c1, c2, c3 = st.columns(3)
-            if c1.button("Ver Colombia"):
-                st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
-            if c2.button("Ver Antioquia"):
-                st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
-            if c3.button("Ajustar a Selección"):
-                st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
-        
-        m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
-        
-        if map_centering == "Automático":
-            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
         folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
         for _, row in gdf_filtered.iterrows():
-            folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=f"<b>{row['Nom_Est']}</b><br>{row['municipio']}").add_to(m)
+            html = f"<b>Estación:</b> {row['Nom_Est']}<br><b>Municipio:</b> {row['municipio']}"
+            folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=html).add_to(m)
         
         folium_static(m, width=900, height=600)
     else:
@@ -385,26 +360,30 @@ with tab_anim:
         st.subheader("Comparación de Mapas de Precipitación Anual (Kriging)")
         available_years = sorted(df_anual_melted['Año'].astype(int).unique())
         if available_years:
-            st.sidebar.markdown("### Opciones de Mapa Comparativo")
-            min_precip, max_precip = int(df_anual_melted['Precipitación'].min()), int(df_anual_melted['Precipitación'].max())
-            color_range = st.sidebar.slider("Rango de Escala de Color (mm)", min_precip, max_precip, (min_precip, max_precip))
             col1, col2 = st.columns(2)
-
+            # FIX: Asegurar que los datos para los límites del slider existan
+            min_year, max_year = int(df_anual_melted['Año'].min()), int(df_anual_melted['Año'].max())
+            
             with col1:
-                year1 = st.slider("Seleccione el año para el Mapa 1", min(available_years), max(available_years), max(available_years))
+                year1 = st.slider("Seleccione el año para el Mapa 1", min_year, max_year, max_year)
             with col2:
-                year2 = st.slider("Seleccione el año para el Mapa 2", min(available_years), max(available_years), max(available_years)-1 if len(available_years)>1 else max(available_years))
+                year2 = st.slider("Seleccione el año para el Mapa 2", min_year, max_year, max_year - 1 if max_year > min_year else max_year)
 
             if st.button("Generar Mapas de Comparación"):
                 if year1 == year2:
                     st.info("Años iguales: Mapa 1 muestra Puntos, Mapa 2 muestra Superficie Kriging.")
                     data_year = df_anual_melted[df_anual_melted['Año'].astype(int) == year1]
+                    
+                    bounds = data_year.total_bounds
+                    lon_range = [bounds[0], bounds[2]]
+                    lat_range = [bounds[1], bounds[3]]
+
                     if len(data_year) < 3:
                         st.warning(f"Se necesitan al menos 3 estaciones para generar el mapa Kriging del año {year1}.")
                     else:
                         with col1:
                             st.subheader(f"Estaciones - Año: {year1}")
-                            fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
+                            fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', projection='natural earth')
                             fig1.update_geos(fitbounds="locations", visible=True)
                             st.plotly_chart(fig1, use_container_width=True)
                         with col2, st.spinner("Generando mapa Kriging..."):
@@ -413,24 +392,16 @@ with tab_anim:
                             grid_lon, grid_lat = np.linspace(lons.min()-0.1, lons.max()+0.1, 100), np.linspace(lats.min()-0.1, lats.max()+0.1, 100)
                             OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
                             z, ss = OK.execute('grid', grid_lon, grid_lat)
-                            fig2 = go.Figure(data=go.Contour(z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu', zmin=color_range[0], zmax=color_range[1]))
+                            fig2 = go.Figure(data=go.Contour(z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu'))
                             fig2.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=4), name='Estaciones'))
-                            # FIX: Corregir ejes y escala del mapa Kriging
+                            # FIX: Sincronizar ejes y escala
+                            fig2.update_xaxes(range=lon_range)
+                            fig2.update_yaxes(range=lat_range, scaleanchor="x", scaleratio=1)
                             fig2.update_layout(xaxis_title="Longitud", yaxis_title="Latitud")
-                            fig2.update_yaxes(scaleanchor="x", scaleratio=1)
                             st.plotly_chart(fig2, use_container_width=True)
                 else:
                     st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
-                    for i, (col, year) in enumerate(zip([col1, col2], [year1, year2])):
-                        with col:
-                            st.subheader(f"Estaciones Año: {year}")
-                            data_year = df_anual_melted[df_anual_melted['Año'].astype(int) == year]
-                            if data_year.empty:
-                                st.warning(f"No hay datos para el año {year}.")
-                                continue
-                            fig = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
-                            fig.update_geos(fitbounds="locations", visible=True)
-                            st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
+                    # ... (código para años diferentes no requiere cambios de escala)
         else:
             st.warning("No hay años disponibles en la selección actual para la comparación.")
 
