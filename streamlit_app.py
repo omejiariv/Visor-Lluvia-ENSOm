@@ -405,7 +405,7 @@ with tab1:
                     line_chart = base_chart.mark_line(opacity=0.4, color='lightgray').encode(detail='Nom_Est:N')
                     point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding)
                     final_chart = (line_chart + point_chart)
-                else: 
+                else: # Nube de Puntos
                     point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding)
                     final_chart = point_chart
                 
@@ -436,7 +436,6 @@ with tab1:
                     
                     styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(apply_cell_color, axis=None)
                     st.dataframe(styled_df)
-
 
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
@@ -487,7 +486,6 @@ with tab2:
         else:
             st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
 
-
 with tab_anim:
     st.header("Mapas Avanzados")
     with st.expander("Ver Animación de Puntos", expanded=True):
@@ -519,15 +517,55 @@ with tab_anim:
                         if len(data_year) < 3:
                             st.warning(f"Se necesitan al menos 3 estaciones para generar el mapa Kriging del año {year1}.")
                         else:
-                            # (El resto del código de Kriging va aquí)
-                            pass # Placeholder
+                            gdf_data_year = gpd.GeoDataFrame(
+                                data_year, 
+                                geometry=gpd.points_from_xy(data_year['Longitud_geo'], data_year['Latitud_geo']),
+                                crs="EPSG:4326"
+                            )
+                            bounds = gdf_data_year.total_bounds
+                            lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
+                            lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
+                            
+                            with col1:
+                                st.subheader(f"Estaciones - Año: {year1}")
+                                fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', 
+                                                      size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', 
+                                                      projection='natural earth', range_color=color_range)
+                                fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
+                                fig1.update_layout(height=600)
+                                st.plotly_chart(fig1, use_container_width=True)
+
+                            with col2, st.spinner("Generando mapa Kriging..."):
+                                st.subheader(f"Interpolación Kriging - Año: {year1}")
+                                lons, lats, vals = data_year['Longitud_geo'].values, data_year['Latitud_geo'].values, data_year['Precipitación'].values
+                                grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
+                                OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
+                                z, ss = OK.execute('grid', grid_lon, grid_lat)
+                                
+                                fig2 = go.Figure(data=go.Contour(
+                                    z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu',
+                                    zmin=color_range[0], zmax=color_range[1],
+                                    contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))
+                                ))
+                                fig2.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=4), name='Estaciones'))
+                                fig2.update_xaxes(range=lon_range, showticklabels=True)
+                                fig2.update_yaxes(range=lat_range, scaleanchor="x", scaleratio=1, showticklabels=True)
+                                fig2.update_layout(height=600, xaxis_title="Longitud", yaxis_title="Latitud")
+                                st.plotly_chart(fig2, use_container_width=True)
                 else:
                     with st.expander("Comparación de Mapas de lluvia anual", expanded=True):
                         st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
                         for i, (col, year) in enumerate(zip([col1, col2], [year1, year2])):
                             with col:
-                                # (El resto del código de comparación va aquí)
-                                pass # Placeholder
+                                st.subheader(f"Estaciones - Año: {year}")
+                                data_year = df_anual_melted[df_anual_melted['Año'].astype(int) == year]
+                                if data_year.empty:
+                                    st.warning(f"No hay datos para el año {year}.")
+                                    continue
+                                fig = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
+                                                     hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
+                                fig.update_geos(fitbounds="locations", visible=True)
+                                st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
         else:
             st.warning("No hay años disponibles en la selección actual para la comparación.")
 
