@@ -377,14 +377,18 @@ with tab1:
                 df_values = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Precipitation')
                 df_origin = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Origen', aggfunc='first')
 
+                # --- FIX for TypeError ---
+                # Asegurar que todas las columnas de valores sean numéricas antes de formatear
+                for col in df_values.columns:
+                    df_values[col] = pd.to_numeric(df_values[col], errors='coerce')
+                # --- END FIX ---
+
                 def apply_cell_color(df):
                     style_df = pd.DataFrame('', index=df.index, columns=df.columns)
                     style_df[df_origin == 'Completado'] = 'background-color: #ffcccb'
                     return style_df
                 
-                # FIX for TypeError
-                styled_df = df_values.style.format("{:.1f}", na_value="-")
-                styled_df = styled_df.apply(apply_cell_color, axis=None)
+                styled_df = df_values.style.apply(apply_cell_color, axis=None).format("{:.1f}", na_value="-")
                 st.dataframe(styled_df)
 
 
