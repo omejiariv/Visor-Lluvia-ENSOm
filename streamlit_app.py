@@ -88,13 +88,16 @@ def complete_series(df):
         if not df_station.index.is_unique:
             df_station = df_station[~df_station.index.duplicated(keep='first')]
         
-        original_data = df_station[['Precipitation', 'Origen']].copy()
+        # Interpolar y marcar el origen
+        # El resample crea filas nuevas con NaN
         df_resampled = df_station.resample('MS').asfreq()
         
-        df_resampled['Precipitation'] = original_data['Precipitation']
-        df_resampled['Origen'] = original_data['Origen']
-        
+        # Marcar las filas nuevas como 'Completado'
+        df_resampled['Origen'] = df_station['Origen']
         df_resampled['Origen'] = df_resampled['Origen'].fillna('Completado')
+        
+        # Rellenar la precipitación y otros campos necesarios
+        df_resampled['Precipitation'] = df_station['Precipitation']
         df_resampled['Precipitation'] = df_resampled['Precipitation'].interpolate(method='time')
         
         df_resampled['Nom_Est'] = station
@@ -282,13 +285,23 @@ meses_nombres = st.sidebar.multiselect("5. Seleccionar Meses", list(meses_dict.k
 meses_numeros = [meses_dict[m] for m in meses_nombres]
 st.sidebar.markdown("### Opciones de Análisis Avanzado")
 analysis_mode = st.sidebar.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"))
-if not selected_stations or not meses_numeros:
-    st.warning("Por favor, seleccione al menos una estación y un mes.")
-    st.stop()
 
 df_monthly_to_process = df_long.copy()
 if analysis_mode == "Completar series (interpolación)":
-    df_monthly_to_process = complete_series(df_long[df_long['Nom_Est'].isin(selected_stations)])
+    with st.sidebar:
+        with st.spinner("Completando series..."):
+            df_monthly_to_process = complete_series(df_long[df_long['Nom_Est'].isin(selected_stations)])
+    
+    # Panel de Diagnóstico
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Panel de Diagnóstico")
+    origin_counts = df_monthly_to_process['Origen'].value_counts()
+    st.sidebar.write("Recuento de datos por origen:")
+    st.sidebar.dataframe(origin_counts)
+
+if not selected_stations or not meses_numeros:
+    st.warning("Por favor, seleccione al menos una estación y un mes.")
+    st.stop()
 
 # --- Preparación de datos filtrados ---
 df_anual_melted = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)].melt(
@@ -310,47 +323,46 @@ with tab1:
     sub_tab_anual, sub_tab_mensual = st.tabs(["Serie Anual", "Serie Mensual"])
     
     with sub_tab_anual:
-        if not df_anual_melted.empty:
-            st.subheader("Precipitación Anual (mm)")
-            chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(
-                x=alt.X('Año:O', title='Año'),
-                y=alt.Y('Precipitación:Q', title='Precipitación (mm)'),
-                color='Nom_Est:N',
-                tooltip=['Nom_Est', 'Año', 'Precipitación']
-            ).properties(height=600).interactive()
-            st.altair_chart(chart_anual, use_container_width=True)
-            
-            st.markdown("---")
-            st.subheader("Precipitación Media Multianual para Estaciones Seleccionadas")
-            df_summary = df_anual_melted.groupby('Nom_Est', as_index=False)['Precipitación'].mean().round(2)
-            sort_order = st.radio(
-                "Ordenar estaciones por:",
-                ["Promedio (Mayor a Menor)", "Promedio (Menor a Mayor)", "Alfabético"],
-                horizontal=True, key="sort_annual_avg"
-            )
+        with st.expander("Ver Gráfico de Precipitación Anual", expanded=True):
+            if not df_anual_melted.empty:
+                st.subheader("Precipitación Anual (mm)")
+                chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(
+                    x=alt.X('Año:O', title='Año'),
+                    y=alt.Y('Precipitación:Q', title='Precipitación (mm)'),
+                    color='Nom_Est:N',
+                    tooltip=['Nom_Est', 'Año', 'Precipitación']
+                ).properties(height=600).interactive()
+                st.altair_chart(chart_anual, use_container_width=True)
+        
+        with st.expander("Ver Precipitación Media Multianual"):
+            if not df_anual_melted.empty:
+                st.subheader("Precipitación Media Multianual para Estaciones Seleccionadas")
+                df_summary = df_anual_melted.groupby('Nom_Est', as_index=False)['Precipitación'].mean().round(2)
+                sort_order = st.radio(
+                    "Ordenar estaciones por:",
+                    ["Promedio (Mayor a Menor)", "Promedio (Menor a Mayor)", "Alfabético"],
+                    horizontal=True, key="sort_annual_avg"
+                )
 
-            if "Mayor a Menor" in sort_order:
-                df_summary = df_summary.sort_values("Precipitación", ascending=False)
-            elif "Menor a Mayor" in sort_order:
-                df_summary = df_summary.sort_values("Precipitación", ascending=True)
-            else:
-                df_summary = df_summary.sort_values("Nom_Est", ascending=True)
+                if "Mayor a Menor" in sort_order:
+                    df_summary = df_summary.sort_values("Precipitación", ascending=False)
+                elif "Menor a Mayor" in sort_order:
+                    df_summary = df_summary.sort_values("Precipitación", ascending=True)
+                else:
+                    df_summary = df_summary.sort_values("Nom_Est", ascending=True)
 
-            fig_avg = px.bar(df_summary, x='Nom_Est', y='Precipitación', title='Promedio de Precipitación Anual',
-                             labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación Media Anual (mm)'},
-                             color='Precipitación', color_continuous_scale=px.colors.sequential.Blues_r)
-            fig_avg.update_layout(
-                height=600,
-                xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')}
-            )
-            st.plotly_chart(fig_avg, use_container_width=True)
-
+                fig_avg = px.bar(df_summary, x='Nom_Est', y='Precipitación', title='Promedio de Precipitación Anual',
+                                 labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación Media Anual (mm)'},
+                                 color='Precipitación', color_continuous_scale=px.colors.sequential.Blues_r)
+                fig_avg.update_layout(
+                    height=600,
+                    xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')}
+                )
+                st.plotly_chart(fig_avg, use_container_width=True)
 
     with sub_tab_mensual:
         if not df_monthly_filtered.empty:
             with st.expander("Ver Gráfico de Precipitación Mensual", expanded=True):
-                st.subheader("Precipitación Mensual (mm)")
-                
                 control_col1, control_col2 = st.columns(2)
                 chart_type = control_col1.radio("Tipo de Gráfico:", ["Líneas y Puntos", "Nube de Puntos"], key="monthly_chart_type")
                 color_by = control_col2.radio("Colorear por:", ["Estación", "Mes"], key="monthly_color_by")
@@ -360,18 +372,25 @@ with tab1:
                     y=alt.Y('Precipitation:Q', title='Precipitación (mm)'),
                     tooltip=[alt.Tooltip('Fecha', format='%Y-%m'), 'Precipitation', 'Nom_Est', 'Origen', alt.Tooltip('mes:N', title="Mes")]
                 )
+                
+                color_encoding_points = alt.Color('Origen:N', 
+                                    scale=alt.Scale(domain=['Original', 'Completado'], range=['#1f77b4', '#ff7f0e']),
+                                    legend=alt.Legend(title="Origen del Dato"))
 
                 if color_by == "Estación":
-                    color_encoding = alt.Color('Nom_Est:N', legend=alt.Legend(title="Estaciones"))
-                else: # Colorear por Mes
-                    color_encoding = alt.Color('month(Fecha):N', legend=alt.Legend(title="Meses"), scale=alt.Scale(scheme='tableau20'))
+                    color_encoding_main = alt.Color('Nom_Est:N', legend=alt.Legend(title="Estaciones"))
+                else: 
+                    color_encoding_main = alt.Color('month(Fecha):N', legend=alt.Legend(title="Meses"), scale=alt.Scale(scheme='tableau20'))
 
                 if chart_type == "Líneas y Puntos":
-                    line_chart = base_chart.mark_line(opacity=0.7).encode(color='Nom_Est:N')
-                    point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding)
+                    line_chart = base_chart.mark_line(opacity=0.4).encode(
+                        color='Nom_Est:N' if color_by == "Estación" else alt.value('lightgray'),
+                        detail='Nom_Est:N' 
+                    )
+                    point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding_main)
                     final_chart = (line_chart + point_chart)
                 else: # Nube de Puntos
-                    point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding)
+                    point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding_main)
                     final_chart = point_chart
                 
                 st.altair_chart(final_chart.properties(height=600).interactive(), use_container_width=True)
