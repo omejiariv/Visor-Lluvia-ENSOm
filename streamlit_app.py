@@ -173,7 +173,7 @@ def create_enso_chart(enso_data):
 logo_path = "CuencaVerdeLogo_V1.JPG"
 logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 
-title_col1, title_col2 = st.columns([1, 4], vertical_alignment="center")
+title_col1, title_col2 = st.columns([1, 5], vertical_alignment="center")
 with title_col1:
     if os.path.exists(logo_path):
         st.image(logo_path, use_column_width='auto')
@@ -609,7 +609,7 @@ with tab_anim:
                 conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
                 phases = ['El Niño', 'La Niña']
                 enso_anim_data['Fase'] = np.select(conditions, phases, default='Neutral')
-                enso_anim_data['Fecha_str'] = enso_anim_data['Fecha'].dt.strftime('%Y-%m')
+                enso_anim_data['FrameLabel'] = enso_anim_data['Fecha'].dt.strftime('%Y-%m') + ' - ' + enso_anim_data['Fase']
 
                 enso_anim_data = enso_anim_data[
                     (enso_anim_data['Fecha'].dt.year >= year_range[0]) &
@@ -626,7 +626,7 @@ with tab_anim:
                     lat='Latitud_geo',
                     lon='Longitud_geo',
                     color='Fase',
-                    animation_frame='Fecha_str',
+                    animation_frame='FrameLabel',
                     hover_name='Nom_Est',
                     color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
                     category_orders={"Fase": ["El Niño", "La Niña", "Neutral"]},
@@ -748,7 +748,7 @@ with tab4:
                     (df_enso['Fecha'].dt.year <= year_range[1]) &
                     (df_enso['Fecha'].dt.month.isin(meses_numeros))]
                 
-                if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
+                if len(df_enso_filtered) > 1:
                     fig_enso_series = px.line(df_enso_filtered, x='Fecha', y=variable_enso, 
                                             title=f"Serie de Tiempo para {variable_enso}",
                                             trendline="ols")
@@ -763,8 +763,12 @@ with tab4:
                             st.write(f"**Pendiente (cambio por mes):** `{slope:.6f}`")
                             st.write(f"**Coeficiente de Determinación (R²):** `{r_squared:.4f}`")
                     except Exception as e:
-                        st.warning(f"No se pudo calcular la línea de tendencia. Error: {e}")
+                        st.warning(f"No se pudo calcular la línea de tendencia.")
 
+                elif not df_enso_filtered.empty:
+                    fig_enso_series = px.line(df_enso_filtered, x='Fecha', y=variable_enso, 
+                                            title=f"Serie de Tiempo para {variable_enso}")
+                    st.plotly_chart(fig_enso_series, use_container_width=True)
                 else:
                     st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
         
@@ -814,7 +818,7 @@ with tab4:
                     conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
                     phases = ['El Niño', 'La Niña']
                     enso_anim_data['Fase'] = np.select(conditions, phases, default='Neutral')
-                    enso_anim_data['Fecha_str'] = enso_anim_data['Fecha'].dt.strftime('%Y-%m')
+                    enso_anim_data['FrameLabel'] = enso_anim_data['Fecha'].dt.strftime('%Y-%m') + ' - ' + enso_anim_data['Fase']
 
                     enso_anim_data = enso_anim_data[
                         (enso_anim_data['Fecha'].dt.year >= year_range[0]) &
@@ -831,7 +835,7 @@ with tab4:
                         lat='Latitud_geo',
                         lon='Longitud_geo',
                         color='Fase',
-                        animation_frame='Fecha_str',
+                        animation_frame='FrameLabel',
                         hover_name='Nom_Est',
                         color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
                         category_orders={"Fase": ["El Niño", "La Niña", "Neutral"]},
