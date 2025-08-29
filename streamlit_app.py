@@ -385,8 +385,8 @@ with tab1:
                     style_df[df_origin == 'Completado'] = 'background-color: #ffcccb'
                     return style_df
                 
-                # --- FIX for TypeError ---
-                styled_df = df_values.style.format("{:.1f}").set_na_rep("-").apply(apply_cell_color, axis=None)
+                # --- FIX for AttributeError ---
+                styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(apply_cell_color, axis=None)
                 st.dataframe(styled_df)
 
 
