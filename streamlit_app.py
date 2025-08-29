@@ -170,9 +170,13 @@ def create_enso_chart(enso_data):
     return fig
 
 # --- Interfaz y Carga de Archivos ---
+logo_path = "CuencaVerdeLogo_V1.JPG"
+logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
+
 title_col1, title_col2 = st.columns([1, 6])
 with title_col1:
-    st.image("CuencaVerdeLogo.JPG V1.JPG", width=150)
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=150)
 with title_col2:
     st.title('Visor de Precipitación y Fenómeno ENSO')
 
@@ -437,6 +441,7 @@ with tab1:
                     styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(apply_cell_color, axis=None)
                     st.dataframe(styled_df)
 
+
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     controls_col, map_col = st.columns([1, 4])
@@ -448,7 +453,8 @@ with tab2:
             
             m1, m2 = st.columns([1,3])
             with m1:
-                st.image("CuencaVerdeGoticaLogo.JPG", width=50)
+                if os.path.exists(logo_gota_path):
+                    st.image(logo_gota_path, width=50)
             with m2:
                 st.metric("Estaciones en Vista", len(gdf_filtered))
 
@@ -485,6 +491,7 @@ with tab2:
             folium_static(m, width=1100, height=700)
         else:
             st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
+
 
 with tab_anim:
     st.header("Mapas Avanzados")
