@@ -152,6 +152,7 @@ def create_enso_chart(enso_data):
     fig.add_hline(y=-0.5, line_dash="dash", line_color="blue")
 
     fig.update_layout(
+        height=600,
         title="Fases del Fenómeno ENSO y Anomalía ONI",
         yaxis_title="Anomalía ONI (°C)",
         xaxis_title="Fecha",
@@ -311,7 +312,12 @@ with tab1:
     with sub_tab_anual:
         if not df_anual_melted.empty:
             st.subheader("Precipitación Anual (mm)")
-            chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(x=alt.X('Año:O', title='Año'), y=alt.Y('Precipitación:Q', title='Precipitación (mm)'), color='Nom_Est:N', tooltip=['Nom_Est', 'Año', 'Precipitación']).interactive()
+            chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(
+                x=alt.X('Año:O', title='Año'),
+                y=alt.Y('Precipitación:Q', title='Precipitación (mm)'),
+                color='Nom_Est:N',
+                tooltip=['Nom_Est', 'Año', 'Precipitación']
+            ).properties(height=600)
             st.altair_chart(chart_anual, use_container_width=True)
             
             st.markdown("---")
@@ -333,7 +339,10 @@ with tab1:
             fig_avg = px.bar(df_summary, x='Nom_Est', y='Precipitación', title='Promedio de Precipitación Anual',
                              labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación Media Anual (mm)'},
                              color='Precipitación', color_continuous_scale=px.colors.sequential.Blues_r)
-            fig_avg.update_layout(xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')})
+            fig_avg.update_layout(
+                height=600,
+                xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')}
+            )
             st.plotly_chart(fig_avg, use_container_width=True)
 
 
@@ -341,15 +350,15 @@ with tab1:
         if not df_monthly_filtered.empty:
             st.subheader("Precipitación Mensual (mm)")
             
-            line_chart = alt.Chart(df_monthly_filtered).mark_line(opacity=0.7).encode(
+            base_chart = alt.Chart(df_monthly_filtered).encode(
                 x=alt.X('Fecha:T', title='Fecha'),
                 y=alt.Y('Precipitation:Q', title='Precipitación (mm)'),
                 color='Nom_Est:N'
             )
+
+            line_chart = base_chart.mark_line(opacity=0.7)
             
-            point_chart = alt.Chart(df_monthly_filtered).mark_point(filled=True, size=60).encode(
-                x='Fecha:T',
-                y='Precipitation:Q',
+            point_chart = base_chart.mark_point(filled=True, size=60).encode(
                 color=alt.Color('Origen:N', 
                                 scale=alt.Scale(
                                     domain=['Original', 'Completado'],
@@ -359,7 +368,8 @@ with tab1:
                 tooltip=[alt.Tooltip('Fecha', format='%Y-%m'), 'Precipitation', 'Nom_Est', 'Origen']
             )
 
-            st.altair_chart((line_chart + point_chart).interactive(), use_container_width=True)
+            final_chart = (line_chart + point_chart).properties(height=600).interactive()
+            st.altair_chart(final_chart, use_container_width=True)
 
             st.markdown("---")
             enso_filtered = df_enso[
@@ -385,8 +395,7 @@ with tab1:
                     style_df[df_origin == 'Completado'] = 'background-color: #ffcccb'
                     return style_df
                 
-                # --- FIX for AttributeError ---
-                styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(apply_cell_color, axis=None)
+                styled_df = df_values.style.apply(apply_cell_color, axis=None).format("{:.1f}", na_rep="-")
                 st.dataframe(styled_df)
 
 
@@ -472,6 +481,7 @@ with tab_anim:
                                                   size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', 
                                                   projection='natural earth', range_color=color_range)
                             fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
+                            fig1.update_layout(height=600)
                             st.plotly_chart(fig1, use_container_width=True)
 
                         with col2, st.spinner("Generando mapa Kriging..."):
@@ -489,7 +499,7 @@ with tab_anim:
                             fig2.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=4), name='Estaciones'))
                             fig2.update_xaxes(range=lon_range, showticklabels=True)
                             fig2.update_yaxes(range=lat_range, scaleanchor="x", scaleratio=1, showticklabels=True)
-                            fig2.update_layout(xaxis_title="Longitud", yaxis_title="Latitud")
+                            fig2.update_layout(height=600, xaxis_title="Longitud", yaxis_title="Latitud")
                             st.plotly_chart(fig2, use_container_width=True)
                 else:
                     st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
