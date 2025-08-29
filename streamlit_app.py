@@ -254,15 +254,30 @@ if selected_celdas:
     stations_available = stations_available[stations_available['Celda_XY'].isin(selected_celdas)]
 stations_options = sorted(stations_available['Nom_Est'].unique())
 
-if 'selected_stations' not in st.session_state:
-    st.session_state.selected_stations = [stations_options[0]] if stations_options else []
+# --- LÓGICA DE SELECCIÓN DE ESTACIONES MEJORADA ---
+selection_in_memory = st.session_state.get('selected_stations', [])
+# Validar que las estaciones en memoria todavía están en las opciones disponibles
+validated_selection = [station for station in selection_in_memory if station in stations_options]
+
+# Determinar el valor por defecto para el widget
+if not validated_selection and stations_options:
+    # Si la selección guardada se invalidó por un filtro, seleccionar la primera nueva opción
+    default_selection = [stations_options[0]]
+else:
+    default_selection = validated_selection
 
 select_all = st.sidebar.checkbox("Seleccionar/Deseleccionar Todas las Estaciones", value=False)
 if select_all:
-    st.session_state.selected_stations = stations_options
-        
-selected_stations = st.sidebar.multiselect('3. Seleccionar Estaciones', options=stations_options, default=st.session_state.selected_stations)
+    default_selection = stations_options
+
+selected_stations = st.sidebar.multiselect(
+    '3. Seleccionar Estaciones',
+    options=stations_options,
+    default=default_selection
+)
+# Guardar siempre la selección actual en el estado de la sesión para la siguiente recarga
 st.session_state.selected_stations = selected_stations
+# --- FIN DE LA LÓGICA ---
 
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
 if not años_disponibles:
@@ -330,7 +345,6 @@ with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
     if not gdf_filtered.empty:
-        # FIX: Lógica de centrado robusta para evitar "puntos fantasma"
         map_center_lat = gdf_filtered['Latitud_geo'].mean()
         map_center_lon = gdf_filtered['Longitud_geo'].mean()
         
