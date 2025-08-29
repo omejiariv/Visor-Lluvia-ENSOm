@@ -77,12 +77,12 @@ def load_shapefile(file_path):
         return None
 
 @st.cache_data
-def complete_series(df):
+def complete_series(_df):
     all_completed_dfs = []
-    station_list = df['Nom_Est'].unique()
-    progress_bar = st.progress(0, text="Completando series...")
+    station_list = _df['Nom_Est'].unique()
+    progress_bar = st.progress(0, text="Completando todas las series...")
     for i, station in enumerate(station_list):
-        df_station = df[df['Nom_Est'] == station].copy()
+        df_station = _df[_df['Nom_Est'] == station].copy()
         df_station['Fecha'] = pd.to_datetime(df_station['Fecha'])
         df_station.set_index('Fecha', inplace=True)
         if not df_station.index.is_unique:
@@ -243,7 +243,6 @@ if df_long.empty:
 
 # --- Controles en la Barra Lateral ---
 st.sidebar.markdown("### Filtros de Visualización")
-
 if 'Porc_datos' in gdf_stations.columns:
     gdf_stations['Porc_datos'] = pd.to_numeric(gdf_stations['Porc_datos'], errors='coerce').fillna(0)
     min_data_perc = st.sidebar.slider("Filtrar por % de datos mínimo:", 0, 100, 0)
@@ -293,11 +292,11 @@ meses_numeros = [meses_dict[m] for m in meses_nombres]
 st.sidebar.markdown("### Opciones de Análisis Avanzado")
 analysis_mode = st.sidebar.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"))
 
-df_monthly_to_process = df_long.copy()
+# OPTIMIZACIÓN: Ejecutar la completación una sola vez para todos los datos y guardar en caché
 if analysis_mode == "Completar series (interpolación)":
-    with st.sidebar:
-        with st.spinner("Completando series..."):
-            df_monthly_to_process = complete_series(df_long[df_long['Nom_Est'].isin(selected_stations)])
+    df_monthly_to_process = complete_series(df_long)
+else:
+    df_monthly_to_process = df_long.copy()
 
 if not selected_stations or not meses_numeros:
     st.warning("Por favor, seleccione al menos una estación y un mes.")
@@ -414,15 +413,16 @@ with tab1:
                     styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(apply_cell_color, axis=None)
                     st.dataframe(styled_df)
 
-
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     controls_col, map_col = st.columns([1, 4])
+    gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
 
     with controls_col:
         st.subheader("Controles del Mapa")
-        gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
         if not gdf_filtered.empty:
+            st.metric("Estaciones en Vista", len(gdf_filtered))
+            st.markdown("---")
             map_centering = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_radio")
             
             if 'map_view' not in st.session_state:
@@ -455,7 +455,6 @@ with tab2:
             folium_static(m, width=1100, height=700)
         else:
             st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
-
 
 with tab_anim:
     st.header("Mapas Avanzados")
