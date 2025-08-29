@@ -159,7 +159,8 @@ def create_enso_chart(enso_data):
         yaxis_title="Anomalía ONI (°C)",
         xaxis_title="Fecha",
         showlegend=True,
-        legend_title_text='Leyenda'
+        legend_title_text='Leyenda',
+        plot_bgcolor='rgba(0,0,0,0)'  # FIX: Fondo transparente para asegurar visibilidad de franjas
     )
     return fig
 
@@ -254,14 +255,9 @@ if selected_celdas:
     stations_available = stations_available[stations_available['Celda_XY'].isin(selected_celdas)]
 stations_options = sorted(stations_available['Nom_Est'].unique())
 
-# --- LÓGICA DE SELECCIÓN DE ESTACIONES MEJORADA ---
 selection_in_memory = st.session_state.get('selected_stations', [])
-# Validar que las estaciones en memoria todavía están en las opciones disponibles
 validated_selection = [station for station in selection_in_memory if station in stations_options]
-
-# Determinar el valor por defecto para el widget
 if not validated_selection and stations_options:
-    # Si la selección guardada se invalidó por un filtro, seleccionar la primera nueva opción
     default_selection = [stations_options[0]]
 else:
     default_selection = validated_selection
@@ -275,9 +271,7 @@ selected_stations = st.sidebar.multiselect(
     options=stations_options,
     default=default_selection
 )
-# Guardar siempre la selección actual en el estado de la sesión para la siguiente recarga
 st.session_state.selected_stations = selected_stations
-# --- FIN DE LA LÓGICA ---
 
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
 if not años_disponibles:
@@ -320,11 +314,6 @@ with tab1:
             st.subheader("Precipitación Anual (mm)")
             chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(x=alt.X('Año:O', title='Año'), y=alt.Y('Precipitación:Q', title='Precipitación (mm)'), color='Nom_Est:N', tooltip=['Nom_Est', 'Año', 'Precipitación']).interactive()
             st.altair_chart(chart_anual, use_container_width=True)
-            
-            st.markdown("---")
-            enso_filtered = df_enso[(df_enso['Fecha'].dt.year >= year_range[0]) & (df_enso['Fecha'].dt.year <= year_range[1])]
-            fig_enso_anual = create_enso_chart(enso_filtered)
-            st.plotly_chart(fig_enso_anual, use_container_width=True, key="enso_chart_anual")
 
     with sub_tab_mensual:
         if not df_monthly_filtered.empty:
@@ -345,18 +334,38 @@ with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['Nom_Est'].isin(selected_stations)]
     if not gdf_filtered.empty:
-        map_center_lat = gdf_filtered['Latitud_geo'].mean()
-        map_center_lon = gdf_filtered['Longitud_geo'].mean()
+        # FIX: Reintegración de controles de mapa avanzados
+        map_centering = st.radio("Opciones de centrado del mapa", ("Automático", "Vistas Predefinidas"), horizontal=True, key="map_centering_radio")
         
-        m = folium.Map(location=[map_center_lat, map_center_lon], tiles="cartodbpositron")
+        # Lógica de estado para centrado y zoom
+        current_selection_tuple = tuple(sorted(gdf_filtered['Nom_Est'].unique()))
+        last_selection_tuple = st.session_state.get('last_map_selection', None)
         
         bounds = gdf_filtered.total_bounds
-        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        center_lat = (bounds[1] + bounds[3]) / 2
+        center_lon = (bounds[0] + bounds[2]) / 2
+
+        if 'map_view' not in st.session_state or current_selection_tuple != last_selection_tuple:
+            st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
+            st.session_state.last_map_selection = current_selection_tuple
+
+        if map_centering == "Vistas Predefinidas":
+            c1, c2, c3 = st.columns(3)
+            if c1.button("Ver Colombia"):
+                st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+            if c2.button("Ver Antioquia"):
+                st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
+            if c3.button("Ajustar a Selección"):
+                st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
+        
+        m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
+        
+        if map_centering == "Automático":
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
         folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
         for _, row in gdf_filtered.iterrows():
-            html = f"<b>Estación:</b> {row['Nom_Est']}<br><b>Municipio:</b> {row['municipio']}"
-            folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=html).add_to(m)
+            folium.Marker([row['Latitud_geo'], row['Longitud_geo']], tooltip=f"<b>{row['Nom_Est']}</b><br>{row['municipio']}").add_to(m)
         
         folium_static(m, width=900, height=600)
     else:
@@ -406,6 +415,9 @@ with tab_anim:
                             z, ss = OK.execute('grid', grid_lon, grid_lat)
                             fig2 = go.Figure(data=go.Contour(z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu', zmin=color_range[0], zmax=color_range[1]))
                             fig2.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=4), name='Estaciones'))
+                            # FIX: Corregir ejes y escala del mapa Kriging
+                            fig2.update_layout(xaxis_title="Longitud", yaxis_title="Latitud")
+                            fig2.update_yaxes(scaleanchor="x", scaleratio=1)
                             st.plotly_chart(fig2, use_container_width=True)
                 else:
                     st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
