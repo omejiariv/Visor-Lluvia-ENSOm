@@ -98,22 +98,19 @@ def complete_series(df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
-# --- FUNCIÓN OPTIMIZADA PARA CREAR GRÁFICO ENSO ---
+# --- FUNCIÓN OPTIMIZADA PARA CREAR GRÁFICO ENSO CON LEYENDA ---
 def create_enso_chart(enso_data):
     if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
         return go.Figure()
 
     data = enso_data.copy().sort_values('Fecha')
     
-    # Clasificar cada registro en una fase
     conditions = [data['anomalia_oni'] >= 0.5, data['anomalia_oni'] <= -0.5]
     phases = ['El Niño', 'La Niña']
     data['phase'] = np.select(conditions, phases, default='Neutral')
 
-    # Identificar bloques de fases continuas
     data['block'] = (data['phase'] != data['phase'].shift()).cumsum()
     
-    # Agrupar por bloques para obtener fechas de inicio/fin y la fase
     phase_blocks = data.groupby('block').agg(
         start_date=('Fecha', 'min'),
         end_date=('Fecha', 'max'),
@@ -127,8 +124,12 @@ def create_enso_chart(enso_data):
         'La Niña': 'rgba(100, 100, 255, 0.3)',
         'Neutral': 'rgba(200, 200, 200, 0.3)'
     }
+    legend_colors = {
+        'El Niño': 'rgb(255, 100, 100)',
+        'La Niña': 'rgb(100, 100, 255)',
+        'Neutral': 'rgb(200, 200, 200)'
+    }
 
-    # Dibujar un solo rectángulo por cada bloque de fase continua
     for _, block in phase_blocks.iterrows():
         fig.add_vrect(
             x0=block['start_date'],
@@ -136,26 +137,33 @@ def create_enso_chart(enso_data):
             fillcolor=colors[block['phase']],
             layer="below", line_width=0
         )
+    
+    # Añadir trazas "fantasma" para generar la leyenda
+    for phase, color in legend_colors.items():
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode='markers',
+            marker=dict(size=15, color=color, symbol='square'),
+            name=phase, showlegend=True
+        ))
 
-    # Dibujar la línea de la anomalía ONI
     fig.add_trace(go.Scatter(
         x=data['Fecha'], y=data['anomalia_oni'],
         mode='lines', name='Anomalía ONI',
-        line=dict(color='black', width=2)
+        line=dict(color='black', width=2),
+        showlegend=True
     ))
 
-    # Añadir líneas de umbral
-    fig.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="El Niño")
-    fig.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="La Niña")
+    fig.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="Umbral El Niño")
+    fig.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="Umbral La Niña")
 
     fig.update_layout(
         title="Fases del Fenómeno ENSO y Anomalía ONI",
         yaxis_title="Anomalía ONI (°C)",
         xaxis_title="Fecha",
-        showlegend=False
+        showlegend=True,
+        legend_title_text='Leyenda'
     )
     return fig
-
 
 # --- Interfaz y Carga de Archivos ---
 st.title('Visor de Precipitación y Fenómeno ENSO')
@@ -247,17 +255,15 @@ if selected_municipios:
 if selected_celdas:
     stations_available = stations_available[stations_available['Celda_XY'].isin(selected_celdas)]
 stations_options = sorted(stations_available['Nom_Est'].unique())
-select_all = st.sidebar.checkbox("Seleccionar/Deseleccionar Todas las Estaciones", value=False)
 
 if 'selected_stations' not in st.session_state:
     st.session_state.selected_stations = [stations_options[0]] if stations_options else []
 
+select_all = st.sidebar.checkbox("Seleccionar/Deseleccionar Todas las Estaciones", value=False)
 if select_all:
-    default_selection = stations_options
-else:
-    default_selection = st.session_state.selected_stations if st.session_state.selected_stations else []
+    st.session_state.selected_stations = stations_options
         
-selected_stations = st.sidebar.multiselect('3. Seleccionar Estaciones', options=stations_options, default=default_selection)
+selected_stations = st.sidebar.multiselect('3. Seleccionar Estaciones', options=stations_options, default=st.session_state.selected_stations)
 st.session_state.selected_stations = selected_stations
 
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
