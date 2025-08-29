@@ -306,9 +306,7 @@ with tab1:
             
             st.markdown("---")
             st.subheader("Precipitación Media Multianual para Estaciones Seleccionadas")
-            
             df_summary = df_anual_melted.groupby('Nom_Est', as_index=False)['Precipitación'].mean().round(2)
-            
             sort_order = st.radio(
                 "Ordenar estaciones por:",
                 ["Promedio (Mayor a Menor)", "Promedio (Menor a Mayor)", "Alfabético"],
@@ -378,6 +376,12 @@ with tab_anim:
     with anim_kriging_tab:
         st.subheader("Comparación de Mapas de Precipitación Anual (Kriging)")
         if not df_anual_melted.empty and len(df_anual_melted['Año'].unique()) > 0:
+            
+            # --- MEJORA: Restaurar slider de escala de color ---
+            st.sidebar.markdown("### Opciones de Mapa Comparativo")
+            min_precip, max_precip = int(df_anual_melted['Precipitación'].min()), int(df_anual_melted['Precipitación'].max())
+            color_range = st.sidebar.slider("Rango de Escala de Color (mm)", min_precip, max_precip, (min_precip, max_precip))
+            
             col1, col2 = st.columns(2)
             min_year, max_year = int(df_anual_melted['Año'].min()), int(df_anual_melted['Año'].max())
             
@@ -403,8 +407,10 @@ with tab_anim:
                         
                         with col1:
                             st.subheader(f"Estaciones - Año: {year1}")
-                            fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', projection='natural earth')
-                            fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True)
+                            fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', 
+                                                  size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', 
+                                                  projection='natural earth', range_color=color_range)
+                            fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
                             st.plotly_chart(fig1, use_container_width=True)
 
                         with col2, st.spinner("Generando mapa Kriging..."):
@@ -413,14 +419,19 @@ with tab_anim:
                             grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
                             OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
                             z, ss = OK.execute('grid', grid_lon, grid_lat)
-                            fig2 = go.Figure(data=go.Contour(z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu'))
+                            
+                            # MEJORA: Añadir valores a las curvas de contorno
+                            fig2 = go.Figure(data=go.Contour(
+                                z=z, x=grid_lon, y=grid_lat, colorscale='YlGnBu',
+                                zmin=color_range[0], zmax=color_range[1],
+                                contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))
+                            ))
                             fig2.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=4), name='Estaciones'))
-                            fig2.update_xaxes(range=lon_range)
-                            fig2.update_yaxes(range=lat_range, scaleanchor="x", scaleratio=1)
+                            fig2.update_xaxes(range=lon_range, showticklabels=True)
+                            fig2.update_yaxes(range=lat_range, scaleanchor="x", scaleratio=1, showticklabels=True)
                             fig2.update_layout(xaxis_title="Longitud", yaxis_title="Latitud")
                             st.plotly_chart(fig2, use_container_width=True)
                 else:
-                    # --- CÓDIGO RESTAURADO PARA AÑOS DIFERENTES ---
                     st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
                     for i, (col, year) in enumerate(zip([col1, col2], [year1, year2])):
                         with col:
@@ -430,7 +441,7 @@ with tab_anim:
                                 st.warning(f"No hay datos para el año {year}.")
                                 continue
                             fig = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
-                                                 hover_name='Nom_Est', color_continuous_scale='YlGnBu', projection='natural earth')
+                                                 hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
                             fig.update_geos(fitbounds="locations", visible=True)
                             st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
         else:
