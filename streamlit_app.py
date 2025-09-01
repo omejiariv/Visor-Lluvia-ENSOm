@@ -203,20 +203,24 @@ with st.sidebar.expander("**Cargar Archivos**", expanded=True):
     uploaded_file_precip = st.file_uploader("2. Cargar archivo de precipitación mensual y ENSO (DatosPptnmes_ENSO.csv)", type="csv")
     uploaded_zip_shapefile = st.file_uploader("3. Cargar shapefile de municipios (.zip)", type="zip")
 
-if not all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
+# --- Lógica de carga de datos optimizada ---
+if 'uploaded_files' not in st.session_state:
+    st.session_state.uploaded_files = (None, None, None)
+    st.session_state.data_loaded = False
+
+if st.session_state.uploaded_files != (uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
+    st.session_state.uploaded_files = (uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+    st.session_state.data_loaded = False
+    
+if not all(st.session_state.uploaded_files):
     st.info("Por favor, suba los 3 archivos requeridos para habilitar la aplicación.")
     st.stop()
-
-# --- Carga y Preprocesamiento de Datos ---
-if 'data_loaded' not in st.session_state or st.session_state.uploaded_files != (uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
-    st.session_state.uploaded_files = (uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+    
+if not st.session_state.data_loaded:
     with st.spinner('Procesando datos... Esto puede tomar un momento.'):
         st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
     st.session_state.data_loaded = True
     st.rerun()
-
-if st.session_state.gdf_stations is None:
-    st.stop()
 
 gdf_stations = st.session_state.gdf_stations
 df_precip_anual = st.session_state.df_precip_anual
@@ -230,6 +234,8 @@ st.sidebar.header("Panel de Control")
 # Lógica de selección de estaciones optimizada
 if 'selected_stations_auto' not in st.session_state:
     st.session_state.selected_stations_auto = []
+if 'select_all_state' not in st.session_state:
+    st.session_state.select_all_state = False
 
 if 'porc_datos' in gdf_stations.columns:
     gdf_stations['porc_datos'] = pd.to_numeric(gdf_stations['porc_datos'], errors='coerce').fillna(0)
