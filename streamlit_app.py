@@ -456,10 +456,9 @@ with tab1:
                 if not df_monthly_filtered.empty:
                     df_values = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Precipitation')
                     
-                    # CORRECCIÓN: Mostrar el DataFrame sin estilizar directamente
+                    # CORRECCIÓN: Mostrar el DataFrame directamente, sin estilizar, para evitar el error.
                     st.dataframe(df_values, use_container_width=True)
 
-    # --- NUEVA FUNCIONALIDAD: CLIMATOLOGÍA MENSUAL ---
     with sub_tab_monthly_avg:
         st.subheader("Climatología de Precipitación Mensual")
         st.caption("Promedio de precipitación por mes, calculado sobre el rango de años seleccionado.")
@@ -853,54 +852,53 @@ with tab_enso:
                st.warning(f"Análisis no disponible. Falta la columna 'anomalia_oni' en el archivo de datos.")
 
         # --- GRÁFICO COMBINADO PRECIPITACIÓN-ENSO ---
-with enso_precip_combo:
-    st.subheader("Serie de Tiempo: Precipitación y Anomalía ONI")
-    st.info("Este gráfico combina la precipitación mensual (calculada como promedio para las estaciones seleccionadas) y la anomalía ONI.")
-    
-    df_combined = df_monthly_filtered.copy()
-    # CORRECCIÓN: Agregar .reset_index() para que 'Fecha' vuelva a ser una columna
-    df_combined = df_combined.groupby('Fecha')['Precipitation'].mean().reset_index()
-    df_combined.loc[:, 'fecha_merge'] = df_combined['Fecha'].dt.strftime('%Y-%m')
-    df_combined = pd.merge(df_combined, df_enso, on='fecha_merge', how='left')
-    df_combined.dropna(subset=['Precipitation', 'anomalia_oni'], inplace=True)
-    
-    if not df_combined.empty:
-        fig_combined = go.Figure()
-        
-        # Gráfico de barras de precipitación
-        fig_combined.add_trace(go.Bar(
-            x=df_combined['Fecha'],
-            y=df_combined['Precipitation'],
-            name='Precipitación Media (mm)',
-            marker_color='lightblue',
-            yaxis='y1'
-        ))
-        
-        # Gráfico de línea de ONI
-        fig_combined.add_trace(go.Scatter(
-            x=df_combined['Fecha'],
-            y=df_combined['anomalia_oni'],
-            mode='lines',
-            name='Anomalía ONI (°C)',
-            line=dict(color='black', width=2),
-            yaxis='y2'
-        ))
-        
-        fig_combined.update_layout(
-            title="Precipitación Media Mensual y Anomalía ONI",
-            yaxis=dict(title='Precipitación (mm)', showgrid=False),
-            yaxis2=dict(title='Anomalía ONI (°C)', overlaying='y', side='right'),
-            legend=dict(x=0.01, y=0.99),
-            height=600
-        )
-        
-        # Resaltar fases ENSO con las líneas de umbral
-        fig_combined.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="El Niño", yaxis='y2', annotation_position="bottom right")
-        fig_combined.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="La Niña", yaxis='y2', annotation_position="top right")
-        
-        st.plotly_chart(fig_combined, use_container_width=True)
-    else:
-        st.warning("No hay datos de precipitación y anomalía ONI coincidentes en el período seleccionado.")
+        with enso_precip_combo:
+            st.subheader("Serie de Tiempo: Precipitación y Anomalía ONI")
+            st.info("Este gráfico combina la precipitación mensual (calculada como promedio para las estaciones seleccionadas) y la anomalía ONI.")
+            
+            df_combined = df_monthly_filtered.copy()
+            df_combined = df_combined.groupby('Fecha')['Precipitation'].mean().reset_index()
+            df_combined.loc[:, 'fecha_merge'] = df_combined['Fecha'].dt.strftime('%Y-%m')
+            df_combined = pd.merge(df_combined, df_enso, on='fecha_merge', how='left')
+            df_combined.dropna(subset=['Precipitation', 'anomalia_oni'], inplace=True)
+            
+            if not df_combined.empty:
+                fig_combined = go.Figure()
+                
+                # Gráfico de barras de precipitación
+                fig_combined.add_trace(go.Bar(
+                    x=df_combined['Fecha'],
+                    y=df_combined['Precipitation'],
+                    name='Precipitación Media (mm)',
+                    marker_color='lightblue',
+                    yaxis='y1'
+                ))
+                
+                # Gráfico de línea de ONI
+                fig_combined.add_trace(go.Scatter(
+                    x=df_combined['Fecha'],
+                    y=df_combined['anomalia_oni'],
+                    mode='lines',
+                    name='Anomalía ONI (°C)',
+                    line=dict(color='black', width=2),
+                    yaxis='y2'
+                ))
+                
+                fig_combined.update_layout(
+                    title="Precipitación Media Mensual y Anomalía ONI",
+                    yaxis=dict(title='Precipitación (mm)', showgrid=False),
+                    yaxis2=dict(title='Anomalía ONI (°C)', overlaying='y', side='right'),
+                    legend=dict(x=0.01, y=0.99),
+                    height=600
+                )
+                
+                # Resaltar fases ENSO con las líneas de umbral
+                fig_combined.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="El Niño", yaxis='y2', annotation_position="bottom right")
+                fig_combined.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="La Niña", yaxis='y2', annotation_position="top right")
+                
+                st.plotly_chart(fig_combined, use_container_width=True)
+            else:
+                st.warning("No hay datos de precipitación y anomalía ONI coincidentes en el período seleccionado.")
 
 
 # --- Descargas 📥
