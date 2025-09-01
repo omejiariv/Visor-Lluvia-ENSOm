@@ -475,12 +475,11 @@ with tab1:
                     for col in df_values.columns:
                         df_values[col] = pd.to_numeric(df_values[col], errors='coerce')
 
-                    def apply_cell_color(df):
-                        style_df = pd.DataFrame('', index=df.index, columns=df.columns)
-                        style_df[df_origin == 'Completado'] = 'background-color: #ffcccb'
-                        return style_df
-                    
-                    styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(apply_cell_color, axis=None)
+                    # Solución corregida: usar una función lambda para el styling
+                    styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(
+                        lambda x: ['background-color: #ffcccb' if val == 'Completado' else '' for val in df_origin.loc[x.name]],
+                        axis=1
+                    )
                     st.dataframe(styled_df)
 
 with tab2:
