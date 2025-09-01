@@ -313,6 +313,7 @@ if all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
     # Se crea un estado para almacenar los IDs de los archivos cargados
     if 'file_ids' not in st.session_state:
         st.session_state.file_ids = {}
+        st.session_state.data_loaded = False
 
     current_file_ids = {
         'mapa': uploaded_file_mapa.id,
@@ -322,14 +323,14 @@ if all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
 
     # Solo si los archivos han cambiado, se ejecuta el preprocesamiento
     if current_file_ids != st.session_state.file_ids:
-        st.session_state.file_ids = current_file_ids
-        st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+        with st.spinner("Cargando y procesando datos. Por favor, espere..."):
+            st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
         
-        # Una vez que los datos están cargados, se marca la sesión como lista
+        st.session_state.file_ids = current_file_ids
         st.session_state.data_loaded = True
         st.rerun()
 
-    if not st.session_state.get('data_loaded', False):
+    if not st.session_state.data_loaded:
         st.info("Cargando datos. Por favor, espere...")
         st.stop()
 
