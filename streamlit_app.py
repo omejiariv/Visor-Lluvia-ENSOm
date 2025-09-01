@@ -242,7 +242,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     
     return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
 
-def display_map(gdf_filtered, gdf_municipios, map_centering, logo_gota_path):
+def display_map(gdf_filtered, gdf_municipios, logo_gota_path):
     """Función para renderizar el mapa de estaciones de Folium."""
     controls_col, map_col = st.columns([1, 4])
 
@@ -268,12 +268,18 @@ def display_map(gdf_filtered, gdf_municipios, map_centering, logo_gota_path):
 
     with map_col:
         if not gdf_filtered.empty:
+            # Usar la vista guardada en st.session_state
+            if "map_view" not in st.session_state:
+                st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+
             m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
             
-            if map_centering == "Automático":
+            # Ajustar la vista automáticamente al inicio, luego no
+            if "map_view_initial_fit" not in st.session_state or not st.session_state.map_view_initial_fit:
                 bounds = gdf_filtered.total_bounds
                 m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-
+                st.session_state.map_view_initial_fit = True
+            
             folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
             for _, row in gdf_filtered.iterrows():
                 html = f"<b>Estación:</b> {row['nom_est']}<br><b>Municipio:</b> {row['municipio']}"
@@ -284,7 +290,6 @@ def display_map(gdf_filtered, gdf_municipios, map_centering, logo_gota_path):
             st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
 
 # --- Interfaz de Usuario y Lógica Principal ---
-
 # Título y logo
 logo_path = "CuencaVerdeLogo_V1.JPG"
 logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
@@ -302,33 +307,39 @@ with st.sidebar.expander("**Cargar Archivos**", expanded=True):
     uploaded_file_precip = st.file_uploader("2. Precipitación y ENSO (DatosPptnmes_ENSO.csv)", type="csv")
     uploaded_zip_shapefile = st.file_uploader("3. Shapefile de municipios (.zip)", type="zip")
 
-# Lógica de carga y preprocesamiento de datos
-if not all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
+# VALIDACIÓN Y CARGA DE DATOS: Esta es la sección crucial que hemos corregido.
+if all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
+    # Verificar si los archivos han cambiado para evitar recargas innecesarias
+    if 'data_loaded_ids' not in st.session_state:
+        st.session_state.data_loaded_ids = {}
+
+    current_file_ids = {
+        'mapa': uploaded_file_mapa.id,
+        'precip': uploaded_file_precip.id,
+        'shapefile': uploaded_zip_shapefile.id
+    }
+
+    if current_file_ids != st.session_state.data_loaded_ids:
+        st.session_state.data_loaded_ids = current_file_ids
+        st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+        st.session_state.data_loaded = True
+        st.rerun()
+
+    # Si se han cargado los datos, el resto del script puede ejecutarse.
+    if st.session_state.gdf_stations is None:
+        st.error("Hubo un error en el preprocesamiento de los datos. Por favor, revise el formato de los archivos.")
+        st.stop()
+    
+    # Asignar variables desde el estado de la sesión
+    gdf_stations = st.session_state.gdf_stations
+    df_precip_anual = st.session_state.df_precip_anual
+    gdf_municipios = st.session_state.gdf_municipios
+    df_long = st.session_state.df_long
+    df_enso = st.session_state.df_enso
+    
+else:
     st.info("Por favor, suba los 3 archivos requeridos para habilitar la aplicación.")
     st.stop()
-
-if 'data_loaded' not in st.session_state:
-    st.session_state.data_loaded = False
-
-# Llama a la función de preprocesamiento solo si los archivos han cambiado o no se han cargado
-if not st.session_state.data_loaded or any(
-    file.id != st.session_state.get(f'{file.name}_id') for file in [uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]
-):
-    st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
-    st.session_state.data_loaded = True
-    for file in [uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]:
-        st.session_state[f'{file.name}_id'] = file.id
-    st.rerun()
-
-if st.session_state.gdf_stations is None:
-    st.stop()
-
-# Asignar variables desde el estado de la sesión
-gdf_stations = st.session_state.gdf_stations
-df_precip_anual = st.session_state.df_precip_anual
-gdf_municipios = st.session_state.gdf_municipios
-df_long = st.session_state.df_long
-df_enso = st.session_state.df_enso
 
 # --- Filtros en la Barra Lateral ---
 st.sidebar.header("Filtros de Visualización")
@@ -461,7 +472,7 @@ with tab1:
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)]
-    display_map(gdf_filtered, gdf_municipios, "Automático", logo_gota_path)
+    display_map(gdf_filtered, gdf_municipios, logo_gota_path)
 
 with tab_anim:
     st.header("Mapas Avanzados")
