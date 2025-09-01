@@ -196,21 +196,26 @@ if id_col_name:
 precip_col_name = next((col for col in df_precip_mensual_raw.columns if 'precipitacion' in col.lower()), None)
 # Corregido: Se ha excluido 'enso_año' y 'enso_mes' para evitar errores de tipo de dato.
 enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_sst', 'enso_año', 'enso_mes']
-enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns and (pd.api.types.is_numeric_dtype(df_precip_mensual[col]) or col in ['enso_año', 'enso_mes'])]
+enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 
 df_enso = pd.DataFrame() 
 if enso_cols_present:
-    df_enso = df_precip_mensual[['año', 'mes', 'anomalia_oni', 'temp_sst']].drop_duplicates().copy()
-    df_enso.dropna(subset=['año', 'mes'], inplace=True)
+    # Corrección: Se crea el df_enso con las columnas numéricas correctas para evitar el ValueError
+    df_enso = df_precip_mensual[['año', 'mes', 'anomalia_oni', 'temp_sst', 'enso_año', 'enso_mes']].drop_duplicates().copy()
+    
+    # Se asegura que las columnas de año y mes sean numéricas para crear la fecha
     df_enso['año'] = pd.to_numeric(df_enso['año'], errors='coerce').fillna(-1).astype(int)
     df_enso['mes'] = pd.to_numeric(df_enso['mes'], errors='coerce').fillna(-1).astype(int)
     df_enso.dropna(subset=['año', 'mes'], inplace=True)
+    
     df_enso['Fecha'] = pd.to_datetime(df_enso[['año', 'mes']].assign(day=1), errors='coerce')
     df_enso['fecha_merge'] = df_enso['Fecha'].dt.strftime('%Y-%m')
     df_enso.dropna(subset=['Fecha'], inplace=True)
-    for col in enso_cols_present:
-        if col not in ['año', 'mes', 'enso_año', 'enso_mes']:
+    
+    for col in ['anomalia_oni', 'temp_sst']:
+        if col in df_enso.columns:
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
+
 
 lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
 lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
