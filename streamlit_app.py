@@ -309,9 +309,10 @@ with st.sidebar.expander("**Cargar Archivos**", expanded=True):
 
 # VALIDACIÓN Y CARGA DE DATOS: Esta es la sección crucial que hemos corregido.
 if all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
-    # Verificar si los archivos han cambiado para evitar recargas innecesarias
-    if 'data_loaded_ids' not in st.session_state:
-        st.session_state.data_loaded_ids = {}
+    
+    # Se crea un estado para almacenar los IDs de los archivos cargados
+    if 'file_ids' not in st.session_state:
+        st.session_state.file_ids = {}
 
     current_file_ids = {
         'mapa': uploaded_file_mapa.id,
@@ -319,11 +320,18 @@ if all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
         'shapefile': uploaded_zip_shapefile.id
     }
 
-    if current_file_ids != st.session_state.data_loaded_ids:
-        st.session_state.data_loaded_ids = current_file_ids
+    # Solo si los archivos han cambiado, se ejecuta el preprocesamiento
+    if current_file_ids != st.session_state.file_ids:
+        st.session_state.file_ids = current_file_ids
         st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+        
+        # Una vez que los datos están cargados, se marca la sesión como lista
         st.session_state.data_loaded = True
         st.rerun()
+
+    if not st.session_state.get('data_loaded', False):
+        st.info("Cargando datos. Por favor, espere...")
+        st.stop()
 
     # Si se han cargado los datos, el resto del script puede ejecutarse.
     if st.session_state.gdf_stations is None:
