@@ -1,3 +1,4 @@
+plotly>=5.0.0
 streamlit
 pandas
 altair
@@ -8,4 +9,3 @@ numpy
 shapely
 scikit-learn
 pykrige
-plotly>=5.0.0
