@@ -194,8 +194,6 @@ if id_col_name:
     df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
 
 precip_col_name = next((col for col in df_precip_mensual_raw.columns if 'precipitacion' in col.lower()), None)
-
-# Corrección clave: Se define el df_enso con columnas específicas y se procesan sus tipos de datos
 enso_cols = ['año', 'mes', 'anomalia_oni', 'temp_sst']
 if all(col in df_precip_mensual.columns for col in enso_cols):
     df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
