@@ -191,8 +191,8 @@ logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 
 title_col1, title_col2 = st.columns([1, 5])
 with title_col1:
-    if os.path.exists(logo_path):
-        st.image(logo_path, use_column_width='auto')
+    if os.path.exists(logo_gota_path):
+        st.image(logo_gota_path, width=50)
 with title_col2:
     st.title('Visor de Precipitación y Fenómeno ENSO')
 
