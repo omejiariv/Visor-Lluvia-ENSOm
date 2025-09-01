@@ -202,27 +202,44 @@ if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municip
     st.stop()
     
 df_precip_mensual = df_precip_mensual_raw.copy()
-df_precip_mensual.columns = df_precip_mensual.columns.str.strip()
+df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
 
-# Se busca la columna de año con o sin capitalización
-year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col.lower() and 'enso' not in col.lower()), None)
-month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col.lower()), None)
+# --- MODIFICACIÓN CLAVE: Lógica robusta para encontrar la columna de fecha ---
+date_col_name = None
+if 'fecha_mes_año' in df_precip_mensual.columns:
+    date_col_name = 'fecha_mes_año'
+elif 'fecha' in df_precip_mensual.columns:
+    date_col_name = 'fecha'
+elif 'id_fecha' in df_precip_mensual.columns:
+    date_col_name = 'id_fecha'
+    
+if date_col_name:
+    # Intenta inferir el formato, si falla, usa el formato mmm-yy
+    try:
+        df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual[date_col_name], errors='coerce')
+    except Exception:
+        df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual[date_col_name], format='%b-%y', errors='coerce')
+    df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
+    df_precip_mensual['año'] = df_precip_mensual['Fecha'].dt.year
+    df_precip_mensual['mes'] = df_precip_mensual['Fecha'].dt.month
+else:
+    # Lógica de respaldo si no se encuentra un campo de fecha combinado
+    year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col.lower() and 'enso' not in col.lower()), None)
+    month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col.lower()), None)
+    if not all([year_col_name, month_col_name]):
+        st.error("No se encontraron las columnas de fecha necesarias (p.ej., 'fecha_mes_año', 'fecha', o 'año' y 'mes').")
+        st.stop()
+    df_precip_mensual.rename(columns={year_col_name: 'año', month_col_name: 'mes'}, inplace=True)
+    df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
+    df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
+
 id_col_name = next((col for col in df_precip_mensual.columns if col.lower() == 'id'), None)
-
-if not all([year_col_name, month_col_name]):
-    st.error("No se encontraron las columnas 'Año' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
-    st.stop()
-
-# Renombrar para estandarizar
-df_precip_mensual.rename(columns={year_col_name: 'Año', month_col_name: 'mes'}, inplace=True)
 if id_col_name:
     df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
 
-# Crea la columna Fecha de manera robusta
-df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['Año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
-df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
+# Se estandariza el nombre de la columna para la interfaz de usuario
+df_precip_mensual.rename(columns={'año': 'Año'}, inplace=True)
 
-# Lógica para datos ENSO
 enso_cols_base = ['Año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 df_enso = pd.DataFrame() 
@@ -258,7 +275,6 @@ if not station_cols:
     st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
     st.stop()
 
-# Usar el nombre de columna estandarizado 'Año' y 'Id' si está disponible
 id_vars = ['Año', 'mes', 'Fecha']
 if 'Id' in df_precip_mensual.columns:
     id_vars.append('Id')
@@ -545,7 +561,7 @@ with tab_anim:
         if not df_anual_melted.empty:
             fig_mapa_animado = px.scatter_geo(df_anual_melted, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
                                               hover_name='Nom_Est', animation_frame='Año', projection='natural earth',
-                                              title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu)
+                                              title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu')
             fig_mapa_animado.update_geos(fitbounds="locations", visible=True)
             fig_mapa_animado.update_layout(height=700)
             st.plotly_chart(fig_mapa_animado, use_container_width=True)
@@ -592,7 +608,7 @@ with tab_anim:
                            with map_col1:
                                st.subheader(f"Estaciones - Año: {year1}")
                                fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', 
-                                                       size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', 
+                                                       size='Precipitación', hover_name='Nom_Est', color_continuous_scale=px.colors.sequential.YlGnBu', 
                                                        projection='natural earth', range_color=color_range)
                                fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
                                fig1.update_layout(height=600)
@@ -627,7 +643,7 @@ with tab_anim:
                                    st.warning(f"No hay datos para el año {year}.")
                                    continue
                                fig = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
-                                                       hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
+                                                       hover_name='Nom_Est', color_continuous_scale=px.colors.sequential.YlGnBu', range_color=color_range, projection='natural earth')
                                fig.update_geos(fitbounds="locations", visible=True)
                                st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
         else:
@@ -639,7 +655,7 @@ with tab_anim:
         if not df_enso.empty and not gdf_stations.empty and 'anomalia_oni' in df_enso.columns:
            st.info("El color de cada estación representa la fase del fenómeno ENSO a nivel global para cada mes.")
            
-           stations_subset = gdf_stations.loc[:, ['Nom_Est', 'Latitud_geo', 'Longitud_geo']].copy()
+           stations_subset = gdf_stations.loc[:, ['Nom_Est', 'Longitud_geo', 'Latitud_geo']].copy()
            
            enso_anim_data = df_enso.loc[:, ['Fecha', 'anomalia_oni']].copy()
            enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
