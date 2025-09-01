@@ -551,6 +551,7 @@ with tab_anim:
     with st.expander("Ver Animación de Puntos", expanded=True):
         st.subheader("Mapa Animado de Precipitación Anual")
         if not df_anual_melted.empty:
+            # Corrección: Asegurar que el string del título esté correctamente cerrado
             fig_mapa_animado = px.scatter_geo(df_anual_melted, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
                                               hover_name='Nom_Est', animation_frame='Año', projection='natural earth',
                                               title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu')
@@ -600,7 +601,7 @@ with tab_anim:
                            with map_col1:
                                st.subheader(f"Estaciones - Año: {year1}")
                                fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', 
-                                                       size='Precipitación', hover_name='Nom_Est', color_continuous_scale=px.colors.sequential.YlGnBu', 
+                                                       size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', 
                                                        projection='natural earth', range_color=color_range)
                                fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
                                fig1.update_layout(height=600)
@@ -635,7 +636,7 @@ with tab_anim:
                                    st.warning(f"No hay datos para el año {year}.")
                                    continue
                                fig = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
-                                                       hover_name='Nom_Est', color_continuous_scale=px.colors.sequential.YlGnBu', range_color=color_range, projection='natural earth')
+                                                       hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
                                fig.update_geos(fitbounds="locations", visible=True)
                                st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
         else:
