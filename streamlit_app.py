@@ -176,11 +176,13 @@ def create_enso_chart(enso_data):
     )
     return fig
 
-def calculate_anomalies(df_monthly, selected_stations):
-    df_mean_historical = df_monthly[df_monthly['nom_est'].isin(selected_stations)].groupby(['nom_est', 'mes'])['precipitation'].mean().reset_index()
+def calculate_anomalies(df_monthly_filtered, df_monthly_full, selected_stations):
+    # Calcular el promedio histórico utilizando el conjunto de datos completo
+    df_mean_historical = df_monthly_full[df_monthly_full['nom_est'].isin(selected_stations)].groupby(['nom_est', 'mes'])['precipitation'].mean().reset_index()
     df_mean_historical.rename(columns={'precipitation': 'mean_historical'}, inplace=True)
     
-    df_anomalies = pd.merge(df_monthly, df_mean_historical, on=['nom_est', 'mes'], how='left')
+    # Unir los datos filtrados con los promedios históricos completos
+    df_anomalies = pd.merge(df_monthly_filtered, df_mean_historical, on=['nom_est', 'mes'], how='left')
     df_anomalies['anomaly'] = df_anomalies['precipitation'] - df_anomalies['mean_historical']
     
     return df_anomalies
@@ -811,7 +813,8 @@ with tab4:
     with anom_tab:
         st.subheader("Análisis de Anomalías Mensuales de Precipitación")
         
-        df_anomalies = calculate_anomalies(df_monthly_filtered, selected_stations)
+        # Se ha corregido la llamada a la función para usar los datos completos (df_long)
+        df_anomalies = calculate_anomalies(df_monthly_filtered, df_long, selected_stations)
         df_anomalies = pd.merge(df_anomalies, df_enso, on='fecha_mes_año', how='left')
 
         if not df_anomalies.empty and 'anomaly' in df_anomalies.columns and 'anomalia_oni' in df_anomalies.columns:
@@ -848,7 +851,7 @@ with tab4:
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("No hay datos de anomalías para mostrar con la selección actual.")
+            st.warning("No hay datos de anomalías para mostrar con la selección actual. Por favor, revise la selección de estaciones, rango de años y meses.")
 
     with trend_tab:
         st.subheader("Análisis de Tendencias a Largo Plazo")
