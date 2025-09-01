@@ -202,40 +202,34 @@ if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municip
     st.stop()
     
 df_precip_mensual = df_precip_mensual_raw.copy()
-df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
+df_precip_mensual.columns = df_precip_mensual.columns.str.strip()
 
-# --- MODIFICACIÓN CLAVE: Lógica robusta para encontrar la columna de fecha ---
-date_col_name = None
-if 'fecha_mes_año' in df_precip_mensual.columns:
-    date_col_name = 'fecha_mes_año'
-elif 'fecha' in df_precip_mensual.columns:
-    date_col_name = 'fecha'
-elif 'id_fecha' in df_precip_mensual.columns:
-    date_col_name = 'id_fecha'
-    
+# Se busca la columna de año con o sin capitalización
+year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col.lower() and 'enso' not in col.lower()), None)
+month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col.lower()), None)
+id_col_name = next((col for col in df_precip_mensual.columns if col.lower() == 'id'), None)
+
+if not all([year_col_name, month_col_name]):
+    st.error("No se encontraron las columnas 'Año' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
+    st.stop()
+
+# Renombrar para estandarizar
+df_precip_mensual.rename(columns={year_col_name: 'año', month_col_name: 'mes'}, inplace=True)
+if id_col_name:
+    df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
+
+# Crea la columna Fecha de manera robusta
+date_col_name = next((col for col in df_precip_mensual.columns if 'fecha' in col.lower()), None)
 if date_col_name:
-    # Intenta inferir el formato, si falla, usa el formato mmm-yy
     try:
+        # Intenta inferir el formato, si falla, usa el formato mmm-yy
         df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual[date_col_name], errors='coerce')
     except Exception:
         df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual[date_col_name], format='%b-%y', errors='coerce')
     df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
-    df_precip_mensual['año'] = df_precip_mensual['Fecha'].dt.year
-    df_precip_mensual['mes'] = df_precip_mensual['Fecha'].dt.month
 else:
-    # Lógica de respaldo si no se encuentra un campo de fecha combinado
-    year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col.lower() and 'enso' not in col.lower()), None)
-    month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col.lower()), None)
-    if not all([year_col_name, month_col_name]):
-        st.error("No se encontraron las columnas de fecha necesarias (p.ej., 'fecha_mes_año', 'fecha', o 'año' y 'mes').")
-        st.stop()
-    df_precip_mensual.rename(columns={year_col_name: 'año', month_col_name: 'mes'}, inplace=True)
     df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
     df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
-
-id_col_name = next((col for col in df_precip_mensual.columns if col.lower() == 'id'), None)
-if id_col_name:
-    df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
 
 # Se estandariza el nombre de la columna para la interfaz de usuario
 df_precip_mensual.rename(columns={'año': 'Año'}, inplace=True)
