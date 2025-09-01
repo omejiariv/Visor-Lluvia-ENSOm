@@ -79,10 +79,6 @@ def load_shapefile(file_path):
             gdf.columns = gdf.columns.str.strip()
             # Asignar un CRS si no existe
             if gdf.crs is None:
-                # Intenta adivinar el CRS basado en las coordenadas si es posible.
-                # Si las coordenadas están en un rango típico de lat/lon, asume EPSG:4326.
-                # De lo contrario, puedes pedir al usuario que lo especifique o usar un CRS por defecto conocido.
-                # Aquí se mantiene EPSG:9377 como fallback si no se tiene más información.
                 lon_col = next((col for col in gdf.columns if 'longitud' in col.lower() or 'lon' in col.lower() or 'x' in col.lower()), None)
                 lat_col = next((col for col in gdf.columns if 'latitud' in col.lower() or 'lat' in col.lower() or 'y' in col.lower()), None)
                 if lon_col and lat_col:
@@ -274,7 +270,7 @@ if selected_celdas:
     stations_available = stations_available.loc[stations_available['Celda_XY'].isin(selected_celdas)]
 stations_options = sorted(stations_available['Nom_Est'].unique())
 
-if 'selected_stations' not in st.session_state or st.session_state.filter_changed:
+if 'selected_stations' not in st.session_state or 'filter_changed' not in st.session_state:
     st.session_state.selected_stations = [stations_options[0]] if stations_options else []
     st.session_state.filter_changed = False
 
@@ -521,10 +517,9 @@ with tab_anim:
     with st.expander("Ver Animación de Puntos", expanded=True):
         st.subheader("Mapa Animado de Precipitación Anual")
         if not df_anual_melted.empty:
-            # Corrección: Asegurar que la cadena de texto del título esté correctamente cerrada
             fig_mapa_animado = px.scatter_geo(df_anual_melted, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
                                              hover_name='Nom_Est', animation_frame='Año', projection='natural earth',
-                                             title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu')
+                                             title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu_r)
             fig_mapa_animado.update_geos(fitbounds="locations", visible=True)
             fig_mapa_animado.update_layout(height=700)
             st.plotly_chart(fig_mapa_animado, use_container_width=True)
