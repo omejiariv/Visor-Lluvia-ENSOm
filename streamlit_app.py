@@ -207,6 +207,7 @@ df_precip_mensual.columns = df_precip_mensual.columns.str.strip()
 # Se busca la columna de año con o sin capitalización
 year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col.lower() and 'enso' not in col.lower()), None)
 month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col.lower()), None)
+id_col_name = next((col for col in df_precip_mensual.columns if col.lower() == 'id'), None)
 
 if not all([year_col_name, month_col_name]):
     st.error("No se encontraron las columnas 'Año' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
@@ -214,6 +215,8 @@ if not all([year_col_name, month_col_name]):
 
 # Renombrar para estandarizar
 df_precip_mensual.rename(columns={year_col_name: 'Año', month_col_name: 'mes'}, inplace=True)
+if id_col_name:
+    df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
 
 # Crea la columna Fecha de manera robusta
 df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['Año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
@@ -255,8 +258,10 @@ if not station_cols:
     st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
     st.stop()
 
-# Usar el nombre de columna estandarizado 'Año'
+# Usar el nombre de columna estandarizado 'Año' y 'Id' si está disponible
 id_vars = ['Año', 'mes', 'Fecha']
+if 'Id' in df_precip_mensual.columns:
+    id_vars.append('Id')
 df_long = df_precip_mensual.melt(id_vars=id_vars, value_vars=station_cols, var_name='Id_estacion', value_name='Precipitation')
 df_long.loc[:, 'Precipitation'] = pd.to_numeric(df_long['Precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
 df_long.dropna(subset=['Precipitation'], inplace=True)
@@ -801,7 +806,7 @@ with tab_anom:
 # --- Análisis ENSO 🌡️
 with tab_enso:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
-    if df_enso.empty:
+    if df_enso.empty or 'anomalia_oni' not in df_enso.columns:
         st.warning("No se encontraron datos del fenómeno ENSO en el archivo de precipitación cargado. El análisis ENSO no está disponible.")
     else:
         enso_series_tab, enso_corr_tab, enso_precip_combo = st.tabs(["Series de Tiempo ENSO", "Correlación Precipitación-ENSO", "ENSO y Precipitación"])
@@ -862,7 +867,7 @@ with tab_enso:
             st.info("Este gráfico combina la precipitación mensual (calculada como promedio para las estaciones seleccionadas) y la anomalía ONI.")
             
             df_combined = df_monthly_filtered.copy()
-            # Esta línea se ha ajustado para asegurar que 'Fecha' no se pierda.
+            # Se usa `groupby` con `as_index=False` para asegurar que 'Fecha' no se convierta en índice.
             df_combined = df_combined.groupby('Fecha', as_index=False)['Precipitation'].mean()
             df_combined.loc[:, 'fecha_merge'] = df_combined['Fecha'].dt.strftime('%Y-%m')
             df_combined = pd.merge(df_combined, df_enso, on='fecha_merge', how='left')
