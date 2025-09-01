@@ -22,7 +22,6 @@ st.set_page_config(
 )
 
 # --- Estilos CSS Personalizados ---
-## OPTIMIZACIÓN: Se mantiene el CSS para un diseño compacto y legible.
 st.markdown("""
 <style>
     /* Reduce el padding superior para un contenido más compacto */
@@ -36,10 +35,6 @@ st.markdown("""
 
 
 # --- Funciones de Carga y Preprocesamiento de Datos ---
-
-## OPTIMIZACIÓN: Se decoran todas las funciones de carga y procesamiento pesado con @st.cache_data
-## para evitar que se ejecuten innecesariamente en cada interacción del usuario.
-
 @st.cache_data
 def load_csv_data(file_uploader):
     """Carga un archivo CSV desde Streamlit File Uploader con manejo de errores y codificaciones."""
@@ -50,8 +45,6 @@ def load_csv_data(file_uploader):
         if not content.strip():
             st.error(f"El archivo '{file_uploader.name}' parece estar vacío.")
             return None
-
-        # Intenta decodificar con varias codificaciones comunes
         for encoding in ['utf-8', 'latin1', 'cp1252']:
             try:
                 df = pd.read_csv(io.BytesIO(content), sep=';', encoding=encoding)
@@ -83,9 +76,8 @@ def load_shapefile(zip_file):
             gdf = gpd.read_file(os.path.join(temp_dir, shp_files[0]))
             gdf.columns = gdf.columns.str.strip().str.lower()
             
-            # Reproyectar a WGS84 (EPSG:4326) si es necesario
             if gdf.crs is None:
-                gdf = gdf.set_crs("EPSG:4326") # Asumir WGS84 si no tiene CRS
+                gdf = gdf.set_crs("EPSG:4326")
             if gdf.crs.to_epsg() != 4326:
                 gdf = gdf.to_crs("EPSG:4326")
             return gdf
@@ -133,20 +125,16 @@ def preprocess_data(_df_stations_raw, _df_precip_raw, _gdf_municipios):
         st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación.")
         return None, None, None
 
-    # Columnas de identificación y valores ENSO
     id_vars = [col for col in ['id', 'fecha_mes_año', 'año', 'mes', 'anomalia_oni', 'temp_sst'] if col in df_precip.columns]
     
-    # Asegurar que las columnas numéricas sean correctas
     numeric_cols = ['anomalia_oni', 'temp_sst'] + station_cols
     for col in numeric_cols:
         if col in df_precip.columns:
             df_precip[col] = pd.to_numeric(df_precip[col].astype(str).str.replace(',', '.'), errors='coerce')
     
-    # Transformar de formato ancho a largo (tidy format)
     df_long = df_precip.melt(id_vars=id_vars, value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
     df_long.dropna(subset=['precipitation'], inplace=True)
     
-    # Procesar fechas y unir con nombres de estaciones
     df_long['fecha_mes_año'] = parse_spanish_dates(df_long['fecha_mes_año'])
     df_long.dropna(subset=['fecha_mes_año'], inplace=True)
     df_long['origen'] = 'Original'
@@ -168,19 +156,16 @@ def complete_time_series(_df_long):
         df_station = _df_long[_df_long['nom_est'] == station].copy()
         df_station.set_index('fecha_mes_año', inplace=True)
         
-        # Eliminar duplicados en el índice de fechas
         if not df_station.index.is_unique:
             df_station = df_station[~df_station.index.duplicated(keep='first')]
 
-        # Crear un rango de fechas completo y reindexar
         date_range = pd.date_range(start=df_station.index.min(), end=df_station.index.max(), freq='MS')
         df_resampled = df_station.reindex(date_range)
         
-        # Interpolar precipitación y rellenar otros campos
         df_resampled['origen'] = np.where(df_resampled['precipitation'].isna(), 'Completado', 'Original')
         df_resampled['precipitation'] = df_resampled['precipitation'].interpolate(method='time')
         df_resampled['nom_est'] = station
-        df_resampled['anomalia_oni'] = df_resampled['anomalia_oni'].ffill().bfill() # Rellenar ONI
+        df_resampled['anomalia_oni'] = df_resampled['anomalia_oni'].ffill().bfill()
         
         completed_dfs.append(df_resampled.reset_index().rename(columns={'index': 'fecha_mes_año'}))
         progress_bar.progress((i + 1) / len(station_list), text=f"Procesando: {station}")
@@ -190,50 +175,33 @@ def complete_time_series(_df_long):
 
 
 # --- Funciones de Visualización ---
-
-## OPTIMIZACIÓN: Se crean funciones dedicadas para cada gráfico complejo.
-## Esto hace el código principal más limpio y fácil de leer.
-
 def create_enso_chart(enso_data):
     """Crea un gráfico de Plotly para visualizar las fases del ENSO y la anomalía ONI."""
     if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
         return go.Figure()
 
     data = enso_data.copy().sort_values('fecha_mes_año').dropna(subset=['anomalia_oni'])
-    
-    # Clasificar fases y colores
     conditions = [data['anomalia_oni'] >= 0.5, data['anomalia_oni'] <= -0.5]
     data['phase_color'] = np.select(conditions, ['red', 'blue'], default='lightgrey')
-    
     y_range = [data['anomalia_oni'].min() - 0.5, data['anomalia_oni'].max() + 0.5]
-
     fig = go.Figure()
-    
-    # Fondo coloreado por fase
     fig.add_trace(go.Bar(
         x=data['fecha_mes_año'], y=[y_range[1] - y_range[0]] * len(data),
         base=y_range[0], marker_color=data['phase_color'],
         width=30*24*60*60*1000, opacity=0.3, hoverinfo='none', showlegend=False
     ))
-    
-    # Línea principal de la anomalía ONI
     fig.add_trace(go.Scatter(
         x=data['fecha_mes_año'], y=data['anomalia_oni'], mode='lines',
         name='Anomalía ONI', line=dict(color='black', width=2)
     ))
-    
-    # Líneas de umbral para El Niño/La Niña
     fig.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="Umbral El Niño")
     fig.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="Umbral La Niña")
-
-    # Leyenda manual para las fases
     legend_items = {'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'}
     for name, color in legend_items.items():
         fig.add_trace(go.Scatter(
             x=[None], y=[None], mode='markers', name=name,
             marker=dict(size=10, color=color, symbol='square', opacity=0.5)
         ))
-
     fig.update_layout(
         height=500, title_text="<b>Fases del Fenómeno ENSO y Anomalía ONI</b>",
         yaxis_title="Anomalía ONI (°C)", xaxis_title="Fecha", legend_title_text='Fase',
@@ -248,26 +216,19 @@ def generate_kriging_map(_df_year, color_range):
         return go.Figure()
 
     lons, lats, vals = _df_year['longitud_geo'].values, _df_year['latitud_geo'].values, _df_year['precipitacion'].values
-    
-    # Definir la grilla para la interpolación
     bounds = _df_year.total_bounds
     grid_lon = np.linspace(bounds[0] - 0.1, bounds[2] + 0.1, 100)
     grid_lat = np.linspace(bounds[1] - 0.1, bounds[3] + 0.1, 100)
-
     try:
-        # Ejecutar Kriging Ordinario
         OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
         z, ss = OK.execute('grid', grid_lon, grid_lat)
-        
         fig = go.Figure()
-        # Añadir capa de contorno (superficie interpolada)
         fig.add_trace(go.Contour(
             z=z.data, x=grid_lon, y=grid_lat, colorscale='YlGnBu',
             zmin=color_range[0], zmax=color_range[1],
             contours=dict(showlabels=True, labelfont=dict(size=12, color='white')),
             colorbar=dict(title='Pptn (mm)')
         ))
-        # Añadir puntos de las estaciones originales
         fig.add_trace(go.Scatter(
             x=lons, y=lats, text=_df_year['nom_est'],
             mode='markers', marker=dict(color='red', size=5, symbol='circle'), 
@@ -284,16 +245,15 @@ def generate_kriging_map(_df_year, color_range):
 
 # --- Interfaz Principal de la Aplicación ---
 
-## OPTIMIZACIÓN: Se usa un título principal más prominente y un logo.
-c1, c2 = st.columns([1, 8])
-with c1:
-    st.image("https://i.imgur.com/kdkE3b5.png", width=80)
-with c2:
-    st.title('Visor Interactivo de Precipitación y ENSO')
-    st.markdown("Herramienta para el análisis de datos de lluvia y su relación con el fenómeno ENSO.")
+## CAMBIO 1: Se eliminó el logo del encabezado principal.
+st.title('Visor Interactivo de Precipitación y ENSO')
+st.markdown("Herramienta para el análisis de datos de lluvia y su relación con el fenómeno ENSO.")
 
 # --- Barra Lateral (Panel de Control) ---
-st.sidebar.image("https://i.imgur.com/kdkE3b5.png", use_column_width=True)
+
+## CAMBIO 2: Se reemplazó 'use_column_width' por 'use_container_width' para corregir la advertencia.
+## La imagen de la gotica se mantiene aquí.
+st.sidebar.image("https://i.imgur.com/kdkE3b5.png", use_container_width=True)
 st.sidebar.title("Panel de Control 🕹️")
 
 with st.sidebar.expander("**1. Cargar Archivos**", expanded=True):
@@ -302,8 +262,6 @@ with st.sidebar.expander("**1. Cargar Archivos**", expanded=True):
     uploaded_file_shape = st.file_uploader("Shapefile de municipios (.zip)", type="zip")
 
 # --- Lógica de Carga y Bienvenida ---
-## OPTIMIZACIÓN: Si los datos no están cargados, se muestra una página de bienvenida
-## en lugar de detener la app abruptamente.
 if not all([uploaded_file_stations, uploaded_file_precip, uploaded_file_shape]):
     st.info("👋 ¡Bienvenido! Por favor, carga los 3 archivos requeridos en el panel de la izquierda para comenzar.")
     st.image("https://i.imgur.com/qE4J34b.gif", caption="Sube tus archivos para activar el visor.")
@@ -327,25 +285,30 @@ if 'data_loaded' not in st.session_state or not st.session_state.data_loaded:
             st.error("Hubo un error al procesar los archivos. Por favor, revisa los formatos y vuelve a intentarlo.")
             st.stop()
 
+## CAMBIO 3: Se añade esta validación para prevenir el AttributeError.
+## El código no continuará hasta que los datos estén cargados en el estado de la sesión.
+if 'data_loaded' not in st.session_state or not st.session_state.data_loaded:
+    st.stop()
+
+# Cargar datos desde el estado de la sesión a variables locales para un uso seguro
+gdf_stations = st.session_state.gdf_stations
+df_long_original = st.session_state.df_long_original
+gdf_municipios = st.session_state.gdf_municipios
+
 # --- Filtros de Visualización en la Barra Lateral ---
-
-## OPTIMIZACIÓN: Los filtros se agrupan en expanders para una barra lateral más organizada.
 with st.sidebar.expander("**2. Filtros Geográficos** 🗺️", expanded=True):
-    # Filtrar estaciones por porcentaje de datos (si la columna existe)
-    if 'porc_datos' in st.session_state.gdf_stations.columns:
+    if 'porc_datos' in gdf_stations.columns:
         min_data_perc = st.slider("Filtrar por % mínimo de datos:", 0, 100, 0, help="Muestra solo estaciones con un porcentaje de datos superior al seleccionado.")
-        stations_master_list = st.session_state.gdf_stations[st.session_state.gdf_stations['porc_datos'] >= min_data_perc]
+        stations_master_list = gdf_stations[gdf_stations['porc_datos'] >= min_data_perc]
     else:
-        stations_master_list = st.session_state.gdf_stations
+        stations_master_list = gdf_stations
 
-    # Filtros en cascada: Municipio -> Celda -> Estación
     municipios_list = sorted(stations_master_list['municipio'].unique())
     selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list)
     
     stations_available = stations_master_list[stations_master_list['municipio'].isin(selected_municipios)] if selected_municipios else stations_master_list
     stations_options = sorted(stations_available['nom_est'].unique())
 
-    # Selección de estaciones con opción de "Seleccionar todo"
     select_all = st.checkbox("Seleccionar todas las estaciones filtradas")
     if select_all:
         selected_stations = st.multiselect('Estaciones Seleccionadas', options=stations_options, default=stations_options, disabled=True)
@@ -353,8 +316,7 @@ with st.sidebar.expander("**2. Filtros Geográficos** 🗺️", expanded=True):
         selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=stations_options[0] if stations_options else [])
 
 with st.sidebar.expander("**3. Filtros Temporales** 🗓️", expanded=True):
-    # Extraer años disponibles desde las columnas numéricas
-    available_years = sorted([int(col) for col in st.session_state.gdf_stations.columns if str(col).isdigit()])
+    available_years = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
     if not available_years:
         st.error("No se encontraron columnas de años (ej: '2020') en el archivo de estaciones.")
         st.stop()
@@ -373,31 +335,27 @@ with st.sidebar.expander("**4. Opciones de Análisis** 🔬", expanded=True):
         help="La interpolación rellena meses sin datos para crear series continuas."
     )
 
-# Comprobar si hay selecciones válidas
 if not selected_stations or not selected_months_nums:
     st.warning("Por favor, seleccione al menos una estación y un mes en el panel de la izquierda.")
     st.stop()
 
 # --- Preparación de Datos Filtrados ---
-
-# Procesar series mensuales (originales o completadas)
 if analysis_mode == "Completar series (interpolación)":
     if 'df_completed' not in st.session_state:
-        st.session_state.df_completed = complete_time_series(st.session_state.df_long_original)
+        st.session_state.df_completed = complete_time_series(df_long_original)
     df_monthly = st.session_state.df_completed
 else:
-    df_monthly = st.session_state.df_long_original
+    df_monthly = df_long_original
 
-# Aplicar filtros
 df_monthly_filtered = df_monthly[
     (df_monthly['nom_est'].isin(selected_stations)) &
     (df_monthly['fecha_mes_año'].dt.year.between(year_range[0], year_range[1])) &
     (df_monthly['fecha_mes_año'].dt.month.isin(selected_months_nums))
 ]
 
-df_anual_melted = st.session_state.gdf_stations[st.session_state.gdf_stations['nom_est'].isin(selected_stations)].melt(
+df_anual_melted = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].melt(
     id_vars=['nom_est', 'longitud_geo', 'latitud_geo'],
-    value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
+    value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
     var_name='año', value_name='precipitacion'
 )
 df_anual_melted['precipitacion'] = pd.to_numeric(df_anual_melted['precipitacion'].astype(str).str.replace(',', '.'), errors='coerce')
@@ -405,13 +363,10 @@ df_anual_melted.dropna(subset=['precipitacion'], inplace=True)
 
 
 # --- Pestañas de Visualización ---
-## OPTIMIZACIÓN: Se usan emojis en los títulos de las pestañas para una interfaz más amigable.
-## Se consolida todo lo relacionado a mapas en una sola pestaña.
 tab_graphs, tab_maps, tab_stats, tab_enso, tab_downloads = st.tabs([
     "📊 Gráficos", "🗺️ Mapas", "📈 Estadísticas y Tablas", "🌀 Análisis ENSO", "📥 Descargas"
 ])
 
-# Pestaña de Gráficos
 with tab_graphs:
     st.header("Visualizaciones de Precipitación")
     
@@ -443,25 +398,23 @@ with tab_graphs:
             else:
                 st.info("No hay datos mensuales para mostrar.")
 
-# Pestaña de Mapas
 with tab_maps:
     st.header("Visualizaciones Geográficas")
     map_type = st.radio("Seleccionar tipo de mapa:", 
                         ("Ubicación de Estaciones", "Comparación Anual / Kriging", "Mapa Animado ENSO"),
                         horizontal=True, label_visibility="collapsed")
     
-    gdf_filtered_stations = st.session_state.gdf_stations[st.session_state.gdf_stations['nom_est'].isin(selected_stations)]
+    gdf_filtered_stations = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)]
 
     if map_type == "Ubicación de Estaciones":
         if not gdf_filtered_stations.empty:
             st.subheader("Mapa de Ubicación de Estaciones Seleccionadas")
             m = folium.Map(location=[6.24, -75.58], zoom_start=8, tiles="cartodbpositron")
-            folium.GeoJson(st.session_state.gdf_municipios.to_json(), name='Municipios', style_function=lambda x: {'fillColor': 'transparent', 'color': 'gray'}).add_to(m)
+            folium.GeoJson(gdf_municipios.to_json(), name='Municipios', style_function=lambda x: {'fillColor': 'transparent', 'color': 'gray'}).add_to(m)
             for _, row in gdf_filtered_stations.iterrows():
                 html = f"<b>Estación:</b> {row['nom_est']}<br><b>Municipio:</b> {row['municipio']}"
                 folium.Marker([row['latitud_geo'], row['longitud_geo']], tooltip=html).add_to(m)
             
-            # Auto-ajustar el zoom
             bounds = gdf_filtered_stations.total_bounds
             m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
             folium_static(m, width=None, height=600)
@@ -506,14 +459,12 @@ with tab_maps:
         st.subheader("Evolución Mensual del Fenómeno ENSO")
         st.info("El color de cada estación representa la fase ENSO global para cada mes.")
         
-        # Preparar datos para animación
         enso_anim_data = df_monthly[['fecha_mes_año', 'anomalia_oni']].drop_duplicates().dropna()
         enso_anim_data = enso_anim_data[enso_anim_data['fecha_mes_año'].dt.year.between(year_range[0], year_range[1])]
         conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
         enso_anim_data['fase'] = np.select(conditions, ['El Niño', 'La Niña'], default='Neutral')
         enso_anim_data['fecha_str'] = enso_anim_data['fecha_mes_año'].dt.strftime('%Y-%m')
         
-        # Merge cruzado para tener todas las estaciones en cada frame de tiempo
         animation_df = gdf_filtered_stations[['nom_est', 'geometry']].merge(enso_anim_data, how='cross')
         animation_df['latitud_geo'] = animation_df.geometry.y
         animation_df['longitud_geo'] = animation_df.geometry.x
@@ -532,7 +483,6 @@ with tab_maps:
         else:
             st.warning("No hay datos ENSO para generar la animación en el rango seleccionado.")
 
-# Pestaña de Estadísticas y Tablas
 with tab_stats:
     st.header("Estadísticas y Datos Tabulares")
     
@@ -553,8 +503,7 @@ with tab_stats:
             st.info("No hay datos para mostrar estadísticas.")
 
     with st.expander("Matriz de Disponibilidad de Datos", expanded=False):
-        # Usamos los datos originales siempre para ver la disponibilidad real
-        data_counts = st.session_state.df_long_original[st.session_state.df_long_original['nom_est'].isin(selected_stations)]
+        data_counts = df_long_original[df_long_original['nom_est'].isin(selected_stations)]
         data_counts['año'] = data_counts['fecha_mes_año'].dt.year
         heatmap_df = data_counts.groupby(['nom_est', 'año']).size().unstack(fill_value=0)
         
@@ -575,7 +524,6 @@ with tab_stats:
         else:
             st.info("No hay datos para mostrar.")
 
-# Pestaña de Análisis ENSO
 with tab_enso:
     st.header("Análisis de Precipitación vs. Fenómeno ENSO")
     
@@ -583,11 +531,9 @@ with tab_enso:
     if 'anomalia_oni' not in df_analisis.columns or df_analisis['anomalia_oni'].isnull().all():
         st.warning("No se encontraron datos de 'anomalia_oni' para el período seleccionado.")
     else:
-        # Clasificar fase ENSO
         df_analisis['enso_fase'] = df_analisis['anomalia_oni'].apply(
             lambda x: 'El Niño' if x >= 0.5 else ('La Niña' if x <= -0.5 else 'Neutral')
         )
-
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Precipitación por Fase ENSO")
@@ -598,12 +544,11 @@ with tab_enso:
                 color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'grey'}
             )
             st.plotly_chart(fig_enso, use_container_width=True)
-
         with col2:
             st.subheader("Correlación Precipitación vs. ONI")
             fig_corr = px.scatter(
                 df_analisis, x='anomalia_oni', y='precipitation',
-                trendline='ols', # Añadir línea de tendencia
+                trendline='ols',
                 labels={'anomalia_oni': 'Anomalía ONI (°C)', 'precipitation': 'Precipitación (mm)'},
                 title="Dispersión y Correlación"
             )
@@ -614,8 +559,6 @@ with tab_enso:
         enso_chart_data = enso_chart_data[enso_chart_data['fecha_mes_año'].dt.year.between(year_range[0], year_range[1])]
         st.plotly_chart(create_enso_chart(enso_chart_data), use_container_width=True)
 
-
-# Pestaña de Descargas
 with tab_downloads:
     st.header("Opciones de Descarga de Datos")
     st.info("Aquí puedes descargar los datos filtrados según tus selecciones en el panel de control.")
