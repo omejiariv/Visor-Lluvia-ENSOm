@@ -553,7 +553,7 @@ with tab_anim:
         if not df_anual_melted.empty:
             fig_mapa_animado = px.scatter_geo(df_anual_melted, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
                                               hover_name='Nom_Est', animation_frame='Año', projection='natural earth',
-                                              title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu)
+                                              title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu')
             fig_mapa_animado.update_geos(fitbounds="locations", visible=True)
             fig_mapa_animado.update_layout(height=700)
             st.plotly_chart(fig_mapa_animado, use_container_width=True)
