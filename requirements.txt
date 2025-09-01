@@ -9,4 +9,3 @@ numpy
 shapely
 scikit-learn
 pykrige
-scipy
