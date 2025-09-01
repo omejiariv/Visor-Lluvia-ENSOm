@@ -456,7 +456,7 @@ with tab1:
                 if not df_monthly_filtered.empty:
                     df_values = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Precipitation')
                     
-                    # CORRECCIÓN: Mostrar el DataFrame directamente, sin estilizar, para evitar el error.
+                    # Corrección: mostrar el DataFrame sin estilizar para evitar el error.
                     st.dataframe(df_values, use_container_width=True)
 
     with sub_tab_monthly_avg:
