@@ -245,6 +245,11 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
                                      value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
     df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
+    
+    # CORRECCIÓN: Conversión explícita de 'anomalia_oni' a numérico para evitar TypeError
+    if 'anomalia_oni' in df_long.columns:
+        df_long['anomalia_oni'] = pd.to_numeric(df_long['anomalia_oni'].astype(str).str.replace(',', '.'), errors='coerce')
+
     df_long.dropna(subset=['precipitation'], inplace=True)
     
     # Aplicar la función de corrección de fechas antes de la conversión a datetime
@@ -299,7 +304,7 @@ if 'select_all_stations_state' not in st.session_state:
     st.session_state.select_all_stations_state = False
 
 if 'porc_datos' in gdf_stations.columns:
-    gdf_stations['porc_datos'] = pd.to_numeric(gdf_stations['porc_datos'], errors='coerce').fillna(0)
+    gdf_stations['porc_datos'] = pd.to_numeric(gdf_stations['porc_datos'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
     min_data_perc = st.sidebar.slider("Filtrar por % de datos mínimo:", 0, 100, 0)
     stations_master_list = gdf_stations[gdf_stations['porc_datos'] >= min_data_perc]
 else:
@@ -801,6 +806,7 @@ with tab4:
                 df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
 
                 def classify_enso(oni):
+                    # La comparación ahora es segura, ya que los valores son numéricos
                     if oni >= 0.5: return 'El Niño'
                     elif oni <= -0.5: return 'La Niña'
                     else: return 'Neutral'
