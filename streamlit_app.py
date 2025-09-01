@@ -119,7 +119,7 @@ def complete_series(_df):
             df_resampled['Precipitation'] = df_resampled['Precipitation'].interpolate(method='time')
             df_resampled['Origen'] = df_resampled['Origen'].fillna('Completado')
             df_resampled['Nom_Est'] = station
-            df_resampled['Año'] = df_resampled.index.year
+            df_resampled['año'] = df_resampled.index.year
             df_resampled['mes'] = df_resampled.index.month
             df_resampled.reset_index(inplace=True)
             df_resampled.rename(columns={'index': 'Fecha'}, inplace=True)
@@ -165,7 +165,7 @@ if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municip
 df_precip_mensual = df_precip_mensual_raw.copy()
 df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
 
-# Se busca la columna de fecha completa (p. ej., 'fecha_mes_año') para un procesamiento más robusto.
+# Lógica de detección y renombrado de columnas mejorada
 date_col_name_full = next((col for col in df_precip_mensual.columns if 'fecha_mes_aã±o' in col or 'fecha_mes_año' in col), None)
 
 if date_col_name_full:
@@ -194,13 +194,14 @@ if id_col_name:
     df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
 
 precip_col_name = next((col for col in df_precip_mensual_raw.columns if 'precipitacion' in col.lower()), None)
+# Corregido: Se eliminó 'temp_media' de la base ya que no existe en el archivo y podría causar errores.
 enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_sst']
 
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 df_enso = pd.DataFrame() 
 if enso_cols_present:
     df_enso = df_precip_mensual[enso_cols_present].drop_duplicates().copy()
-    df_enso.dropna(subset=['año', 'mes'], inplace=True)
+    # Corrección clave: se asegura que 'año' y 'mes' sean numéricos antes de crear la fecha
     df_enso['año'] = pd.to_numeric(df_enso['año'], errors='coerce').fillna(-1).astype(int)
     df_enso['mes'] = pd.to_numeric(df_enso['mes'], errors='coerce').fillna(-1).astype(int)
     df_enso.dropna(subset=['año', 'mes'], inplace=True)
@@ -300,7 +301,6 @@ selected_stations = st.sidebar.multiselect(
 )
 st.session_state.selected_stations = selected_stations
 
-# Modificación para usar 'año' en minúsculas
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit() and pd.api.types.is_numeric_dtype(gdf_stations[str(col)])])
 if not años_disponibles:
     st.error("No se encontraron columnas de años (ej: '2020', '2021') en el archivo de estaciones.")
