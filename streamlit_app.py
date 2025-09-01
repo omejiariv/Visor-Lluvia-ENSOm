@@ -470,17 +470,7 @@ with tab1:
                 st.subheader("Datos de Precipitación Mensual Detallados")
                 if not df_monthly_filtered.empty:
                     df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation')
-                    df_origin = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='origen', aggfunc='first')
-                    
-                    for col in df_values.columns:
-                        df_values[col] = pd.to_numeric(df_values[col], errors='coerce')
-
-                    # Solución corregida: usar una función lambda para el styling
-                    styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(
-                        lambda x: ['background-color: #ffcccb' if val == 'Completado' else '' for val in df_origin.loc[x.name]],
-                        axis=1
-                    )
-                    st.dataframe(styled_df)
+                    st.dataframe(df_values)
 
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
