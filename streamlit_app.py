@@ -13,6 +13,7 @@ import os
 import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
+from scipy.stats import linregress
 
 try:
     from folium.plugins import ScaleControl
@@ -364,6 +365,11 @@ df_monthly_filtered = df_monthly_to_process[
 # --- Pestañas Principales ---
 tab1, tab2, tab_anim, tab3, tab_stats, tab4, tab5 = st.tabs(["Gráficos", "Mapa de Estaciones", "Mapas Avanzados", "Tabla de Estaciones", "Estadísticas", "Análisis ENSO", "Descargas"])
 
+# Nuevas pestañas
+tab_anomalias, tab_tendencias, tab_enso_resumen = st.tabs(
+    ["Anomalías", "Análisis de Tendencias", "Resumen por ENSO"]
+)
+
 with tab1:
     st.header("Visualizaciones de Precipitación")
     sub_tab_anual, sub_tab_mensual = st.tabs(["Serie Anual", "Serie Mensual"])
@@ -471,6 +477,155 @@ with tab1:
                 if not df_monthly_filtered.empty:
                     df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation')
                     st.dataframe(df_values)
+
+with tab_anomalias:
+    st.header("Análisis de Anomalías de Precipitación")
+    st.info("El análisis de anomalías muestra la desviación de la precipitación mensual con respecto al promedio histórico para cada mes. Valores positivos indican exceso de precipitación; valores negativos indican déficit.")
+    
+    if not df_monthly_to_process.empty:
+        # Calcular el promedio histórico mensual para cada estación
+        df_monthly_avg = df_monthly_to_process.groupby(['nom_est', 'mes'])['precipitation'].mean().reset_index()
+        df_monthly_avg.rename(columns={'precipitation': 'promedio_historico'}, inplace=True)
+        
+        # Calcular las anomalías
+        df_anomalias = pd.merge(df_monthly_filtered.copy(), df_monthly_avg, on=['nom_est', 'mes'], how='left')
+        df_anomalias['anomalia'] = df_anomalias['precipitation'] - df_anomalias['promedio_historico']
+        
+        # Graficar las anomalías
+        fig_anomalias = px.bar(
+            df_anomalias,
+            x='fecha_mes_año',
+            y='anomalia',
+            color='anomalia',
+            color_continuous_scale=px.colors.sequential.Bluered,
+            labels={'anomalia': 'Anomalía de Precipitación (mm)', 'fecha_mes_año': 'Fecha'},
+            title="Anomalía de Precipitación Mensual por Estación"
+        )
+        fig_anomalias.update_layout(height=600)
+        st.plotly_chart(fig_anomalias, use_container_width=True)
+        
+        st.markdown("---")
+        st.subheader("Anomalías y Fenómeno ENSO")
+        st.info("El siguiente gráfico permite comparar visualmente la anomalía de precipitación con la fase del fenómeno ENSO.")
+        
+        enso_filtered = df_enso[
+            (df_enso['fecha_mes_año'].dt.year >= year_range[0]) & 
+            (df_enso['fecha_mes_año'].dt.year <= year_range[1]) &
+            (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))
+        ]
+        
+        enso_filtered['fase_enso'] = np.select(
+            [enso_filtered['anomalia_oni'] >= 0.5, enso_filtered['anomalia_oni'] <= -0.5],
+            ['El Niño', 'La Niña'],
+            default='Neutral'
+        )
+        
+        enso_chart = create_enso_chart(enso_filtered)
+        st.plotly_chart(enso_chart, use_container_width=True)
+    else:
+        st.info("No hay datos de precipitación mensual filtrados para realizar el análisis de anomalías.")
+        
+with tab_tendencias:
+    st.header("Análisis de Tendencias a Largo Plazo")
+    st.info("Este análisis determina si hay una tendencia lineal significativa en la precipitación anual a lo largo del tiempo.")
+    
+    if not df_anual_melted.empty:
+        tendencia_df = pd.DataFrame()
+        station_names = df_anual_melted['nom_est'].unique()
+        
+        for station in station_names:
+            df_station = df_anual_melted[df_anual_melted['nom_est'] == station].copy()
+            df_station['año'] = pd.to_numeric(df_station['año'])
+            
+            # Realizar regresión lineal
+            slope, intercept, r_value, p_value, std_err = linregress(df_station['año'], df_station['precipitacion'])
+            
+            # Determinar la tendencia
+            tendencia = 'Sin Tendencia'
+            if p_value < 0.05:
+                tendencia = 'Ascendente' if slope > 0 else 'Descendente'
+            
+            tendencia_df = pd.concat([tendencia_df, pd.DataFrame([{
+                'Estación': station,
+                'Tendencia': tendencia,
+                'Pendiente (mm/año)': slope,
+                'Valor p (Significancia)': p_value,
+                'R-cuadrado': r_value**2
+            }])], ignore_index=True)
+            
+            # Graficar con línea de tendencia
+            fig = px.scatter(
+                df_station,
+                x='año',
+                y='precipitacion',
+                title=f"Precipitación Anual y Tendencia para {station}",
+                labels={'año': 'Año', 'precipitacion': 'Precipitación Anual (mm)'}
+            )
+            fig.add_trace(go.Scatter(
+                x=df_station['año'],
+                y=slope * df_station['año'] + intercept,
+                mode='lines',
+                name='Línea de Tendencia'
+            ))
+            st.plotly_chart(fig, use_container_width=True)
+            
+        st.subheader("Resumen de Tendencias por Estación")
+        st.dataframe(tendencia_df.round(4))
+        
+        st.markdown("---")
+        st.info("Nota: Este análisis utiliza una regresión lineal simple. Para un análisis hidrológico más robusto, se recomienda la prueba de Mann-Kendall, aunque no está implementada en este visor.")
+    else:
+        st.info("No hay datos de precipitación anual para realizar el análisis de tendencias.")
+
+with tab_enso_resumen:
+    st.header("Resumen de Precipitación por Fase ENSO")
+    st.info("Este resumen muestra las estadísticas de precipitación agrupadas por la fase del fenómeno ENSO.")
+    
+    if not df_monthly_to_process.empty:
+        df_analisis = df_monthly_to_process.copy()
+        enso_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
+        
+        df_analisis = pd.merge(df_analisis, enso_data, on='fecha_mes_año', how='left')
+        df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
+        
+        def classify_enso(oni):
+            if oni >= 0.5: return 'El Niño'
+            elif oni <= -0.5: return 'La Niña'
+            else: return 'Neutral'
+        
+        df_analisis['fase_enso'] = df_analisis['anomalia_oni'].apply(classify_enso)
+        
+        if not df_analisis.empty:
+            st.subheader("Gráficos de Cajas por Fase ENSO")
+            fig_box_enso = px.box(
+                df_analisis,
+                x='fase_enso',
+                y='precipitation',
+                color='fase_enso',
+                title='Distribución de Precipitación por Fase ENSO',
+                labels={'fase_enso': 'Fase ENSO', 'precipitation': 'Precipitación Mensual (mm)'},
+                category_orders={"fase_enso": ["El Niño", "La Niña", "Neutral"]}
+            )
+            st.plotly_chart(fig_box_enso, use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("Estadísticas de Precipitación por Fase ENSO")
+            summary_enso = df_analisis.groupby(['nom_est', 'fase_enso'])['precipitation'].agg(
+                ['mean', 'min', 'max']
+            ).reset_index()
+            
+            summary_enso.rename(columns={
+                'mean': 'Promedio Mensual (mm)',
+                'min': 'Mínimo Mensual (mm)',
+                'max': 'Máximo Mensual (mm)',
+                'nom_est': 'Estación'
+            }, inplace=True)
+            
+            st.dataframe(summary_enso.round(2))
+        else:
+            st.info("No hay datos de precipitación disponibles para realizar el resumen por fase ENSO.")
+    else:
+        st.info("No hay datos de precipitación mensual para realizar el resumen por fase ENSO.")
 
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
