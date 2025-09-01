@@ -264,7 +264,7 @@ if st.session_state.gdf_stations is None:
 
 gdf_stations = st.session_state.gdf_stations
 df_precip_anual = st.session_state.df_precip_anual
-df_municipios = st.session_state.gdf_municipios
+gdf_municipios = st.session_state.gdf_municipios
 df_long = st.session_state.df_long
 df_enso = st.session_state.df_enso
 
@@ -360,12 +360,10 @@ df_monthly_filtered['nombre_mes'] = df_monthly_filtered['fecha_mes_año'].dt.str
 sorted_month_names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 df_monthly_filtered['nombre_mes_ordenado'] = pd.Categorical(df_monthly_filtered['nombre_mes'], categories=sorted_month_names, ordered=True)
 
-
 # --- Pestañas Principales ---
 tab_mapa, tab_graficos, tab_tendencias, tab_anomalias, tab_enso_resumen, tab_tablas, tab_stats, tab_descargas = st.tabs([
     "Mapa de Estaciones", "Gráficos", "Análisis de Tendencias", "Anomalías", "Resumen por ENSO", "Tabla de Estaciones", "Estadísticas", "Descargas"
 ])
-
 
 with tab_mapa:
     st.header("Mapa de Ubicación de Estaciones")
@@ -407,7 +405,7 @@ with tab_mapa:
                 bounds = gdf_filtered.total_bounds
                 m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-            folium.GeoJson(df_municipios.to_json(), name='Municipios').add_to(m)
+            folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
             for _, row in gdf_filtered.iterrows():
                 html = f"<b>Estación:</b> {row['nom_est']}<br><b>Municipio:</b> {row['municipio']}"
                 folium.Marker([row['latitud_geo'], row['longitud_geo']], tooltip=html).add_to(m)
