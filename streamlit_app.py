@@ -202,19 +202,19 @@ if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municip
     st.stop()
     
 df_precip_mensual = df_precip_mensual_raw.copy()
-df_precip_mensual.columns = df_precip_mensual.columns.str.strip()
+df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
 
-# Se busca la columna de año con o sin capitalización
-year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col.lower() and 'enso' not in col.lower()), None)
-month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col.lower()), None)
+# Se busca la columna de año y mes con nombres en minúscula
+year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col), None)
+month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col), None)
 id_col_name = next((col for col in df_precip_mensual.columns if col.lower() == 'id'), None)
 
 if not all([year_col_name, month_col_name]):
-    st.error("No se encontraron las columnas 'Año' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
+    st.error("No se encontraron las columnas 'año' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
     st.stop()
 
-# Renombrar para estandarizar
-df_precip_mensual.rename(columns={year_col_name: 'año', month_col_name: 'mes'}, inplace=True)
+# Renombrar para estandarizar a 'Año' y 'mes' para compatibilidad con el resto del script
+df_precip_mensual.rename(columns={year_col_name: 'Año', month_col_name: 'mes'}, inplace=True)
 if id_col_name:
     df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
 
@@ -223,14 +223,12 @@ date_col_name = next((col for col in df_precip_mensual.columns if 'fecha_mes_añ
 if date_col_name:
     df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual[date_col_name], format='%b-%y', errors='coerce')
     df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
-    df_precip_mensual['año'] = df_precip_mensual['Fecha'].dt.year
+    df_precip_mensual['Año'] = df_precip_mensual['Fecha'].dt.year
     df_precip_mensual['mes'] = df_precip_mensual['Fecha'].dt.month
 else:
-    df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
+    df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['Año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
     df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
 
-# Se estandariza el nombre de la columna para la interfaz de usuario
-df_precip_mensual.rename(columns={'año': 'Año'}, inplace=True)
 
 enso_cols_base = ['Año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
@@ -601,7 +599,7 @@ with tab_anim:
                            with map_col1:
                                st.subheader(f"Estaciones - Año: {year1}")
                                fig1 = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', 
-                                                       size='Precipitación', hover_name='Nom_Est', color_continuous_scale='YlGnBu', 
+                                                       size='Precipitación', hover_name='Nom_Est', color_continuous_scale=px.colors.sequential.YlGnBu', 
                                                        projection='natural earth', range_color=color_range)
                                fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
                                fig1.update_layout(height=600)
@@ -644,7 +642,6 @@ with tab_anim:
            
     with st.expander("Mapa Animado del Fenómeno ENSO"):
         st.subheader("Evolución Mensual del Fenómeno ENSO")
-        # Corrección: Verificar si la columna anomalia_oni existe antes de intentar acceder a ella
         if not df_enso.empty and not gdf_stations.empty and 'anomalia_oni' in df_enso.columns:
            st.info("El color de cada estación representa la fase del fenómeno ENSO a nivel global para cada mes.")
            
