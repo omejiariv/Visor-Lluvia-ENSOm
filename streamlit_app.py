@@ -200,6 +200,7 @@ enso_cols = ['año', 'mes', 'anomalia_oni', 'temp_sst']
 if all(col in df_precip_mensual.columns for col in enso_cols):
     df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
     
+    # Se asegura que las columnas de año y mes sean numéricas para crear la fecha
     df_enso['año'] = pd.to_numeric(df_enso['año'], errors='coerce').fillna(-1).astype(int)
     df_enso['mes'] = pd.to_numeric(df_enso['mes'], errors='coerce').fillna(-1).astype(int)
     df_enso.dropna(subset=['año', 'mes'], inplace=True)
