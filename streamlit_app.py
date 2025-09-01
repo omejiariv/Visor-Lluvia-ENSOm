@@ -15,7 +15,7 @@ import numpy as np
 from pykrige.ok import OrdinaryKriging
 from pykrige.variogram_models import linear_model
 from pykrige.kriging_tools import write_asc_grid
- 
+
 # Evita un error si ScaleControl no está disponible
 try:
     from folium.plugins import ScaleControl
