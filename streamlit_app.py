@@ -118,7 +118,7 @@ def complete_series(_df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
-def create_enso_chart(enso_data):
+def create_enso_chart(enso_data, height=600):
     if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
         return go.Figure()
 
@@ -165,7 +165,7 @@ def create_enso_chart(enso_data):
     fig.add_hline(y=-0.5, line_dash="dash", line_color="blue")
 
     fig.update_layout(
-        height=600,
+        height=height,
         title="Fases del Fenómeno ENSO y Anomalía ONI",
         yaxis_title="Anomalía ONI (°C)",
         xaxis_title="Fecha",
@@ -181,8 +181,8 @@ logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 
 title_col1, title_col2 = st.columns([1, 5])
 with title_col1:
-    if os.path.exists(logo_path):
-        st.image(logo_path, use_column_width='auto')
+    if os.path.exists(logo_gota_path):
+        st.image(logo_gota_path, width=50)
 with title_col2:
     st.title('Visor de Precipitación y Fenómeno ENSO')
 
@@ -567,37 +567,34 @@ with tab_anomalias:
         df_anomalias = pd.merge(df_monthly_filtered.copy(), df_monthly_avg, on=['nom_est', 'mes'], how='left')
         df_anomalias['anomalia'] = df_anomalias['precipitation'] - df_anomalias['promedio_historico']
         
-        # Graficar las anomalías
-        fig_anomalias = px.bar(
-            df_anomalias,
-            x='fecha_mes_año',
-            y='anomalia',
-            color='anomalia',
-            color_continuous_scale=px.colors.sequential.Bluered,
-            labels={'anomalia': 'Anomalía de Precipitación (mm)', 'fecha_mes_año': 'Fecha'},
-            title="Anomalía de Precipitación Mensual por Estación"
-        )
-        fig_anomalias.update_layout(height=600)
-        st.plotly_chart(fig_anomalias, use_container_width=True)
+        # Juntar datos de ENSO para visualización
+        df_anomalias_enso = pd.merge(df_anomalias, df_enso[['fecha_mes_año', 'anomalia_oni']].copy(), on='fecha_mes_año', how='left')
         
-        st.markdown("---")
-        st.subheader("Anomalías y Fenómeno ENSO")
-        st.info("El siguiente gráfico permite comparar visualmente la anomalía de precipitación con la fase del fenómeno ENSO.")
+        col1, col2 = st.columns(2)
         
-        enso_filtered = df_enso[
-            (df_enso['fecha_mes_año'].dt.year >= year_range[0]) & 
-            (df_enso['fecha_mes_año'].dt.year <= year_range[1]) &
-            (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))
-        ]
-        
-        enso_filtered['fase_enso'] = np.select(
-            [enso_filtered['anomalia_oni'] >= 0.5, enso_filtered['anomalia_oni'] <= -0.5],
-            ['El Niño', 'La Niña'],
-            default='Neutral'
-        )
-        
-        enso_chart = create_enso_chart(enso_filtered)
-        st.plotly_chart(enso_chart, use_container_width=True)
+        with col1:
+            st.subheader("Anomalía de Precipitación Mensual por Estación")
+            fig_anomalias = px.bar(
+                df_anomalias,
+                x='fecha_mes_año',
+                y='anomalia',
+                color='anomalia',
+                color_continuous_scale=px.colors.sequential.Bluered,
+                labels={'anomalia': 'Anomalía de Precipitación (mm)', 'fecha_mes_año': 'Fecha'},
+                title="Anomalía de Precipitación Mensual por Estación"
+            )
+            fig_anomalias.update_layout(height=400)
+            st.plotly_chart(fig_anomalias, use_container_width=True)
+            
+        with col2:
+            st.subheader("Fases del Fenómeno ENSO y Anomalía ONI")
+            enso_filtered = df_anomalias_enso[
+                (df_anomalias_enso['fecha_mes_año'].dt.year >= year_range[0]) & 
+                (df_anomalias_enso['fecha_mes_año'].dt.year <= year_range[1])
+            ]
+            enso_chart = create_enso_chart(enso_filtered, height=400)
+            st.plotly_chart(enso_chart, use_container_width=True)
+
     else:
         st.info("No hay datos de precipitación mensual filtrados para realizar el análisis de anomalías.")
         
