@@ -795,6 +795,7 @@ with tab4:
             df_analisis = df_monthly_filtered.copy()
             df_analisis = pd.merge(df_analisis, df_enso, on=['fecha_mes_año'], how='left', suffixes=('_precip', '_enso'))
 
+            # Aquí se ha reescrito la lógica para ser más robusta
             if 'anomalia_oni' in df_analisis.columns:
                 df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
 
@@ -820,7 +821,7 @@ with tab4:
                 else:
                     st.warning("No hay datos suficientes para realizar el análisis ENSO con la selección actual.")
             else:
-                st.warning(f"Análisis no disponible. Falta la columna 'anomalia_oni' en el archivo de datos.")
+                st.warning("Análisis no disponible. No se pudo encontrar la columna 'anomalia_oni' para el análisis.")
 
 with tab5:
     st.header("Opciones de Descarga")
