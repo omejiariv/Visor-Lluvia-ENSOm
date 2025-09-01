@@ -203,12 +203,25 @@ if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municip
     st.stop()
     
 df_precip_mensual = df_precip_mensual_raw.copy()
-df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
-year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
-if not year_col_precip:
-    st.error(f"No se encontró columna de año principal ('año' o 'ano') en el archivo de precipitación mensual.")
-    st.stop()
-df_precip_mensual.rename(columns={year_col_precip: 'año'}, inplace=True)
+df_precip_mensual.columns = df_precip_mensual.columns.str.strip()
+
+# --- MODIFICACIONES: Manejo de la columna Id_Fecha ---
+if 'Id_Fecha' in df_precip_mensual.columns:
+    df_precip_mensual.rename(columns={'Id_Fecha': 'Fecha_Str'}, inplace=True)
+    df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['Fecha_Str'], format='%Y-%m', errors='coerce')
+    df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
+    df_precip_mensual['año'] = df_precip_mensual['Fecha'].dt.year
+    df_precip_mensual['mes'] = df_precip_mensual['Fecha'].dt.month
+else:
+    # Lógica de respaldo si no se encuentra Id_Fecha
+    year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
+    if not year_col_precip:
+        st.error(f"No se encontró columna de año principal ('año' o 'ano') en el archivo de precipitación mensual.")
+        st.stop()
+    df_precip_mensual.rename(columns={year_col_precip: 'año'}, inplace=True)
+    df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
+    df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
+
 
 enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
@@ -244,12 +257,14 @@ station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
 if not station_cols:
     st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
     st.stop()
-id_vars = ['año', 'mes']
+
+# --- MODIFICACIONES: Incluyendo 'Fecha_Str' en el melt para un mapeo correcto ---
+id_vars = ['año', 'mes', 'Fecha', 'Fecha_Str'] # Se agrega 'Fecha' y 'Fecha_Str'
 df_long = df_precip_mensual.melt(id_vars=id_vars, value_vars=station_cols, var_name='Id_estacion', value_name='Precipitation')
+# --- FIN DE MODIFICACIONES ---
+
 df_long['Precipitation'] = pd.to_numeric(df_long['Precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
 df_long.dropna(subset=['Precipitation'], inplace=True)
-df_long['Fecha'] = pd.to_datetime(df_long['año'].astype(str) + '-' + df_long['mes'].astype(str), errors='coerce')
-df_long.dropna(subset=['Fecha'], inplace=True)
 df_long['Origen'] = 'Original'
 
 gdf_stations['Id_estacio'] = gdf_stations['Id_estacio'].astype(str).str.strip()
