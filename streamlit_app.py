@@ -115,7 +115,7 @@ def complete_series(_df):
 
         df_resampled['precipitation'] = original_data['precipitation']
         df_resampled['origen'] = original_data['origen']
-        df_resampled['anomalia_oni'] = df_station['anomalia_oni'] # Conservar datos de ENSO
+        df_resampled['anomalia_oni'] = df_station['anomalia_oni']
         df_resampled['origen'] = df_resampled['origen'].fillna('Completado')
         df_resampled['precipitation'] = df_resampled['precipitation'].interpolate(method='time')
 
@@ -237,6 +237,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
         return None, None, None, None, None
 
+    # El campo 'anomalia_oni' se incluye en id_vars para que se mantenga en el proceso de melt
     id_vars_base = ['id', 'fecha_mes_año', 'año', 'mes', 'enso_año', 'enso_mes']
     id_vars_enso = ['anomalia_oni', 'temp_sst', 'temp_media']
     id_vars = id_vars_base + id_vars_enso
@@ -246,6 +247,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
     df_long.dropna(subset=['precipitation'], inplace=True)
     
+    # Aplicar la función de corrección de fechas antes de la conversión a datetime
     df_long['fecha_mes_año'] = parse_spanish_dates(df_long['fecha_mes_año'])
     df_long['fecha_mes_año'] = pd.to_datetime(df_long['fecha_mes_año'], format='%b-%y', errors='coerce')
     
@@ -792,8 +794,8 @@ with tab4:
                     st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
 
         with enso_corr_tab:
-            # Reescrito para garantizar que la columna 'anomalia_oni' se mantenga
-            df_analisis = pd.merge(df_monthly_filtered, df_enso, on=['fecha_mes_año'], how='left', suffixes=('_precip', '_enso'))
+            # Elimina la operación de merge redundante y utiliza df_monthly_filtered directamente
+            df_analisis = df_monthly_filtered.copy()
 
             if 'anomalia_oni' in df_analisis.columns:
                 df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
