@@ -209,7 +209,7 @@ year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col.
 month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col.lower()), None)
 
 if not all([year_col_name, month_col_name]):
-    st.error("No se encontraron las columnas 'Año' y 'mes' en el archivo de precipitación mensual.")
+    st.error("No se encontraron las columnas 'Año' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
     st.stop()
 
 # Renombrar para estandarizar
@@ -311,7 +311,6 @@ selected_stations = st.sidebar.multiselect(
 )
 st.session_state.selected_stations = selected_stations
 
-# En el código original se usa 'Año' (mayúscula) para el slider, lo mantengo así
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
 if not años_disponibles:
     st.error("No se encontraron columnas de años (ej: '2020', '2021') en el archivo de estaciones.")
@@ -631,7 +630,8 @@ with tab_anim:
            
     with st.expander("Mapa Animado del Fenómeno ENSO"):
         st.subheader("Evolución Mensual del Fenómeno ENSO")
-        if not df_enso.empty and not gdf_stations.empty:
+        # Corrección: Verificar si la columna anomalia_oni existe antes de intentar acceder a ella
+        if not df_enso.empty and not gdf_stations.empty and 'anomalia_oni' in df_enso.columns:
            st.info("El color de cada estación representa la fase del fenómeno ENSO a nivel global para cada mes.")
            
            stations_subset = gdf_stations.loc[:, ['Nom_Est', 'Latitud_geo', 'Longitud_geo']].copy()
@@ -668,6 +668,8 @@ with tab_anim:
            fig_enso_anim.update_geos(fitbounds="locations", visible=True)
            fig_enso_anim.update_layout(height=700, title="Fase ENSO por Mes en las Estaciones Seleccionadas")
            st.plotly_chart(fig_enso_anim, use_container_width=True)
+        else:
+            st.warning("No se puede generar el Mapa Animado del Fenómeno ENSO. Falta la columna 'anomalia_oni' o no hay datos disponibles.")
 
 
 # --- Estadísticas 📊
