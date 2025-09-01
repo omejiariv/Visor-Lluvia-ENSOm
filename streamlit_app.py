@@ -288,10 +288,20 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
 # Inicialización de la carga de datos
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
-    st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
-    st.session_state.data_loaded = True
+    st.session_state.gdf_stations = None
+    st.session_state.df_precip_anual = None
+    st.session_state.gdf_municipios = None
+    st.session_state.df_long = None
+    st.session_state.df_enso = None
+    
+    # Intenta cargar los datos solo si los archivos están disponibles
+    if all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
+        st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+        st.session_state.data_loaded = True
+        
     st.rerun()
 
+# Si los datos no se cargaron, detener la ejecución de la app
 if st.session_state.gdf_stations is None:
     st.stop()
 
