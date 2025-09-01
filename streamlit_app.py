@@ -219,14 +219,12 @@ if id_col_name:
     df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
 
 # Crea la columna Fecha de manera robusta
-date_col_name = next((col for col in df_precip_mensual.columns if 'fecha' in col.lower()), None)
+date_col_name = next((col for col in df_precip_mensual.columns if 'fecha_mes_año' in col.lower()), None)
 if date_col_name:
-    try:
-        # Intenta inferir el formato, si falla, usa el formato mmm-yy
-        df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual[date_col_name], errors='coerce')
-    except Exception:
-        df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual[date_col_name], format='%b-%y', errors='coerce')
+    df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual[date_col_name], format='%b-%y', errors='coerce')
     df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
+    df_precip_mensual['año'] = df_precip_mensual['Fecha'].dt.year
+    df_precip_mensual['mes'] = df_precip_mensual['Fecha'].dt.month
 else:
     df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
     df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
@@ -555,7 +553,7 @@ with tab_anim:
         if not df_anual_melted.empty:
             fig_mapa_animado = px.scatter_geo(df_anual_melted, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
                                               hover_name='Nom_Est', animation_frame='Año', projection='natural earth',
-                                              title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu')
+                                              title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu)
             fig_mapa_animado.update_geos(fitbounds="locations", visible=True)
             fig_mapa_animado.update_layout(height=700)
             st.plotly_chart(fig_mapa_animado, use_container_width=True)
