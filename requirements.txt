@@ -9,3 +9,4 @@ numpy
 shapely
 scikit-learn
 pykrige
+plotly>=5.0.0
