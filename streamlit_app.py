@@ -22,26 +22,7 @@ except ImportError:
         def __init__(self, *args, **kwargs): pass
         def add_to(self, m): pass
 
-# --- Configuración de la página ---
-st.set_page_config(layout="wide", page_title="Visor de Precipitación y ENSO")
-
-# --- CSS para optimizar el espacio y estilo de métricas ---
-st.markdown("""
-<style>
-div.block-container {padding-top: 2rem;}
-.sidebar .sidebar-content {font-size: 13px; }
-h1 { margin-top: 0px; padding-top: 0px; }
-[data-testid="stMetricValue"] {
-    font-size: 1.8rem;
-}
-[data-testid="stMetricLabel"] {
-    font-size: 1rem;
-    padding-bottom: 5px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# --- Funciones de Carga y Procesamiento ---
+# --- Funciones ---
 @st.cache_data
 def load_data(file_path, sep=';', date_cols=None, lower_case=True):
     if file_path is None:
@@ -89,6 +70,60 @@ def load_shapefile(file_path):
         return None
 
 @st.cache_data
+def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
+    df_precip_anual = load_data(uploaded_file_mapa)
+    df_precip_mensual_raw = load_data(uploaded_file_precip)
+    gdf_municipios = load_shapefile(uploaded_zip_shapefile)
+
+    if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
+        return None, None, None, None, None
+
+    # Preprocesamiento de datos anuales y de estaciones
+    lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
+    lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
+    if not all([lon_col, lat_col]):
+        st.error("No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
+        return None, None, None, None, None
+    df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
+    df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
+    df_precip_anual.dropna(subset=[lon_col, lat_col], inplace=True)
+    gdf_temp = gpd.GeoDataFrame(df_precip_anual, geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]), crs="EPSG:9377")
+    gdf_stations = gdf_temp.to_crs("EPSG:4326")
+    gdf_stations['longitud_geo'] = gdf_stations.geometry.x
+    gdf_stations['latitud_geo'] = gdf_stations.geometry.y
+
+    # Preprocesamiento de datos mensuales y ENSO
+    df_precip_mensual = df_precip_mensual_raw.copy()
+    station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
+    if not station_cols:
+        st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
+        return None, None, None, None, None
+
+    id_vars = ['id', 'fecha_mes_año', 'año', 'mes', 'enso_año', 'enso_mes', 'anomalia_oni', 'temp_sst', 'temp_media']
+    df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns], value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
+    df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
+    df_long.dropna(subset=['precipitation'], inplace=True)
+    df_long['fecha_mes_año'] = pd.to_datetime(df_long['fecha_mes_año'], format='%b-%y', errors='coerce')
+    df_long.dropna(subset=['fecha_mes_año'], inplace=True)
+    df_long['origen'] = 'Original'
+
+    gdf_stations['id_estacio'] = gdf_stations['id_estacio'].astype(str).str.strip()
+    df_long['id_estacion'] = df_long['id_estacion'].astype(str).str.strip()
+    station_mapping = gdf_stations.set_index('id_estacio')['nom_est'].to_dict()
+    df_long['nom_est'] = df_long['id_estacion'].map(station_mapping)
+    df_long.dropna(subset=['nom_est'], inplace=True)
+
+    enso_cols = ['id', 'fecha_mes_año', 'año', 'mes', 'anomalia_oni', 'temp_sst', 'temp_media']
+    df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
+    for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
+        if col in df_enso.columns:
+            df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
+    df_enso.dropna(subset=['fecha_mes_año'], inplace=True)
+    df_enso['fecha_mes_año'] = pd.to_datetime(df_enso['fecha_mes_año'], format='%b-%y', errors='coerce')
+
+    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
+
+@st.cache_data
 def complete_series(_df):
     all_completed_dfs = []
     station_list = _df['nom_est'].unique()
@@ -118,6 +153,64 @@ def complete_series(_df):
         progress_bar.progress((i + 1) / len(station_list), text=f"Completando series... Estación: {station}")
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
+
+@st.cache_data
+def create_enso_chart(enso_data):
+    if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
+        return go.Figure()
+
+    data = enso_data.copy().sort_values('fecha_mes_año')
+    
+    conditions = [data['anomalia_oni'] >= 0.5, data['anomalia_oni'] <= -0.5]
+    phases = ['El Niño', 'La Niña']
+    colors = ['red', 'blue']
+    data['phase'] = np.select(conditions, phases, default='Neutral')
+    data['color'] = np.select(conditions, colors, default='grey')
+
+    y_range = [data['anomalia_oni'].min() - 0.5, data['anomalia_oni'].max() + 0.5]
+
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        x=data['fecha_mes_año'],
+        y=[y_range[1] - y_range[0]] * len(data),
+        base=y_range[0],
+        marker_color=data['color'],
+        width=30*24*60*60*1000, 
+        opacity=0.3,
+        hoverinfo='none',
+        showlegend=False
+    ))
+    
+    legend_map = {'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'grey'}
+    for phase, color in legend_map.items():
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode='markers',
+            marker=dict(size=15, color=color, symbol='square', opacity=0.5),
+            name=phase, showlegend=True
+        ))
+    
+    fig.add_trace(go.Scatter(
+        x=data['fecha_mes_año'], y=data['anomalia_oni'],
+        mode='lines',
+        name='Anomalía ONI',
+        line=dict(color='black', width=2),
+        showlegend=True
+    ))
+
+    fig.add_hline(y=0.5, line_dash="dash", line_color="red")
+    fig.add_hline(y=-0.5, line_dash="dash", line_color="blue")
+
+    fig.update_layout(
+        height=600,
+        title="Fases del Fenómeno ENSO y Anomalía ONI",
+        yaxis_title="Anomalía ONI (°C)",
+        xaxis_title="Fecha",
+        showlegend=True,
+        legend_title_text='Fase',
+        yaxis_range=y_range
+    )
+    return fig
 
 @st.cache_data
 def calculate_anomalies(df_monthly_filtered, df_monthly_full, selected_stations):
@@ -186,7 +279,24 @@ def classify_enso_years(df_enso):
 
     return yearly_enso
 
-# --- Interfaz y Carga de Archivos ---
+# --- Configuración de la página y UI ---
+st.set_page_config(layout="wide", page_title="Visor de Precipitación y Fenómeno ENSO")
+
+st.markdown("""
+<style>
+div.block-container {padding-top: 2rem;}
+.sidebar .sidebar-content {font-size: 13px; }
+h1 { margin-top: 0px; padding-top: 0px; }
+[data-testid="stMetricValue"] {
+    font-size: 1.8rem;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 1rem;
+    padding-bottom: 5px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 logo_path = "CuencaVerdeLogo_V1.JPG"
 logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 
@@ -208,17 +318,19 @@ if 'uploaded_files' not in st.session_state:
     st.session_state.uploaded_files = (None, None, None)
     st.session_state.data_loaded = False
 
-if st.session_state.uploaded_files != (uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
-    st.session_state.uploaded_files = (uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+current_files = (uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+
+if st.session_state.uploaded_files != current_files:
+    st.session_state.uploaded_files = current_files
     st.session_state.data_loaded = False
     
-if not all(st.session_state.uploaded_files):
+if not all(current_files):
     st.info("Por favor, suba los 3 archivos requeridos para habilitar la aplicación.")
     st.stop()
     
 if not st.session_state.data_loaded:
     with st.spinner('Procesando datos... Esto puede tomar un momento.'):
-        st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+        st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(*current_files)
     st.session_state.data_loaded = True
     st.rerun()
 
