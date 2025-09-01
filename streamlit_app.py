@@ -343,10 +343,14 @@ if 'select_all_stations_state' not in st.session_state:
 if 'porc_datos' in gdf_stations.columns:
     gdf_stations['porc_datos'] = pd.to_numeric(gdf_stations['porc_datos'], errors='coerce').fillna(0)
     min_data_perc = st.sidebar.slider("Filtrar por % de datos mínimo:", 0, 100, 0)
+    # Corrección: Filtrar la lista principal de estaciones para que solo contenga las que tienen datos mensuales
+    stations_with_monthly_data = df_long['nom_est'].unique()
     stations_master_list = gdf_stations[gdf_stations['porc_datos'] >= min_data_perc]
+    stations_master_list = stations_master_list[stations_master_list['nom_est'].isin(stations_with_monthly_data)].copy()
 else:
     st.sidebar.text("Advertencia: Columna 'porc_datos' no encontrada.")
-    stations_master_list = gdf_stations.copy()
+    stations_with_monthly_data = df_long['nom_est'].unique()
+    stations_master_list = gdf_stations[gdf_stations['nom_est'].isin(stations_with_monthly_data)].copy()
 
 municipios_list = sorted(stations_master_list['municipio'].unique())
 selected_municipios = st.sidebar.multiselect('1. Filtrar por Municipio', options=municipios_list)
@@ -813,7 +817,6 @@ with tab4:
     with anom_tab:
         st.subheader("Análisis de Anomalías Mensuales de Precipitación")
         
-        # Se ha corregido la llamada a la función para usar los datos completos (df_long)
         df_anomalies = calculate_anomalies(df_monthly_filtered, df_long, selected_stations)
         df_anomalies = pd.merge(df_anomalies, df_enso, on='fecha_mes_año', how='left')
 
