@@ -486,10 +486,7 @@ with tab1:
         st.plotly_chart(fig_clim, use_container_width=True)
 
 
----
-
-## Mapa de Estaciones 🗺️
-
+# --- Mapa de Estaciones 🗺️
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
     controls_col, map_col = st.columns([1, 4])
@@ -543,10 +540,7 @@ with tab2:
            st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
 
 
----
-
-## Mapas Avanzados 🌍
-
+# --- Mapas Avanzados 🌍
 with tab_anim:
     st.header("Mapas Avanzados")
     with st.expander("Ver Animación de Puntos", expanded=True):
@@ -683,10 +677,7 @@ with tab_anim:
            st.plotly_chart(fig_enso_anim, use_container_width=True)
 
 
----
-
-## Estadísticas 📊
-
+# --- Estadísticas 📊
 with tab_stats:
     st.header("Estadísticas de Precipitación")
     
@@ -769,10 +760,7 @@ with tab_stats:
         st.dataframe(summary_df.round(2), use_container_width=True)
 
 
----
-
-## Análisis de Anomalías 🔍
-
+# --- Análisis de Anomalías 🔍
 with tab_anom:
     st.header("Análisis de Anomalías de Precipitación")
     st.info("Las anomalías se calculan como la diferencia entre la precipitación mensual y el promedio mensual de un período base.")
@@ -815,10 +803,7 @@ with tab_anom:
         st.info("No hay datos de precipitación mensual para realizar el análisis de anomalías.")
 
 
----
-
-## Análisis ENSO 🌡️
-
+# --- Análisis ENSO 🌡️
 with tab_enso:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
     if df_enso.empty:
@@ -926,10 +911,7 @@ with tab_enso:
                 st.warning("No hay datos de precipitación y anomalía ONI coincidentes en el período seleccionado.")
 
 
----
-
-## Descargas 📥
-
+# --- Descargas 📥
 with tab_descargas:
     st.header("Opciones de Descarga")
     @st.cache_data
