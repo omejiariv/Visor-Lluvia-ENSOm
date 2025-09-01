@@ -133,6 +133,7 @@ def create_enso_chart(enso_data):
         return go.Figure()
 
     data = enso_data.copy().sort_values('fecha_mes_año')
+    data.dropna(subset=['anomalia_oni'], inplace=True)
 
     conditions = [data['anomalia_oni'] >= 0.5, data['anomalia_oni'] <= -0.5]
     phases = ['El Niño', 'La Niña']
@@ -242,14 +243,20 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     id_vars_enso = ['anomalia_oni', 'temp_sst', 'temp_media']
     id_vars = id_vars_base + id_vars_enso
     
+    # Asegurarse de que las columnas numéricas con comas se convierten a puntos
+    for col in id_vars_enso:
+        if col in df_precip_mensual.columns:
+            df_precip_mensual[col] = df_precip_mensual[col].astype(str).str.replace(',', '.')
+
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
                                      value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
-    df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
-    
-    # CORRECCIÓN: Conversión explícita de 'anomalia_oni' a numérico para evitar TypeError
-    if 'anomalia_oni' in df_long.columns:
-        df_long['anomalia_oni'] = pd.to_numeric(df_long['anomalia_oni'].astype(str).str.replace(',', '.'), errors='coerce')
 
+    # Corrección: Conversión de los campos a numérico
+    df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
+    for col in id_vars_enso:
+        if col in df_long.columns:
+            df_long[col] = pd.to_numeric(df_long[col], errors='coerce')
+    
     df_long.dropna(subset=['precipitation'], inplace=True)
     
     # Aplicar la función de corrección de fechas antes de la conversión a datetime
@@ -269,7 +276,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
     for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
         if col in df_enso.columns:
-            df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
+            df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
     
     df_enso['fecha_mes_año'] = parse_spanish_dates(df_enso['fecha_mes_año'])
     df_enso['fecha_mes_año'] = pd.to_datetime(df_enso['fecha_mes_año'], format='%b-%y', errors='coerce')
@@ -422,7 +429,7 @@ with tab1:
                         "Ordenar estaciones por:",
                         ["Promedio (Mayor a Menor)", "Promedio (Menor a Mayor)", "Alfabético"],
                         horizontal=True, key="sort_annual_avg"
-                     )
+                      )
 
                     if "Mayor a Menor" in sort_order:
                         df_summary = df_summary.sort_values("precipitacion", ascending=False)
@@ -437,7 +444,7 @@ with tab1:
                     fig_avg.update_layout(
                         height=600,
                         xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')}
-                     )
+                      )
                     st.plotly_chart(fig_avg, use_container_width=True)
                 else:
                     fig_box = px.box(df_anual_melted, x='nom_est', y='precipitacion', color='nom_est',
@@ -598,8 +605,8 @@ with tab_anim:
                             with map_col1:
                                 st.subheader(f"Estaciones - Año: {year1}")
                                 fig1 = px.scatter_geo(data_year, lat='latitud_geo', lon='longitud_geo', color='precipitacion',
-                                                     size='precipitacion', hover_name='nom_est', color_continuous_scale='YlGnBu',
-                                                     projection='natural earth', range_color=color_range)
+                                                      size='precipitacion', hover_name='nom_est', color_continuous_scale='YlGnBu',
+                                                      projection='natural earth', range_color=color_range)
                                 fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
                                 fig1.update_layout(height=600)
                                 st.plotly_chart(fig1, use_container_width=True)
@@ -799,8 +806,17 @@ with tab4:
                     st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
 
         with enso_corr_tab:
-            # Elimina la operación de merge redundante y utiliza df_monthly_filtered directamente
-            df_analisis = df_monthly_filtered.copy()
+            # Se usa una copia para evitar SettingWithCopyWarning
+            df_analisis_precip = df_monthly_filtered.copy()
+            df_analisis_enso = df_enso.copy()
+            
+            # Asegura que la columna de fecha sea el índice en ambos para el merge
+            df_analisis_precip.set_index('fecha_mes_año', inplace=True)
+            df_analisis_enso.set_index('fecha_mes_año', inplace=True)
+            
+            # Se combinan los datos de precipitación y ENSO
+            df_analisis = pd.merge(df_analisis_precip, df_analisis_enso[['anomalia_oni']], left_index=True, right_index=True, how='inner')
+            df_analisis.reset_index(inplace=True)
 
             if 'anomalia_oni' in df_analisis.columns:
                 df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
