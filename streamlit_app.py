@@ -68,7 +68,6 @@ def load_data(file_path, sep=';', date_cols=None, lower_case=True):
     for encoding in encodings_to_try:
         try:
             df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding, parse_dates=date_cols)
-            # Limpiar y reemplazar caracteres indeseados en los nombres de las columnas
             df.columns = df.columns.str.strip().str.replace(';', '')
             if lower_case:
                 df.columns = df.columns.str.lower()
@@ -116,7 +115,7 @@ def complete_series(_df):
 
         df_resampled['precipitation'] = original_data['precipitation']
         df_resampled['origen'] = original_data['origen']
-
+        df_resampled['anomalia_oni'] = df_station['anomalia_oni'] # Conservar datos de ENSO
         df_resampled['origen'] = df_resampled['origen'].fillna('Completado')
         df_resampled['precipitation'] = df_resampled['precipitation'].interpolate(method='time')
 
@@ -238,16 +237,18 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
         return None, None, None, None, None
 
-    id_vars = ['id', 'fecha_mes_año', 'año', 'mes', 'enso_año', 'enso_mes', 'anomalia_oni', 'temp_sst', 'temp_media']
+    id_vars_base = ['id', 'fecha_mes_año', 'año', 'mes', 'enso_año', 'enso_mes']
+    id_vars_enso = ['anomalia_oni', 'temp_sst', 'temp_media']
+    id_vars = id_vars_base + id_vars_enso
+    
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
                                      value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
     df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
     df_long.dropna(subset=['precipitation'], inplace=True)
-
-    # Aplicar la función de corrección de fechas antes de la conversión a datetime
+    
     df_long['fecha_mes_año'] = parse_spanish_dates(df_long['fecha_mes_año'])
     df_long['fecha_mes_año'] = pd.to_datetime(df_long['fecha_mes_año'], format='%b-%y', errors='coerce')
-
+    
     df_long.dropna(subset=['fecha_mes_año'], inplace=True)
     df_long['origen'] = 'Original'
 
@@ -257,16 +258,15 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     df_long['nom_est'] = df_long['id_estacion'].map(station_mapping)
     df_long.dropna(subset=['nom_est'], inplace=True)
 
-    enso_cols = ['id', 'fecha_mes_año', 'año', 'mes', 'anomalia_oni', 'temp_sst', 'temp_media']
+    enso_cols = ['id', 'fecha_mes_año', 'anomalia_oni', 'temp_sst', 'temp_media']
     df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
     for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
         if col in df_enso.columns:
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
-
-    # Aplicar la función de corrección de fechas antes de la conversión a datetime
+    
     df_enso['fecha_mes_año'] = parse_spanish_dates(df_enso['fecha_mes_año'])
     df_enso['fecha_mes_año'] = pd.to_datetime(df_enso['fecha_mes_año'], format='%b-%y', errors='coerce')
-
+    
     df_enso.dropna(subset=['fecha_mes_año'], inplace=True)
 
     return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
@@ -475,7 +475,6 @@ with tab1:
                                              labels={'mes': 'Mes', 'precipitation': 'Precipitación Mensual (mm)', 'nom_est': 'Estación'})
                     fig_box_monthly.update_layout(height=600)
                     st.plotly_chart(fig_box_monthly, use_container_width=True)
-
 
             with st.expander("Ver Análisis del Fenómeno ENSO"):
                 enso_filtered = df_enso[
@@ -784,7 +783,8 @@ with tab4:
                 df_enso_filtered = df_enso[
                     (df_enso['fecha_mes_año'].dt.year >= year_range[0]) &
                     (df_enso['fecha_mes_año'].dt.year <= year_range[1]) &
-                    (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))]
+                    (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))
+                ]
                 if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
                     fig_enso_series = px.line(df_enso_filtered, x='fecha_mes_año', y=variable_enso, title=f"Serie de Tiempo para {variable_enso}")
                     st.plotly_chart(fig_enso_series, use_container_width=True)
@@ -792,10 +792,9 @@ with tab4:
                     st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
 
         with enso_corr_tab:
-            df_analisis = df_monthly_filtered.copy()
-            df_analisis = pd.merge(df_analisis, df_enso, on=['fecha_mes_año'], how='left', suffixes=('_precip', '_enso'))
+            # Reescrito para garantizar que la columna 'anomalia_oni' se mantenga
+            df_analisis = pd.merge(df_monthly_filtered, df_enso, on=['fecha_mes_año'], how='left', suffixes=('_precip', '_enso'))
 
-            # Aquí se ha reescrito la lógica para ser más robusta
             if 'anomalia_oni' in df_analisis.columns:
                 df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
 
