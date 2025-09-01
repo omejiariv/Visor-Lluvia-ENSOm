@@ -3,7 +3,6 @@ pandas
 altair
 folium
 streamlit-folium
-plotly
 geopandas
 numpy
 shapely
