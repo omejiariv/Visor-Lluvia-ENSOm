@@ -82,7 +82,11 @@ def load_shapefile(file_path):
                 lon_col = next((col for col in gdf.columns if 'longitud' in col.lower() or 'lon' in col.lower() or 'x' in col.lower()), None)
                 lat_col = next((col for col in gdf.columns if 'latitud' in col.lower() or 'lat' in col.lower() or 'y' in col.lower()), None)
                 if lon_col and lat_col:
-                    if gdf[lon_col].max() < 180 and gdf[lon_col].min() > -180 and gdf[lat_col].max() < 90 and gdf[lat_col].min() > -90:
+                    # Convertir a numérico antes de la comparación
+                    gdf[lon_col] = pd.to_numeric(gdf[lon_col], errors='coerce')
+                    gdf[lat_col] = pd.to_numeric(gdf[lat_col], errors='coerce')
+                    if (gdf[lon_col].dropna().max() < 180 and gdf[lon_col].dropna().min() > -180 and
+                        gdf[lat_col].dropna().max() < 90 and gdf[lat_col].dropna().min() > -90):
                          gdf.set_crs("EPSG:4326", inplace=True)
                     else:
                          gdf.set_crs("EPSG:9377", inplace=True)
