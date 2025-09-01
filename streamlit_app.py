@@ -175,8 +175,8 @@ logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 
 title_col1, title_col2 = st.columns([1, 5])
 with title_col1:
-    if os.path.exists(logo_path):
-       st.image(logo_path, width='stretch')
+    if os.path.exists(logo_gota_path):
+       st.image(logo_gota_path, width=50)
 with title_col2:
     st.title('Visor de Precipitación y Fenómeno ENSO')
 
@@ -455,18 +455,9 @@ with tab1:
                 st.subheader("Datos de Precipitación Mensual Detallados")
                 if not df_monthly_filtered.empty:
                     df_values = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Precipitation')
-                    df_origin = df_monthly_filtered.pivot_table(index='Fecha', columns='Nom_Est', values='Origen', aggfunc='first')
                     
-                    for col in df_values.columns:
-                        df_values[col] = pd.to_numeric(df_values[col], errors='coerce')
-
-                    def apply_cell_color(df):
-                        style_df = pd.DataFrame('', index=df.index, columns=df.columns)
-                        style_df[df_origin == 'Completado'] = 'background-color: #ffcccb'
-                        return style_df
-                    
-                    styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(apply_cell_color, axis=None)
-                    st.dataframe(styled_df, use_container_width=True)
+                    # CORRECCIÓN: Mostrar el DataFrame sin estilizar directamente
+                    st.dataframe(df_values, use_container_width=True)
 
     # --- NUEVA FUNCIONALIDAD: CLIMATOLOGÍA MENSUAL ---
     with sub_tab_monthly_avg:
