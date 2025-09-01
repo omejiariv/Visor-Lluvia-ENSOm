@@ -14,7 +14,7 @@ import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
 from scipy import stats # Para regresión lineal y p-valor
- 
+
 try:
     from
 folium.plugins import ScaleControl
