@@ -269,6 +269,13 @@ df_enso = st.session_state.df_enso
 
 # --- Controles en la Barra Lateral ---
 st.sidebar.markdown("### Filtros de Visualización")
+
+# Se utiliza st.session_state para controlar el estado de los filtros
+if 'selected_stations_auto' not in st.session_state:
+    st.session_state.selected_stations_auto = []
+if 'select_all_stations_state' not in st.session_state:
+    st.session_state.select_all_stations_state = False
+
 if 'porc_datos' in gdf_stations.columns:
     gdf_stations['porc_datos'] = pd.to_numeric(gdf_stations['porc_datos'], errors='coerce').fillna(0)
     min_data_perc = st.sidebar.slider("Filtrar por % de datos mínimo:", 0, 100, 0)
@@ -278,30 +285,45 @@ else:
     stations_master_list = gdf_stations.copy()
 
 municipios_list = sorted(stations_master_list['municipio'].unique())
-celdas_list = sorted(stations_master_list['celda_xy'].unique())
 selected_municipios = st.sidebar.multiselect('1. Filtrar por Municipio', options=municipios_list)
-selected_celdas = st.sidebar.multiselect('2. Filtrar por Celda_XY', options=celdas_list)
+
 stations_available = stations_master_list.copy()
 if selected_municipios:
     stations_available = stations_available[stations_available['municipio'].isin(selected_municipios)]
+
+celdas_list = sorted(stations_available['celda_xy'].unique())
+selected_celdas = st.sidebar.multiselect('2. Filtrar por Celda_XY', options=celdas_list)
+
+# Lógica para la selección en cascada
 if selected_celdas:
-    stations_available = stations_available[stations_available['celda_xy'].isin(selected_celdas)]
-stations_options = sorted(stations_available['nom_est'].unique())
-
-selection_in_memory = st.session_state.get('selected_stations', [])
-validated_selection = [station for station in selection_in_memory if station in stations_options]
-if not validated_selection and stations_options:
-    default_selection = [stations_options[0]]
+    stations_by_celda = stations_available[stations_available['celda_xy'].isin(selected_celdas)]
+    stations_options = sorted(stations_by_celda['nom_est'].unique())
 else:
-    default_selection = validated_selection
+    stations_options = sorted(stations_available['nom_est'].unique())
 
-select_all = st.sidebar.checkbox("Seleccionar/Deseleccionar Todas las Estaciones", value=False)
-if select_all:
-    default_selection = stations_options
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Selección de Estaciones")
 
-selected_stations = st.sidebar.multiselect('3. Seleccionar Estaciones', options=stations_options, default=default_selection)
-st.session_state.selected_stations = selected_stations
+# Checkbox para seleccionar todas las estaciones de la lista actual
+if st.sidebar.checkbox("Seleccionar/Deseleccionar todas las estaciones", value=st.session_state.select_all_stations_state, key='select_all_checkbox'):
+    st.session_state.selected_stations_auto = stations_options
+else:
+    st.session_state.selected_stations_auto = []
+    
+# Si el usuario hace una selección manual, se desactiva la selección "todas"
+selected_stations = st.sidebar.multiselect(
+    '3. Seleccionar Estaciones',
+    options=stations_options,
+    default=st.session_state.selected_stations_auto,
+    key='station_multiselect'
+)
 
+# Sincronizar el estado del multiselect con la variable de sesión
+if set(selected_stations) != set(st.session_state.selected_stations_auto):
+    st.session_state.select_all_stations_state = False
+    st.session_state.selected_stations_auto = selected_stations
+
+# Resto de los filtros
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
 if not años_disponibles:
     st.error("No se encontraron columnas de años (ej: '2020', '2021') en el archivo de estaciones.")
