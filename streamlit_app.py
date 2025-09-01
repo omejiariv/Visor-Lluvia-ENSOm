@@ -204,14 +204,20 @@ if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municip
 df_precip_mensual = df_precip_mensual_raw.copy()
 df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
 
-# --- MODIFICACIÓN CLAVE: Usar las columnas 'año' y 'mes' para la fecha ---
-# Se asume que 'año' y 'mes' siempre están presentes.
-# Si no lo están, el código fallará, pero esto es más seguro que Id_Fecha
-df_precip_mensual.loc[:, 'Fecha'] = pd.to_datetime(
-    df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
+# --- Manejo de la columna de fecha: se usa 'año' y 'mes' ---
+year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
+month_col_precip = next((col for col in df_precip_mensual.columns if 'mes' in col), None)
+
+if not all([year_col_precip, month_col_precip]):
+    st.error("No se encontraron las columnas 'año'/'ano' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
+    st.stop()
+
+df_precip_mensual.rename(columns={year_col_precip: 'año'}, inplace=True)
+df_precip_mensual.rename(columns={month_col_precip: 'mes'}, inplace=True)
+df_precip_mensual.loc[:, 'Fecha'] = pd.to_datetime(df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
 df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
 
-# Lógica para datos ENSO
+
 enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst', 'fecha']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 df_enso = pd.DataFrame() 
@@ -332,7 +338,7 @@ df_monthly_filtered = df_monthly_to_process.loc[
    (df_monthly_to_process['Fecha'].dt.year >= year_range[0]) &
    (df_monthly_to_process['Fecha'].dt.year <= year_range[1]) &
    (df_monthly_to_process['Fecha'].dt.month.isin(meses_numeros))
-].copy() # Se agrega .copy() para evitar SettingWithCopyWarning
+].copy()
 
 # --- NUEVA FUNCIONALIDAD: Cálculo de Anomalías y Climatología ---
 @st.cache_data
@@ -400,14 +406,14 @@ with tab1:
                        height=600,
                        xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')}
                     )
-                   st.plotly_chart(fig_avg, width='stretch')
+                   st.plotly_chart(fig_avg, use_container_width=True)
                else: 
                    fig_box = px.box(df_anual_melted, x='Nom_Est', y='Precipitación', color='Nom_Est',
                                     points='all',
                                     title='Distribución de la Precipitación Anual por Estación',
                                     labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación Anual (mm)'})
                    fig_box.update_layout(height=600)
-                   st.plotly_chart(fig_box, width='stretch')
+                   st.plotly_chart(fig_box, use_container_width=True)
 
     with sub_tab_mensual:
         if not df_monthly_filtered.empty:
@@ -436,14 +442,14 @@ with tab1:
                         point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding)
                         final_chart = point_chart
                     
-                    st.altair_chart(final_chart.properties(height=600).interactive(), width='stretch')
+                    st.altair_chart(final_chart.properties(height=600).interactive(), use_container_width=True)
                 else:
                     st.subheader("Distribución de la Precipitación Mensual")
                     fig_box_monthly = px.box(df_monthly_filtered, x='mes', y='Precipitation', color='Nom_Est',
                                              title='Distribución de la Precipitación por Mes',
                                              labels={'mes': 'Mes', 'Precipitation': 'Precipitación Mensual (mm)', 'Nom_Est': 'Estación'})
                     fig_box_monthly.update_layout(height=600)
-                    st.plotly_chart(fig_box_monthly, width='stretch')
+                    st.plotly_chart(fig_box_monthly, use_container_width=True)
             
             with st.expander("Ver Tabla de Datos Detallados"):
                 st.subheader("Datos de Precipitación Mensual Detallados")
@@ -460,7 +466,7 @@ with tab1:
                         return style_df
                     
                     styled_df = df_values.style.format("{:.1f}", na_rep="-").apply(apply_cell_color, axis=None)
-                    st.dataframe(styled_df, width='stretch')
+                    st.dataframe(styled_df, use_container_width=True)
 
     # --- NUEVA FUNCIONALIDAD: CLIMATOLOGÍA MENSUAL ---
     with sub_tab_monthly_avg:
@@ -477,8 +483,12 @@ with tab1:
                           title='Precipitación Mensual Media Climatológica',
                           labels={'Precipitation': 'Precipitación Media (mm)', 'mes_nombre': 'Mes'})
         fig_clim.update_layout(height=600)
-        st.plotly_chart(fig_clim, width='stretch')
+        st.plotly_chart(fig_clim, use_container_width=True)
 
+
+---
+
+## Mapa de Estaciones 🗺️
 
 with tab2:
     st.header("Mapa de Ubicación de Estaciones")
@@ -533,6 +543,10 @@ with tab2:
            st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
 
 
+---
+
+## Mapas Avanzados 🌍
+
 with tab_anim:
     st.header("Mapas Avanzados")
     with st.expander("Ver Animación de Puntos", expanded=True):
@@ -543,7 +557,7 @@ with tab_anim:
                                               title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu)
             fig_mapa_animado.update_geos(fitbounds="locations", visible=True)
             fig_mapa_animado.update_layout(height=700)
-            st.plotly_chart(fig_mapa_animado, width='stretch')
+            st.plotly_chart(fig_mapa_animado, use_container_width=True)
             
     with st.expander("Ver Comparación de Mapas anuales & Kriging", expanded=True):
         if not df_anual_melted.empty and len(df_anual_melted['Año'].unique()) > 0:
@@ -591,7 +605,7 @@ with tab_anim:
                                                        projection='natural earth', range_color=color_range)
                                fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
                                fig1.update_layout(height=600)
-                               st.plotly_chart(fig1, width='stretch')
+                               st.plotly_chart(fig1, use_container_width=True)
 
                            with map_col2, st.spinner("Generando mapa Kriging..."):
                                st.subheader(f"Interpolación Kriging - Año: {year1}")
@@ -609,7 +623,7 @@ with tab_anim:
                                fig2.update_xaxes(range=lon_range, showticklabels=True)
                                fig2.update_yaxes(range=lat_range, scaleanchor="x", scaleratio=1, showticklabels=True)
                                fig2.update_layout(height=600, xaxis_title="Longitud", yaxis_title="Latitud")
-                               st.plotly_chart(fig2, width='stretch')
+                               st.plotly_chart(fig2, use_container_width=True)
                 else:
                     with st.expander("Comparación de Mapas de lluvia anual", expanded=True):
                        st.info("Años diferentes: Se comparan los Puntos de Estaciones para cada año.")
@@ -624,7 +638,7 @@ with tab_anim:
                                fig = px.scatter_geo(data_year, lat='Latitud_geo', lon='Longitud_geo', color='Precipitación', size='Precipitación',
                                                        hover_name='Nom_Est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
                                fig.update_geos(fitbounds="locations", visible=True)
-                               st.plotly_chart(fig, width='stretch', key=f'map_diff_{i}')
+                               st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
         else:
            st.warning("No hay años disponibles en la selección actual para la comparación.")
            
@@ -666,7 +680,12 @@ with tab_anim:
            )
            fig_enso_anim.update_geos(fitbounds="locations", visible=True)
            fig_enso_anim.update_layout(height=700, title="Fase ENSO por Mes en las Estaciones Seleccionadas")
-           st.plotly_chart(fig_enso_anim, width='stretch')
+           st.plotly_chart(fig_enso_anim, use_container_width=True)
+
+
+---
+
+## Estadísticas 📊
 
 with tab_stats:
     st.header("Estadísticas de Precipitación")
@@ -710,7 +729,7 @@ with tab_stats:
            title=title_text
         )
         fig_heatmap.update_layout(height=max(400, len(selected_stations) * 40))
-        st.plotly_chart(fig_heatmap, width='stretch')
+        st.plotly_chart(fig_heatmap, use_container_width=True)
     else:
         st.info("No hay datos para mostrar en la matriz con la selección actual.")
     
@@ -747,10 +766,13 @@ with tab_stats:
                "Promedio Mensual (mm)": group['Precipitation'].mean()
             })
         summary_df = pd.DataFrame(summary_data)
-        st.dataframe(summary_df.round(2), width='stretch')
+        st.dataframe(summary_df.round(2), use_container_width=True)
 
 
-# --- NUEVA PESTAÑA PARA ANOMALÍAS ---
+---
+
+## Análisis de Anomalías 🔍
+
 with tab_anom:
     st.header("Análisis de Anomalías de Precipitación")
     st.info("Las anomalías se calculan como la diferencia entre la precipitación mensual y el promedio mensual de un período base.")
@@ -781,17 +803,21 @@ with tab_anom:
             
             fig_anom.add_hline(y=0, line_dash="dash", line_color="black")
             fig_anom.update_layout(height=600, barmode='group')
-            st.plotly_chart(fig_anom, width='stretch')
+            st.plotly_chart(fig_anom, use_container_width=True)
             
             st.markdown("---")
             st.subheader("Tabla de Anomalías de Precipitación")
             df_anomalies_pivot = df_anomalies.pivot_table(index='Fecha', columns='Nom_Est', values='Precipitation_Anomaly').round(2)
-            st.dataframe(df_anomalies_pivot, width='stretch')
+            st.dataframe(df_anomalies_pivot, use_container_width=True)
         else:
             st.warning("No se pudieron calcular las anomalías. Verifique que haya datos en el período base seleccionado.")
     else:
         st.info("No hay datos de precipitación mensual para realizar el análisis de anomalías.")
 
+
+---
+
+## Análisis ENSO 🌡️
 
 with tab_enso:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
@@ -814,7 +840,7 @@ with tab_enso:
                 ].copy()
                 if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
                     fig_enso_series = px.line(df_enso_filtered, x='Fecha', y=variable_enso, title=f"Serie de Tiempo para {variable_enso}")
-                    st.plotly_chart(fig_enso_series, width='stretch')
+                    st.plotly_chart(fig_enso_series, use_container_width=True)
                 else:
                     st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
         
@@ -837,7 +863,7 @@ with tab_enso:
                    st.subheader("Precipitación Media por Evento ENSO")
                    df_enso_group = df_analisis.groupby('ENSO')['Precipitation'].mean().reset_index()
                    fig_enso = px.bar(df_enso_group, x='ENSO', y='Precipitation', color='ENSO', labels={'Precipitation': 'Precipitación Media (mm)'})
-                   st.plotly_chart(fig_enso, width='stretch')
+                   st.plotly_chart(fig_enso, use_container_width=True)
                    
                    st.subheader("Correlación entre Anomalía ONI y Precipitación")
                    if df_analisis['anomalia_oni'].nunique() > 1 and df_analisis['Precipitation'].nunique() > 1:
@@ -895,10 +921,14 @@ with tab_enso:
                 fig_combined.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="El Niño", yaxis='y2', annotation_position="bottom right")
                 fig_combined.add_hline(y=-0.5, line_dash="dash", line_color="blue", annotation_text="La Niña", yaxis='y2', annotation_position="top right")
                 
-                st.plotly_chart(fig_combined, width='stretch')
+                st.plotly_chart(fig_combined, use_container_width=True)
             else:
                 st.warning("No hay datos de precipitación y anomalía ONI coincidentes en el período seleccionado.")
 
+
+---
+
+## Descargas 📥
 
 with tab_descargas:
     st.header("Opciones de Descarga")
