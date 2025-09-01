@@ -205,7 +205,6 @@ df_precip_mensual = df_precip_mensual_raw.copy()
 df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
 
 # --- Manejo de la columna de fecha: se usa 'año' y 'mes' ---
-# Se busca de manera robusta las columnas de año y mes
 year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
 month_col_precip = next((col for col in df_precip_mensual.columns if 'mes' in col), None)
 
@@ -213,14 +212,12 @@ if not all([year_col_precip, month_col_precip]):
     st.error("No se encontraron las columnas 'año'/'ano' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
     st.stop()
 
-# Se asegura de que las columnas se llamen 'año' y 'mes'
 df_precip_mensual.rename(columns={year_col_precip: 'año'}, inplace=True)
 df_precip_mensual.rename(columns={month_col_precip: 'mes'}, inplace=True)
-# Se crea la columna 'Fecha' a partir de 'año' y 'mes'
 df_precip_mensual.loc[:, 'Fecha'] = pd.to_datetime(df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
 df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
 
-# Lógica para datos ENSO
+
 enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst', 'fecha']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 df_enso = pd.DataFrame() 
