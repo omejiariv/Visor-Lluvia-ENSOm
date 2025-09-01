@@ -194,16 +194,12 @@ if id_col_name:
     df_precip_mensual.rename(columns={id_col_name: 'Id'}, inplace=True)
 
 precip_col_name = next((col for col in df_precip_mensual_raw.columns if 'precipitacion' in col.lower()), None)
-# Corregido: Se ha excluido 'enso_año' y 'enso_mes' para evitar errores de tipo de dato.
-enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_sst', 'enso_año', 'enso_mes']
-enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 
-df_enso = pd.DataFrame() 
-if enso_cols_present:
-    # Corrección: Se crea el df_enso con las columnas numéricas correctas para evitar el ValueError
-    df_enso = df_precip_mensual[['año', 'mes', 'anomalia_oni', 'temp_sst', 'enso_año', 'enso_mes']].drop_duplicates().copy()
+# Corrección clave: Se define el df_enso con columnas específicas y se procesan sus tipos de datos
+enso_cols = ['año', 'mes', 'anomalia_oni', 'temp_sst']
+if all(col in df_precip_mensual.columns for col in enso_cols):
+    df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
     
-    # Se asegura que las columnas de año y mes sean numéricas para crear la fecha
     df_enso['año'] = pd.to_numeric(df_enso['año'], errors='coerce').fillna(-1).astype(int)
     df_enso['mes'] = pd.to_numeric(df_enso['mes'], errors='coerce').fillna(-1).astype(int)
     df_enso.dropna(subset=['año', 'mes'], inplace=True)
@@ -215,6 +211,8 @@ if enso_cols_present:
     for col in ['anomalia_oni', 'temp_sst']:
         if col in df_enso.columns:
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
+else:
+    df_enso = pd.DataFrame()
 
 
 lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
