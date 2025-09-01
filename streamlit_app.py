@@ -264,7 +264,7 @@ if st.session_state.gdf_stations is None:
 
 gdf_stations = st.session_state.gdf_stations
 df_precip_anual = st.session_state.df_precip_anual
-gdf_municipios = st.session_state.gdf_municipios
+df_municipios = st.session_state.gdf_municipios
 df_long = st.session_state.df_long
 df_enso = st.session_state.df_enso
 
@@ -355,6 +355,12 @@ df_monthly_filtered = df_monthly_to_process[
     (df_monthly_to_process['fecha_mes_año'].dt.month.isin(meses_numeros))
 ]
 
+# Corrección para la leyenda del gráfico mensual
+df_monthly_filtered['nombre_mes'] = df_monthly_filtered['fecha_mes_año'].dt.strftime('%B')
+sorted_month_names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+df_monthly_filtered['nombre_mes_ordenado'] = pd.Categorical(df_monthly_filtered['nombre_mes'], categories=sorted_month_names, ordered=True)
+
+
 # --- Pestañas Principales ---
 tab_mapa, tab_graficos, tab_tendencias, tab_anomalias, tab_enso_resumen, tab_tablas, tab_stats, tab_descargas = st.tabs([
     "Mapa de Estaciones", "Gráficos", "Análisis de Tendencias", "Anomalías", "Resumen por ENSO", "Tabla de Estaciones", "Estadísticas", "Descargas"
@@ -401,7 +407,7 @@ with tab_mapa:
                 bounds = gdf_filtered.total_bounds
                 m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-            folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
+            folium.GeoJson(df_municipios.to_json(), name='Municipios').add_to(m)
             for _, row in gdf_filtered.iterrows():
                 html = f"<b>Estación:</b> {row['nom_est']}<br><b>Municipio:</b> {row['municipio']}"
                 folium.Marker([row['latitud_geo'], row['longitud_geo']], tooltip=html).add_to(m)
@@ -483,7 +489,7 @@ with tab_graficos:
                     if color_by == "Estación":
                         color_encoding = alt.Color('nom_est:N', legend=alt.Legend(title="Estaciones"))
                     else: 
-                        color_encoding = alt.Color('month(fecha_mes_año):N', legend=alt.Legend(title="Meses"), scale=alt.Scale(scheme='tableau20'))
+                        color_encoding = alt.Color('nombre_mes_ordenado:N', legend=alt.Legend(title="Meses"), sort=sorted_month_names, scale=alt.Scale(scheme='tableau20'))
 
                     if chart_type == "Líneas y Puntos":
                         line_chart = base_chart.mark_line(opacity=0.4, color='lightgray').encode(detail='nom_est:N')
@@ -604,11 +610,11 @@ with tab_enso_resumen:
     
     if not df_monthly_to_process.empty:
         df_analisis = df_monthly_to_process.copy()
-        enso_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
         
-        df_analisis = pd.merge(df_analisis, enso_data, on='fecha_mes_año', how='left')
+        enso_data_analisis = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
+        df_analisis = pd.merge(df_analisis, enso_data_analisis, on='fecha_mes_año', how='left')
         
-        if 'anomalia_oni' in df_analisis.columns:
+        if 'anomalia_oni' in df_analisis.columns and not df_analisis['anomalia_oni'].isnull().all():
             df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
         
             def classify_enso(oni):
