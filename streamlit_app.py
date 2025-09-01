@@ -202,38 +202,40 @@ if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municip
     st.stop()
     
 df_precip_mensual = df_precip_mensual_raw.copy()
-df_precip_mensual.columns = df_precip_mensual.columns.str.strip().str.lower()
+df_precip_mensual.columns = df_precip_mensual.columns.str.strip()
 
-# --- Manejo de la columna de fecha: se usa 'año' y 'mes' ---
-year_col_precip = next((col for col in df_precip_mensual.columns if ('año' in col or 'ano' in col) and 'enso' not in col), None)
-month_col_precip = next((col for col in df_precip_mensual.columns if 'mes' in col), None)
+# Se busca la columna de año con o sin capitalización
+year_col_name = next((col for col in df_precip_mensual.columns if 'año' in col.lower() and 'enso' not in col.lower()), None)
+month_col_name = next((col for col in df_precip_mensual.columns if 'mes' in col.lower()), None)
 
-if not all([year_col_precip, month_col_precip]):
-    st.error("No se encontraron las columnas 'año'/'ano' y 'mes' en el archivo de precipitación mensual. Por favor, asegúrese de que existan.")
+if not all([year_col_name, month_col_name]):
+    st.error("No se encontraron las columnas 'Año' y 'mes' en el archivo de precipitación mensual.")
     st.stop()
 
-df_precip_mensual.rename(columns={year_col_precip: 'año'}, inplace=True)
-df_precip_mensual.rename(columns={month_col_precip: 'mes'}, inplace=True)
-df_precip_mensual.loc[:, 'Fecha'] = pd.to_datetime(df_precip_mensual['año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
+# Renombrar para estandarizar
+df_precip_mensual.rename(columns={year_col_name: 'Año', month_col_name: 'mes'}, inplace=True)
+
+# Crea la columna Fecha de manera robusta
+df_precip_mensual['Fecha'] = pd.to_datetime(df_precip_mensual['Año'].astype(str) + '-' + df_precip_mensual['mes'].astype(str), errors='coerce')
 df_precip_mensual.dropna(subset=['Fecha'], inplace=True)
 
-
-enso_cols_base = ['año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst', 'fecha']
+# Lógica para datos ENSO
+enso_cols_base = ['Año', 'mes', 'anomalia_oni', 'temp_media', 'temp_sst']
 enso_cols_present = [col for col in enso_cols_base if col in df_precip_mensual.columns]
 df_enso = pd.DataFrame() 
-if 'año' in enso_cols_present and 'mes' in enso_cols_present:
-    df_enso = df_precip_mensual.loc[:, enso_cols_present].drop_duplicates().copy()
-    df_enso.dropna(subset=['año', 'mes'], inplace=True)
-    df_enso.loc[:, 'año'] = pd.to_numeric(df_enso['año'], errors='coerce')
-    df_enso.loc[:, 'mes'] = pd.to_numeric(df_enso['mes'], errors='coerce')
-    df_enso.dropna(subset=['año', 'mes'], inplace=True)
-    df_enso = df_enso.astype({'año': int, 'mes': int})
-    df_enso.loc[:, 'Fecha'] = pd.to_datetime(df_enso['año'].astype(str) + '-' + df_enso['mes'].astype(str), errors='coerce')
-    df_enso.loc[:, 'fecha_merge'] = df_enso['Fecha'].dt.strftime('%Y-%m')
+if 'Año' in enso_cols_present and 'mes' in enso_cols_present:
+    df_enso = df_precip_mensual[enso_cols_present].drop_duplicates().copy()
+    df_enso.dropna(subset=['Año', 'mes'], inplace=True)
+    df_enso['Año'] = pd.to_numeric(df_enso['Año'], errors='coerce')
+    df_enso['mes'] = pd.to_numeric(df_enso['mes'], errors='coerce')
+    df_enso.dropna(subset=['Año', 'mes'], inplace=True)
+    df_enso = df_enso.astype({'Año': int, 'mes': int})
+    df_enso['Fecha'] = pd.to_datetime(df_enso['Año'].astype(str) + '-' + df_enso['mes'].astype(str), errors='coerce')
+    df_enso['fecha_merge'] = df_enso['Fecha'].dt.strftime('%Y-%m')
     df_enso.dropna(subset=['Fecha'], inplace=True)
     for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
         if col in df_enso.columns:
-           df_enso.loc[:, col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
+           df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
 
 lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
 lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
@@ -253,7 +255,8 @@ if not station_cols:
     st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
     st.stop()
 
-id_vars = ['año', 'mes', 'Fecha']
+# Usar el nombre de columna estandarizado 'Año'
+id_vars = ['Año', 'mes', 'Fecha']
 df_long = df_precip_mensual.melt(id_vars=id_vars, value_vars=station_cols, var_name='Id_estacion', value_name='Precipitation')
 df_long.loc[:, 'Precipitation'] = pd.to_numeric(df_long['Precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
 df_long.dropna(subset=['Precipitation'], inplace=True)
@@ -264,7 +267,7 @@ df_long.loc[:, 'Id_estacion'] = df_long['Id_estacion'].astype(str).str.strip()
 station_mapping = gdf_stations.set_index('Id_estacio')['Nom_Est'].to_dict()
 df_long.loc[:, 'Nom_Est'] = df_long['Id_estacion'].map(station_mapping)
 df_long.dropna(subset=['Nom_Est'], inplace=True)
-df_long.rename(columns={'año': 'Año'}, inplace=True)
+
 if df_long.empty:
    st.warning("El dataframe de precipitación mensual está vacío después del preprocesamiento.")
    st.stop()
@@ -308,6 +311,7 @@ selected_stations = st.sidebar.multiselect(
 )
 st.session_state.selected_stations = selected_stations
 
+# En el código original se usa 'Año' (mayúscula) para el slider, lo mantengo así
 años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
 if not años_disponibles:
     st.error("No se encontraron columnas de años (ej: '2020', '2021') en el archivo de estaciones.")
@@ -856,7 +860,8 @@ with tab_enso:
             st.info("Este gráfico combina la precipitación mensual (calculada como promedio para las estaciones seleccionadas) y la anomalía ONI.")
             
             df_combined = df_monthly_filtered.copy()
-            df_combined = df_combined.groupby('Fecha')['Precipitation'].mean().reset_index()
+            # Esta línea se ha ajustado para asegurar que 'Fecha' no se pierda.
+            df_combined = df_combined.groupby('Fecha', as_index=False)['Precipitation'].mean()
             df_combined.loc[:, 'fecha_merge'] = df_combined['Fecha'].dt.strftime('%Y-%m')
             df_combined = pd.merge(df_combined, df_enso, on='fecha_merge', how='left')
             df_combined.dropna(subset=['Precipitation', 'anomalia_oni'], inplace=True)
