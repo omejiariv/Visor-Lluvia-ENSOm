@@ -13,10 +13,18 @@ import os
 import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
-import locale
+# Eliminamos la importación de locale para evitar el error
 
-# Establecer la configuración regional a español para procesar los nombres de meses
-locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+# Función para corregir el formato de fecha antes de procesar
+def parse_spanish_dates(date_series):
+    # Diccionario de meses en español a inglés
+    months_es_to_en = {
+        'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec'
+    }
+    # Reemplazar los meses en español con los en inglés
+    for es, en in months_es_to_en.items():
+        date_series = date_series.str.replace(es, en, regex=False, case=False)
+    return date_series
  
 try:
     from folium.plugins import ScaleControl
@@ -235,7 +243,11 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
                                      value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
     df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
     df_long.dropna(subset=['precipitation'], inplace=True)
+    
+    # Aplicar la función de corrección de fechas antes de la conversión a datetime
+    df_long['fecha_mes_año'] = parse_spanish_dates(df_long['fecha_mes_año'])
     df_long['fecha_mes_año'] = pd.to_datetime(df_long['fecha_mes_año'], format='%b-%y', errors='coerce')
+    
     df_long.dropna(subset=['fecha_mes_año'], inplace=True)
     df_long['origen'] = 'Original'
  
@@ -250,7 +262,11 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
         if col in df_enso.columns:
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
+    
+    # Aplicar la función de corrección de fechas antes de la conversión a datetime
+    df_enso['fecha_mes_año'] = parse_spanish_dates(df_enso['fecha_mes_año'])
     df_enso['fecha_mes_año'] = pd.to_datetime(df_enso['fecha_mes_año'], format='%b-%y', errors='coerce')
+    
     df_enso.dropna(subset=['fecha_mes_año'], inplace=True)
  
     return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
