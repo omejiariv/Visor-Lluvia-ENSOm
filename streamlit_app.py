@@ -320,15 +320,14 @@ if 'uploaded_files' not in st.session_state:
 
 current_files = (uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
 
-if st.session_state.uploaded_files != current_files:
+if st.session_state.uploaded_files != current_files or not st.session_state.data_loaded:
     st.session_state.uploaded_files = current_files
     st.session_state.data_loaded = False
     
-if not all(current_files):
-    st.info("Por favor, suba los 3 archivos requeridos para habilitar la aplicación.")
-    st.stop()
+    if not all(current_files):
+        st.info("Por favor, suba los 3 archivos requeridos para habilitar la aplicación.")
+        st.stop()
     
-if not st.session_state.data_loaded:
     with st.spinner('Procesando datos... Esto puede tomar un momento.'):
         st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(*current_files)
     st.session_state.data_loaded = True
