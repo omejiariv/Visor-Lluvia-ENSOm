@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import folium
-from folium.plugins import MarkerCluster # <--- IMPORTANTE: Se añade la librería para clustering
+from folium.plugins import MarkerCluster
 from streamlit_folium import folium_static
 import plotly.express as px
 import plotly.graph_objects as go
@@ -517,65 +517,113 @@ with tab1:
                     st.dataframe(df_values)
 
 with tab2:
-    st.header("Mapa de Ubicación de Estaciones con Agrupación (Clustering)")
-    controls_col, map_col = st.columns([1, 4])
-    gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)]
+    st.header("Análisis Espacial y de Datos de Estaciones")
+    gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].copy()
 
-    with controls_col:
-        st.subheader("Controles del Mapa")
-        if not gdf_filtered.empty:
-            m1, m2 = st.columns([1, 3])
-            with m1:
-                if os.path.exists(logo_gota_path):
-                    st.image(logo_gota_path, width=50)
-            with m2:
-                st.metric("Estaciones en Vista", len(gdf_filtered))
+    # --- INICIO DEL CAMBIO: Calcular media anual y unirla a gdf_filtered ---
+    if not df_anual_melted.empty:
+        df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().reset_index()
+        gdf_filtered = gdf_filtered.merge(df_mean_precip.rename(columns={'precipitacion': 'precip_media_anual'}), on='nom_est', how='left')
+    else:
+        gdf_filtered['precip_media_anual'] = np.nan
+    gdf_filtered['precip_media_anual'] = gdf_filtered['precip_media_anual'].fillna(0)
+    # --- FIN DEL CAMBIO ---
+    
+    sub_tab_mapa, sub_tab_grafico = st.tabs(["Mapa Interactivo", "Gráfico de Disponibilidad de Datos"])
 
-            st.markdown("---")
-            map_centering = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_radio")
+    with sub_tab_mapa:
+        controls_col, map_col = st.columns([1, 4])
+        
+        with controls_col:
+            st.subheader("Controles del Mapa")
+            if not gdf_filtered.empty:
+                m1, m2 = st.columns([1, 3])
+                with m1:
+                    if os.path.exists(logo_gota_path):
+                        st.image(logo_gota_path, width=50)
+                with m2:
+                    st.metric("Estaciones en Vista", len(gdf_filtered))
 
-            if 'map_view' not in st.session_state:
-                st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+                st.markdown("---")
+                map_centering = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_radio")
 
-            if map_centering == "Vistas Predefinidas":
-                if st.button("Ver Colombia"):
+                if 'map_view' not in st.session_state:
                     st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
-                if st.button("Ver Antioquia"):
-                    st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
-                if st.button("Ajustar a Selección"):
+
+                if map_centering == "Vistas Predefinidas":
+                    if st.button("Ver Colombia"):
+                        st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+                    if st.button("Ver Antioquia"):
+                        st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
+                    if st.button("Ajustar a Selección"):
+                        bounds = gdf_filtered.total_bounds
+                        center_lat = (bounds[1] + bounds[3]) / 2
+                        center_lon = (bounds[0] + bounds[2]) / 2
+                        st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
+
+        with map_col:
+            if not gdf_filtered.empty:
+                m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
+
+                if map_centering == "Automático":
                     bounds = gdf_filtered.total_bounds
-                    center_lat = (bounds[1] + bounds[3]) / 2
-                    center_lon = (bounds[0] + bounds[2]) / 2
-                    st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
+                    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-    with map_col:
+                folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
+                marker_cluster = MarkerCluster().add_to(m)
+
+                for _, row in gdf_filtered.iterrows():
+                    # --- INICIO DEL CAMBIO: Tooltip más informativo ---
+                    html = f"""
+                    <b>Estación:</b> {row['nom_est']}<br>
+                    <b>Municipio:</b> {row['municipio']}<br>
+                    <b>Celda:</b> {row['celda_xy']}<br>
+                    <b>% Datos Disponibles:</b> {row['porc_datos']:.1f}%<br>
+                    <b>Ppt. Media Anual (mm):</b> {row['precip_media_anual']:.1f}
+                    """
+                    # --- FIN DEL CAMBIO ---
+                    folium.Marker(
+                        location=[row['latitud_geo'], row['longitud_geo']],
+                        tooltip=html
+                    ).add_to(marker_cluster)
+
+                folium_static(m, width=1100, height=700)
+            else:
+                st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
+
+    with sub_tab_grafico:
+        # --- INICIO DEL CAMBIO: Gráfico de barras de disponibilidad de datos ---
+        st.subheader("Disponibilidad de Datos por Estación")
         if not gdf_filtered.empty:
-            m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
+            sort_order_disp = st.radio(
+                "Ordenar estaciones por:",
+                ["% Datos (Mayor a Menor)", "% Datos (Menor a Mayor)", "Alfabético"],
+                horizontal=True, key="sort_disp"
+            )
 
-            if map_centering == "Automático":
-                bounds = gdf_filtered.total_bounds
-                m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-
-            folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
-
-            # --- INICIO DEL CAMBIO: Implementación de MarkerCluster ---
-            # 1. Crear un objeto MarkerCluster y añadirlo al mapa.
-            marker_cluster = MarkerCluster().add_to(m)
-
-            # 2. Iterar sobre las estaciones y añadir cada marcador AL CLUSTER, no al mapa directamente.
-            for _, row in gdf_filtered.iterrows():
-                html = f"<b>Estación:</b> {row['nom_est']}<br><b>Municipio:</b> {row['municipio']}<br><b>Celda:</b> {row['celda_xy']}"
-                folium.Marker(
-                    location=[row['latitud_geo'], row['longitud_geo']],
-                    tooltip=html
-                ).add_to(marker_cluster) # Se añade a 'marker_cluster'
-
-            # --- FIN DEL CAMBIO ---
-
-            folium_static(m, width=1100, height=700)
+            df_chart = gdf_filtered.copy()
+            if "% Datos (Mayor a Menor)" in sort_order_disp:
+                df_chart = df_chart.sort_values("porc_datos", ascending=False)
+            elif "% Datos (Menor a Mayor)" in sort_order_disp:
+                df_chart = df_chart.sort_values("porc_datos", ascending=True)
+            else:
+                df_chart = df_chart.sort_values("nom_est", ascending=True)
+            
+            fig_disp = px.bar(df_chart, 
+                              x='nom_est', 
+                              y='porc_datos', 
+                              title='Porcentaje de Disponibilidad de Datos',
+                              labels={'nom_est': 'Estación', 'porc_datos': '% de Datos Disponibles'},
+                              color='porc_datos', 
+                              color_continuous_scale=px.colors.sequential.Viridis)
+            fig_disp.update_layout(
+                height=600,
+                xaxis={'categoryorder':'trace'} # Mantiene el orden del dataframe
+            )
+            st.plotly_chart(fig_disp, use_container_width=True)
         else:
-            st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
-
+            st.warning("No hay estaciones seleccionadas para mostrar el gráfico.")
+        # --- FIN DEL CAMBIO ---
 
 with tab_anim:
     st.header("Mapas Avanzados")
