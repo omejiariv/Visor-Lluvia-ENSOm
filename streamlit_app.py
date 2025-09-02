@@ -249,7 +249,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
             df_precip_mensual[col] = df_precip_mensual[col].astype(str).str.replace(',', '.')
 
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
-                                     value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
+                                        value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
 
     # Corrección: Conversión de los campos a numérico
     df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
@@ -430,8 +430,8 @@ with tab1:
                 st.caption(f"Período de análisis: {year_range[0]} - {year_range[1]}")
 
                 chart_type_annual = st.radio("Seleccionar tipo de gráfico:",
-                                             ("Gráfico de Barras (Promedio)", "Gráfico de Cajas (Distribución)"),
-                                             key="avg_chart_type_annual", horizontal=True)
+                                                ("Gráfico de Barras (Promedio)", "Gráfico de Cajas (Distribución)"),
+                                                key="avg_chart_type_annual", horizontal=True)
 
                 if chart_type_annual == "Gráfico de Barras (Promedio)":
                     df_summary = df_anual_melted.groupby('nom_est', as_index=False)['precipitacion'].mean().round(2)
@@ -439,7 +439,7 @@ with tab1:
                         "Ordenar estaciones por:",
                         ["Promedio (Mayor a Menor)", "Promedio (Menor a Mayor)", "Alfabético"],
                         horizontal=True, key="sort_annual_avg"
-                      )
+                        )
 
                     if "Mayor a Menor" in sort_order:
                         df_summary = df_summary.sort_values("precipitacion", ascending=False)
@@ -449,18 +449,18 @@ with tab1:
                         df_summary = df_summary.sort_values("nom_est", ascending=True)
 
                     fig_avg = px.bar(df_summary, x='nom_est', y='precipitacion', title='Promedio de Precipitación Anual',
-                                     labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Media Anual (mm)'},
-                                     color='precipitacion', color_continuous_scale=px.colors.sequential.Blues_r)
+                                        labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Media Anual (mm)'},
+                                        color='precipitacion', color_continuous_scale=px.colors.sequential.Blues_r)
                     fig_avg.update_layout(
                         height=600,
                         xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')}
-                      )
+                        )
                     st.plotly_chart(fig_avg, use_container_width=True)
                 else:
                     fig_box = px.box(df_anual_melted, x='nom_est', y='precipitacion', color='nom_est',
-                                     points='all',
-                                     title='Distribución de la Precipitación Anual por Estación',
-                                     labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
+                                        points='all',
+                                        title='Distribución de la Precipitación Anual por Estación',
+                                        labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
                     fig_box.update_layout(height=600)
                     st.plotly_chart(fig_box, use_container_width=True)
 
@@ -495,8 +495,8 @@ with tab1:
                 else:
                     st.subheader("Distribución de la Precipitación Mensual")
                     fig_box_monthly = px.box(df_monthly_filtered, x='mes', y='precipitation', color='nom_est',
-                                             title='Distribución de la Precipitación por Mes',
-                                             labels={'mes': 'Mes', 'precipitation': 'Precipitación Mensual (mm)', 'nom_est': 'Estación'})
+                                                title='Distribución de la Precipitación por Mes',
+                                                labels={'mes': 'Mes', 'precipitation': 'Precipitación Mensual (mm)', 'nom_est': 'Estación'})
                     fig_box_monthly.update_layout(height=600)
                     st.plotly_chart(fig_box_monthly, use_container_width=True)
 
@@ -615,8 +615,8 @@ with tab_anim:
                             with map_col1:
                                 st.subheader(f"Estaciones - Año: {year1}")
                                 fig1 = px.scatter_geo(data_year, lat='latitud_geo', lon='longitud_geo', color='precipitacion',
-                                                      size='precipitacion', hover_name='nom_est', color_continuous_scale='YlGnBu',
-                                                      projection='natural earth', range_color=color_range)
+                                                        size='precipitacion', hover_name='nom_est', color_continuous_scale='YlGnBu',
+                                                        projection='natural earth', range_color=color_range)
                                 fig1.update_geos(lonaxis_range=lon_range, lataxis_range=lat_range, visible=True, showcoastlines=True)
                                 fig1.update_layout(height=600)
                                 st.plotly_chart(fig1, use_container_width=True)
@@ -650,7 +650,7 @@ with tab_anim:
                                     st.warning(f"No hay datos para el año {year}.")
                                     continue
                                 fig = px.scatter_geo(data_year, lat='latitud_geo', lon='longitud_geo', color='precipitacion', size='precipitacion',
-                                                     hover_name='nom_est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
+                                                        hover_name='nom_est', color_continuous_scale='YlGnBu', range_color=color_range, projection='natural earth')
                                 fig.update_geos(fitbounds="locations", visible=True)
                                 st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
         else:
@@ -795,66 +795,22 @@ with tab4:
     if df_enso.empty:
         st.warning("No se encontraron datos del fenómeno ENSO en el archivo de precipitación cargado. El análisis ENSO no está disponible.")
     else:
-        enso_series_tab, enso_corr_tab = st.tabs(["Series de Tiempo ENSO", "Correlación Precipitación-ENSO"])
-
-        with enso_series_tab:
-            st.subheader("Visualización de Variables ENSO")
-            enso_vars_available = [v for v in ['anomalia_oni', 'temp_sst', 'temp_media'] if v in df_enso.columns]
-            if not enso_vars_available:
-                st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
+        st.subheader("Visualización de Variables ENSO")
+        enso_vars_available = [v for v in ['anomalia_oni', 'temp_sst', 'temp_media'] if v in df_enso.columns]
+        if not enso_vars_available:
+            st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
+        else:
+            variable_enso = st.selectbox("Seleccione la variable ENSO a visualizar:", enso_vars_available)
+            df_enso_filtered = df_enso[
+                (df_enso['fecha_mes_año'].dt.year >= year_range[0]) &
+                (df_enso['fecha_mes_año'].dt.year <= year_range[1]) &
+                (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))
+            ]
+            if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
+                fig_enso_series = px.line(df_enso_filtered, x='fecha_mes_año', y=variable_enso, title=f"Serie de Tiempo para {variable_enso}")
+                st.plotly_chart(fig_enso_series, use_container_width=True)
             else:
-                variable_enso = st.selectbox("Seleccione la variable ENSO a visualizar:", enso_vars_available)
-                df_enso_filtered = df_enso[
-                    (df_enso['fecha_mes_año'].dt.year >= year_range[0]) &
-                    (df_enso['fecha_mes_año'].dt.year <= year_range[1]) &
-                    (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))
-                ]
-                if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
-                    fig_enso_series = px.line(df_enso_filtered, x='fecha_mes_año', y=variable_enso, title=f"Serie de Tiempo para {variable_enso}")
-                    st.plotly_chart(fig_enso_series, use_container_width=True)
-                else:
-                    st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
-
-        with enso_corr_tab:
-            # Se usa una copia para evitar SettingWithCopyWarning
-            df_analisis_precip = df_monthly_filtered.copy()
-            df_analisis_enso = df_enso.copy()
-            
-            # Asegura que la columna de fecha sea el índice en ambos para el merge
-            df_analisis_precip.set_index('fecha_mes_año', inplace=True)
-            df_analisis_enso.set_index('fecha_mes_año', inplace=True)
-            
-            # Se combinan los datos de precipitación y ENSO
-            df_analisis = pd.merge(df_analisis_precip, df_analisis_enso[['anomalia_oni']], left_index=True, right_index=True, how='inner')
-            df_analisis.reset_index(inplace=True)
-
-            if 'anomalia_oni' in df_analisis.columns:
-                df_analisis.dropna(subset=['anomalia_oni'], inplace=True)
-
-                def classify_enso(oni):
-                    # La comparación ahora es segura, ya que los valores son numéricos
-                    if oni >= 0.5: return 'El Niño'
-                    elif oni <= -0.5: return 'La Niña'
-                    else: return 'Neutral'
-
-                df_analisis['enso_fase'] = df_analisis['anomalia_oni'].apply(classify_enso)
-
-                if not df_analisis.empty:
-                    st.subheader("Precipitación Media por Evento ENSO")
-                    df_enso_group = df_analisis.groupby('enso_fase')['precipitation'].mean().reset_index()
-                    fig_enso = px.bar(df_enso_group, x='enso_fase', y='precipitation', color='enso_fase', labels={'precipitation': 'Precipitación Media (mm)'})
-                    st.plotly_chart(fig_enso, use_container_width=True)
-
-                    st.subheader("Correlación entre Anomalía ONI y Precipitación")
-                    if df_analisis['anomalia_oni'].nunique() > 1 and df_analisis['precipitation'].nunique() > 1:
-                        correlation = df_analisis['anomalia_oni'].corr(df_analisis['precipitation'])
-                        st.metric("Coeficiente de Correlación de Pearson", f"{correlation:.2f}")
-                    else:
-                        st.warning("No hay suficientes datos variados para calcular la correlación.")
-                else:
-                    st.warning("No hay datos suficientes para realizar el análisis ENSO con la selección actual.")
-            else:
-                st.warning("Análisis no disponible. No se pudo encontrar la columna 'anomalia_oni' para el análisis.")
+                st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
 
 with tab5:
     st.header("Opciones de Descarga")
