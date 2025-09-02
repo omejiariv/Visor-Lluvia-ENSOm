@@ -407,9 +407,160 @@ df_monthly_filtered = df_monthly_to_process[
 ]
 
 # --- Pestañas Principales ---
-tab1, tab2, tab_anim, tab3, tab_stats, tab4, tab5 = st.tabs(["Gráficos", "Mapa de Estaciones", "Mapas Avanzados", "Tabla de Estaciones", "Estadísticas", "Análisis ENSO", "Descargas"])
+# --- INICIO DEL CAMBIO: Se intercambia el orden de las pestañas ---
+tab1, tab2, tab_anim, tab3, tab_stats, tab4, tab5 = st.tabs(["Mapa de Estaciones", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Estadísticas", "Análisis ENSO", "Descargas"])
+# --- FIN DEL CAMBIO ---
 
+# --- INICIO DEL CAMBIO: El código del mapa ahora está en la primera pestaña (tab1) ---
 with tab1:
+    st.header("Análisis Espacial y de Datos de Estaciones")
+    gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].copy()
+
+    if not df_anual_melted.empty:
+        df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().reset_index()
+        gdf_filtered = gdf_filtered.merge(df_mean_precip.rename(columns={'precipitacion': 'precip_media_anual'}), on='nom_est', how='left')
+    else:
+        gdf_filtered['precip_media_anual'] = np.nan
+    gdf_filtered['precip_media_anual'] = gdf_filtered['precip_media_anual'].fillna(0)
+    
+    sub_tab_mapa, sub_tab_grafico = st.tabs(["Mapa Interactivo", "Gráfico de Disponibilidad de Datos"])
+
+    with sub_tab_mapa:
+        controls_col, map_col = st.columns([1, 4])
+        
+        with controls_col:
+            st.subheader("Controles del Mapa")
+            if not gdf_filtered.empty:
+                m1, m2 = st.columns([1, 3])
+                with m1:
+                    if os.path.exists(logo_gota_path):
+                        st.image(logo_gota_path, width=50)
+                with m2:
+                    st.metric("Estaciones en Vista", len(gdf_filtered))
+
+                st.markdown("---")
+                map_centering = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_radio")
+
+                if 'map_view' not in st.session_state:
+                    st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+
+                if map_centering == "Vistas Predefinidas":
+                    if st.button("Ver Colombia"):
+                        st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
+                    if st.button("Ver Antioquia"):
+                        st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
+                    if st.button("Ajustar a Selección"):
+                        bounds = gdf_filtered.total_bounds
+                        center_lat = (bounds[1] + bounds[3]) / 2
+                        center_lon = (bounds[0] + bounds[2]) / 2
+                        st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
+
+        with map_col:
+            if not gdf_filtered.empty:
+                m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
+
+                if map_centering == "Automático":
+                    bounds = gdf_filtered.total_bounds
+                    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+
+                folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
+                marker_cluster = MarkerCluster().add_to(m)
+
+                for _, row in gdf_filtered.iterrows():
+                    html = f"""
+                    <b>Estación:</b> {row['nom_est']}<br>
+                    <b>Municipio:</b> {row['municipio']}<br>
+                    <b>Celda:</b> {row['celda_xy']}<br>
+                    <b>% Datos Disponibles:</b> {row['porc_datos']:.1f}%<br>
+                    <b>Ppt. Media Anual (mm):</b> {row['precip_media_anual']:.1f}
+                    """
+                    folium.Marker(
+                        location=[row['latitud_geo'], row['longitud_geo']],
+                        tooltip=html
+                    ).add_to(marker_cluster)
+
+                folium_static(m, width=1100, height=700)
+            else:
+                st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
+
+    with sub_tab_grafico:
+        st.subheader("Disponibilidad y Composición de Datos por Estación")
+        if not gdf_filtered.empty:
+            if analysis_mode == "Completar series (interpolación)":
+                st.info("Mostrando la composición de datos originales vs. completados para el período seleccionado.")
+                
+                data_composition = df_monthly_filtered.groupby(['nom_est', 'origen']).size().unstack(fill_value=0)
+                if 'Original' not in data_composition: data_composition['Original'] = 0
+                if 'Completado' not in data_composition: data_composition['Completado'] = 0
+                
+                data_composition['total'] = data_composition['Original'] + data_composition['Completado']
+                data_composition['% Original'] = (data_composition['Original'] / data_composition['total']) * 100
+                data_composition['% Completado'] = (data_composition['Completado'] / data_composition['total']) * 100
+
+                sort_order_comp = st.radio(
+                    "Ordenar por:",
+                    ["% Datos Originales (Mayor a Menor)", "% Datos Originales (Menor a Mayor)", "Alfabético"],
+                    horizontal=True, key="sort_comp"
+                )
+                if "Mayor a Menor" in sort_order_comp:
+                    data_composition = data_composition.sort_values("% Original", ascending=False)
+                elif "Menor a Mayor" in sort_order_comp:
+                    data_composition = data_composition.sort_values("% Original", ascending=True)
+                else:
+                    data_composition = data_composition.sort_index(ascending=True)
+
+                df_plot = data_composition.reset_index().melt(
+                    id_vars='nom_est',
+                    value_vars=['% Original', '% Completado'],
+                    var_name='Tipo de Dato',
+                    value_name='Porcentaje'
+                )
+
+                fig_comp = px.bar(df_plot,
+                                 x='nom_est',
+                                 y='Porcentaje',
+                                 color='Tipo de Dato',
+                                 title='Composición de Datos por Estación',
+                                 labels={'nom_est': 'Estación', 'Porcentaje': '% del Período'},
+                                 color_discrete_map={'% Original': '#1f77b4', '% Completado': '#ff7f0e'},
+                                 text_auto='.1f')
+                fig_comp.update_layout(height=600, xaxis={'categoryorder': 'trace'})
+                st.plotly_chart(fig_comp, use_container_width=True)
+
+            else:
+                st.info("Mostrando el porcentaje de disponibilidad de datos según el archivo de estaciones.")
+                sort_order_disp = st.radio(
+                    "Ordenar estaciones por:",
+                    ["% Datos (Mayor a Menor)", "% Datos (Menor a Mayor)", "Alfabético"],
+                    horizontal=True, key="sort_disp"
+                )
+
+                df_chart = gdf_filtered.copy()
+                if "% Datos (Mayor a Menor)" in sort_order_disp:
+                    df_chart = df_chart.sort_values("porc_datos", ascending=False)
+                elif "% Datos (Menor a Mayor)" in sort_order_disp:
+                    df_chart = df_chart.sort_values("porc_datos", ascending=True)
+                else:
+                    df_chart = df_chart.sort_values("nom_est", ascending=True)
+                
+                fig_disp = px.bar(df_chart, 
+                                  x='nom_est', 
+                                  y='porc_datos', 
+                                  title='Porcentaje de Disponibilidad de Datos Históricos',
+                                  labels={'nom_est': 'Estación', 'porc_datos': '% de Datos Disponibles'},
+                                  color='porc_datos', 
+                                  color_continuous_scale=px.colors.sequential.Viridis)
+                fig_disp.update_layout(
+                    height=600,
+                    xaxis={'categoryorder':'trace'}
+                )
+                st.plotly_chart(fig_disp, use_container_width=True)
+        else:
+            st.warning("No hay estaciones seleccionadas para mostrar el gráfico.")
+# --- FIN DEL CAMBIO ---
+
+# --- INICIO DEL CAMBIO: El código de gráficos ahora está en la segunda pestaña (tab2) ---
+with tab2:
     st.header("Visualizaciones de Precipitación")
     sub_tab_anual, sub_tab_mensual = st.tabs(["Serie Anual", "Serie Mensual"])
 
@@ -515,159 +666,7 @@ with tab1:
                 if not df_monthly_filtered.empty:
                     df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation')
                     st.dataframe(df_values)
-
-with tab2:
-    st.header("Análisis Espacial y de Datos de Estaciones")
-    gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].copy()
-
-    if not df_anual_melted.empty:
-        df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().reset_index()
-        gdf_filtered = gdf_filtered.merge(df_mean_precip.rename(columns={'precipitacion': 'precip_media_anual'}), on='nom_est', how='left')
-    else:
-        gdf_filtered['precip_media_anual'] = np.nan
-    gdf_filtered['precip_media_anual'] = gdf_filtered['precip_media_anual'].fillna(0)
-    
-    sub_tab_mapa, sub_tab_grafico = st.tabs(["Mapa Interactivo", "Gráfico de Disponibilidad de Datos"])
-
-    with sub_tab_mapa:
-        controls_col, map_col = st.columns([1, 4])
-        
-        with controls_col:
-            st.subheader("Controles del Mapa")
-            if not gdf_filtered.empty:
-                m1, m2 = st.columns([1, 3])
-                with m1:
-                    if os.path.exists(logo_gota_path):
-                        st.image(logo_gota_path, width=50)
-                with m2:
-                    st.metric("Estaciones en Vista", len(gdf_filtered))
-
-                st.markdown("---")
-                map_centering = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_radio")
-
-                if 'map_view' not in st.session_state:
-                    st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
-
-                if map_centering == "Vistas Predefinidas":
-                    if st.button("Ver Colombia"):
-                        st.session_state.map_view = {"location": [4.57, -74.29], "zoom": 5}
-                    if st.button("Ver Antioquia"):
-                        st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
-                    if st.button("Ajustar a Selección"):
-                        bounds = gdf_filtered.total_bounds
-                        center_lat = (bounds[1] + bounds[3]) / 2
-                        center_lon = (bounds[0] + bounds[2]) / 2
-                        st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
-
-        with map_col:
-            if not gdf_filtered.empty:
-                m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
-
-                if map_centering == "Automático":
-                    bounds = gdf_filtered.total_bounds
-                    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-
-                folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
-                marker_cluster = MarkerCluster().add_to(m)
-
-                for _, row in gdf_filtered.iterrows():
-                    html = f"""
-                    <b>Estación:</b> {row['nom_est']}<br>
-                    <b>Municipio:</b> {row['municipio']}<br>
-                    <b>Celda:</b> {row['celda_xy']}<br>
-                    <b>% Datos Disponibles:</b> {row['porc_datos']:.1f}%<br>
-                    <b>Ppt. Media Anual (mm):</b> {row['precip_media_anual']:.1f}
-                    """
-                    folium.Marker(
-                        location=[row['latitud_geo'], row['longitud_geo']],
-                        tooltip=html
-                    ).add_to(marker_cluster)
-
-                folium_static(m, width=1100, height=700)
-            else:
-                st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
-
-    with sub_tab_grafico:
-        st.subheader("Disponibilidad y Composición de Datos por Estación")
-        if not gdf_filtered.empty:
-            # --- INICIO DEL CAMBIO: Lógica para gráfico dinámico ---
-            if analysis_mode == "Completar series (interpolación)":
-                st.info("Mostrando la composición de datos originales vs. completados para el período seleccionado.")
-                
-                # Calcular composición
-                data_composition = df_monthly_filtered.groupby(['nom_est', 'origen']).size().unstack(fill_value=0)
-                if 'Original' not in data_composition: data_composition['Original'] = 0
-                if 'Completado' not in data_composition: data_composition['Completado'] = 0
-                
-                data_composition['total'] = data_composition['Original'] + data_composition['Completado']
-                data_composition['% Original'] = (data_composition['Original'] / data_composition['total']) * 100
-                data_composition['% Completado'] = (data_composition['Completado'] / data_composition['total']) * 100
-
-                # Ordenar
-                sort_order_comp = st.radio(
-                    "Ordenar por:",
-                    ["% Datos Originales (Mayor a Menor)", "% Datos Originales (Menor a Mayor)", "Alfabético"],
-                    horizontal=True, key="sort_comp"
-                )
-                if "Mayor a Menor" in sort_order_comp:
-                    data_composition = data_composition.sort_values("% Original", ascending=False)
-                elif "Menor a Mayor" in sort_order_comp:
-                    data_composition = data_composition.sort_values("% Original", ascending=True)
-                else:
-                    data_composition = data_composition.sort_index(ascending=True)
-
-                # Preparar datos para gráfico apilado
-                df_plot = data_composition.reset_index().melt(
-                    id_vars='nom_est',
-                    value_vars=['% Original', '% Completado'],
-                    var_name='Tipo de Dato',
-                    value_name='Porcentaje'
-                )
-
-                # Crear gráfico
-                fig_comp = px.bar(df_plot,
-                                 x='nom_est',
-                                 y='Porcentaje',
-                                 color='Tipo de Dato',
-                                 title='Composición de Datos por Estación',
-                                 labels={'nom_est': 'Estación', 'Porcentaje': '% del Período'},
-                                 color_discrete_map={'% Original': '#1f77b4', '% Completado': '#ff7f0e'},
-                                 text_auto='.1f')
-                fig_comp.update_layout(height=600, xaxis={'categoryorder': 'trace'})
-                st.plotly_chart(fig_comp, use_container_width=True)
-
-            else:
-                # Gráfico original si no se están completando series
-                st.info("Mostrando el porcentaje de disponibilidad de datos según el archivo de estaciones.")
-                sort_order_disp = st.radio(
-                    "Ordenar estaciones por:",
-                    ["% Datos (Mayor a Menor)", "% Datos (Menor a Mayor)", "Alfabético"],
-                    horizontal=True, key="sort_disp"
-                )
-
-                df_chart = gdf_filtered.copy()
-                if "% Datos (Mayor a Menor)" in sort_order_disp:
-                    df_chart = df_chart.sort_values("porc_datos", ascending=False)
-                elif "% Datos (Menor a Mayor)" in sort_order_disp:
-                    df_chart = df_chart.sort_values("porc_datos", ascending=True)
-                else:
-                    df_chart = df_chart.sort_values("nom_est", ascending=True)
-                
-                fig_disp = px.bar(df_chart, 
-                                  x='nom_est', 
-                                  y='porc_datos', 
-                                  title='Porcentaje de Disponibilidad de Datos Históricos',
-                                  labels={'nom_est': 'Estación', 'porc_datos': '% de Datos Disponibles'},
-                                  color='porc_datos', 
-                                  color_continuous_scale=px.colors.sequential.Viridis)
-                fig_disp.update_layout(
-                    height=600,
-                    xaxis={'categoryorder':'trace'}
-                )
-                st.plotly_chart(fig_disp, use_container_width=True)
-            # --- FIN DEL CAMBIO ---
-        else:
-            st.warning("No hay estaciones seleccionadas para mostrar el gráfico.")
+# --- FIN DEL CAMBIO ---
 
 with tab_anim:
     st.header("Mapas Avanzados")
