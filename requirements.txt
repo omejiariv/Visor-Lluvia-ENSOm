@@ -11,3 +11,4 @@ scikit-learn
 pykrige
 plotly
 statsmodels
+matplotlib
