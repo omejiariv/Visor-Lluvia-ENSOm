@@ -228,6 +228,8 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         return None, None, None, None, None
     df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
     df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
+    if 'alt_est' in df_precip_anual.columns:
+        df_precip_anual['alt_est'] = pd.to_numeric(df_precip_anual['alt_est'].astype(str).str.replace(',', '.'), errors='coerce')
     df_precip_anual.dropna(subset=[lon_col, lat_col], inplace=True)
     gdf_temp = gpd.GeoDataFrame(df_precip_anual, geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]), crs="EPSG:9377")
     gdf_stations = gdf_temp.to_crs("EPSG:4326")
@@ -331,58 +333,76 @@ else:
     st.sidebar.text("Advertencia: Columna 'porc_datos' no encontrada.")
     stations_master_list = gdf_stations.copy()
 
-municipios_list = sorted(stations_master_list['municipio'].unique())
-selected_municipios = st.sidebar.multiselect('1. Filtrar por Municipio', options=municipios_list)
+# 1. Filtro por Altitud
+altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
+selected_altitudes = st.sidebar.multiselect('1. Filtrar por Altitud (m)', options=altitude_ranges)
 
 stations_available = stations_master_list.copy()
+
+if selected_altitudes:
+    conditions = []
+    for r in selected_altitudes:
+        if r == '0-500': conditions.append((stations_available['alt_est'] >= 0) & (stations_available['alt_est'] <= 500))
+        elif r == '500-1000': conditions.append((stations_available['alt_est'] > 500) & (stations_available['alt_est'] <= 1000))
+        elif r == '1000-2000': conditions.append((stations_available['alt_est'] > 1000) & (stations_available['alt_est'] <= 2000))
+        elif r == '2000-3000': conditions.append((stations_available['alt_est'] > 2000) & (stations_available['alt_est'] <= 3000))
+        elif r == '>3000': conditions.append(stations_available['alt_est'] > 3000)
+    
+    if conditions:
+        combined_condition = pd.concat(conditions, axis=1).any(axis=1)
+        stations_available = stations_available[combined_condition]
+
+# 2. Filtro por Depto/Región
+if 'depto_region' in stations_available.columns:
+    regions_list = sorted(stations_available['depto_region'].dropna().unique())
+    selected_regions = st.sidebar.multiselect('2. Filtrar por Depto/Región', options=regions_list)
+    if selected_regions:
+        stations_available = stations_available[stations_available['depto_region'].isin(selected_regions)]
+
+# 3. Filtros existentes (ahora numerados 3 y 4)
+municipios_list = sorted(stations_available['municipio'].unique())
+selected_municipios = st.sidebar.multiselect('3. Filtrar por Municipio', options=municipios_list)
 if selected_municipios:
     stations_available = stations_available[stations_available['municipio'].isin(selected_municipios)]
 
 celdas_list = sorted(stations_available['celda_xy'].unique())
-selected_celdas = st.sidebar.multiselect('2. Filtrar por Celda_XY', options=celdas_list)
-
-# Lógica para la selección en cascada
+selected_celdas = st.sidebar.multiselect('4. Filtrar por Celda_XY', options=celdas_list)
 if selected_celdas:
-    stations_by_celda = stations_available[stations_available['celda_xy'].isin(selected_celdas)]
-    stations_options = sorted(stations_by_celda['nom_est'].unique())
-else:
-    stations_options = sorted(stations_available['nom_est'].unique())
+    stations_available = stations_available[stations_available['celda_xy'].isin(selected_celdas)]
+
+stations_options = sorted(stations_available['nom_est'].unique())
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### Selección de Estaciones")
+with st.sidebar.expander("Selección de Estaciones"):
+    if st.checkbox("Seleccionar/Deseleccionar todas las estaciones", value=st.session_state.select_all_stations_state, key='select_all_checkbox'):
+        st.session_state.selected_stations_auto = stations_options
+    else:
+        st.session_state.selected_stations_auto = []
 
-# Checkbox para seleccionar todas las estaciones de la lista actual
-if st.sidebar.checkbox("Seleccionar/Deseleccionar todas las estaciones", value=st.session_state.select_all_stations_state, key='select_all_checkbox'):
-    st.session_state.selected_stations_auto = stations_options
-else:
-    st.session_state.selected_stations_auto = []
+    selected_stations = st.multiselect(
+        '5. Seleccionar Estaciones',
+        options=stations_options,
+        default=st.session_state.selected_stations_auto,
+        key='station_multiselect'
+    )
+    if set(selected_stations) != set(st.session_state.selected_stations_auto):
+        st.session_state.select_all_stations_state = False
+        st.session_state.selected_stations_auto = selected_stations
 
-# Si el usuario hace una selección manual, se desactiva la selección "todas"
-selected_stations = st.sidebar.multiselect(
-    '3. Seleccionar Estaciones',
-    options=stations_options,
-    default=st.session_state.selected_stations_auto,
-    key='station_multiselect'
-)
+with st.sidebar.expander("Selección de Período"):
+    años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
+    if not años_disponibles:
+        st.error("No se encontraron columnas de años (ej: '2020', '2021') en el archivo de estaciones.")
+        st.stop()
+    year_range = st.slider("6. Seleccionar Rango de Años", min(años_disponibles), max(años_disponibles), (min(años_disponibles), max(años_disponibles)))
+    
+    meses_dict = {'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12}
+    meses_nombres = st.multiselect("7. Seleccionar Meses", list(meses_dict.keys()), default=list(meses_dict.keys()))
+    meses_numeros = [meses_dict[m] for m in meses_nombres]
 
-# Sincronizar el estado del multiselect con la variable de sesión
-if set(selected_stations) != set(st.session_state.selected_stations_auto):
-    st.session_state.select_all_stations_state = False
-    st.session_state.selected_stations_auto = selected_stations
-
-# Resto de los filtros
-años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
-if not años_disponibles:
-    st.error("No se encontraron columnas de años (ej: '2020', '2021') en el archivo de estaciones.")
-    st.stop()
-year_range = st.sidebar.slider("4. Seleccionar Rango de Años", min(años_disponibles), max(años_disponibles), (min(años_disponibles), max(años_disponibles)))
-meses_dict = {'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12}
-meses_nombres = st.sidebar.multiselect("5. Seleccionar Meses", list(meses_dict.keys()), default=list(meses_dict.keys()))
-meses_numeros = [meses_dict[m] for m in meses_nombres]
 st.sidebar.markdown("### Opciones de Análisis Avanzado")
 analysis_mode = st.sidebar.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"))
 
-# Condición para regenerar el dataframe completo si cambia la opción de análisis
 if 'analysis_mode' not in st.session_state or st.session_state.analysis_mode != analysis_mode:
     st.session_state.analysis_mode = analysis_mode
     if analysis_mode == "Completar series (interpolación)":
@@ -398,7 +418,7 @@ tab1, tab2, tab_anim, tab3, tab_stats, tab4, tab5 = st.tabs(["Mapa de Estaciones
 # Preparación de datos filtrados (se hará dentro de cada pestaña que los necesite)
 if selected_stations and meses_numeros:
     df_anual_melted = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].melt(
-        id_vars=['nom_est', 'longitud_geo', 'latitud_geo'],
+        id_vars=['nom_est', 'longitud_geo', 'latitud_geo', 'alt_est'],
         value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
         var_name='año', value_name='precipitacion')
     df_monthly_filtered = df_monthly_to_process[
@@ -652,7 +672,6 @@ with tab_anim:
         if os.path.exists(gif_path):
             img_col1, img_col2 = st.columns([1, 1])
             with img_col1:
-                # --- INICIO DE LA CORRECCIÓN: Usar st.image y botón de reinicio ---
                 if 'gif_rerun_count' not in st.session_state:
                     st.session_state.gif_rerun_count = 0
 
@@ -661,10 +680,11 @@ with tab_anim:
                 with open(gif_path, "rb") as file:
                     contents = file.read()
                     data_url = base64.b64encode(contents).decode("utf-8")
-                    gif_placeholder.markdown(
-                        f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM" style="width:100%;">',
-                        unsafe_allow_html=True,
-                    )
+                    file.close()
+                gif_placeholder.markdown(
+                    f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM" style="width:100%;">',
+                    unsafe_allow_html=True,
+                )
                 st.caption("Precipitación Promedio Anual Multianual en Antioquia")
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
@@ -673,11 +693,11 @@ with tab_anim:
                     with open(gif_path, "rb") as file:
                         contents = file.read()
                         data_url = base64.b64encode(contents).decode("utf-8")
-                        gif_placeholder.markdown(
-                            f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM {st.session_state.gif_rerun_count}" style="width:100%;">',
-                            unsafe_allow_html=True,
-                        )
-                # --- FIN DE LA CORRECCIÓN ---
+                        file.close()
+                    gif_placeholder.markdown(
+                        f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM {st.session_state.gif_rerun_count}" style="width:100%;">',
+                        unsafe_allow_html=True,
+                    )
         else:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
