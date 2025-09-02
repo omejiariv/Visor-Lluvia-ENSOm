@@ -735,7 +735,6 @@ with mapas_avanzados_tab:
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
                     st.session_state.gif_rerun_count += 1
-                    # Forzar la recarga del elemento
                     with open(gif_path, "rb") as file:
                         contents = file.read()
                         data_url = base64.b64encode(contents).decode("utf-8")
@@ -945,7 +944,7 @@ with anomalias_tab:
                 st.plotly_chart(fig, use_container_width=True)
 
             with anom_fase_tab:
-                df_anomalias_enso = pd.merge(df_anomalias, df_enso[['fecha_mes_año', 'anomalia_oni']], on='fecha_mes_año', how='left').dropna(subset=['anomalia_oni'])
+                df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
                 conditions = [df_anomalias_enso['anomalia_oni'] >= 0.5, df_anomalias_enso['anomalia_oni'] <= -0.5]
                 phases = ['El Niño', 'La Niña']
                 df_anomalias_enso['enso_fase'] = np.select(conditions, phases, default='Neutral')
