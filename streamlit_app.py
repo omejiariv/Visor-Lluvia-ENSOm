@@ -664,7 +664,6 @@ with tab2:
 
 with tab_anim:
     st.header("Mapas Avanzados")
-    # --- INICIO DE CAMBIOS: Nueva estructura con Selectbox y tres opciones ---
     with st.expander("Visualización Temporal de Datos Anuales", expanded=True):
         
         viz_option = st.selectbox(
@@ -696,6 +695,7 @@ with tab_anim:
                             st.info(f"""
                             **Ppt. Máxima ({selected_year}):**
                             {max_row['nom_est']} ({max_row['precipitacion']:.1f} mm)
+                            
                             **Ppt. Mínima ({selected_year}):**
                             {min_row['nom_est']} ({min_row['precipitacion']:.1f} mm)
                             """)
@@ -726,8 +726,15 @@ with tab_anim:
             if not df_anual_melted.empty:
                 all_years = sorted(df_anual_melted['año'].unique())
                 if all_years:
-                    df_anim_complete = pd.merge(pd.MultiIndex.from_product([gdf_stations[gdf_stations['nom_est'].isin(selected_stations)]['nom_est'].unique(), all_years], names=['nom_est', 'año']).to_frame(index=False), gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates(), on='nom_est')
-                    df_anim_complete = pd.merge(df_anim_complete, df_anual_melted, on=['nom_est', 'año'], how='left')
+                    # --- INICIO DE LA CORRECCIÓN ---
+                    all_selected_stations_info = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates()
+                    full_grid = pd.MultiIndex.from_product([all_selected_stations_info['nom_est'], all_years], names=['nom_est', 'año']).to_frame(index=False)
+                    full_grid = pd.merge(full_grid, all_selected_stations_info, on='nom_est')
+                    
+                    # Se corrige el merge para evitar columnas duplicadas
+                    df_anim_complete = pd.merge(full_grid, df_anual_melted[['nom_est', 'año', 'precipitacion']], on=['nom_est', 'año'], how='left')
+                    # --- FIN DE LA CORRECCIÓN ---
+                    
                     df_anim_complete['texto_tooltip'] = df_anim_complete.apply(lambda row: f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> {row['precipitacion']:.1f} mm" if pd.notna(row['precipitacion']) else f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> Sin datos", axis=1)
                     df_anim_complete['precipitacion_plot'] = df_anim_complete['precipitacion'].fillna(0)
                     min_precip_anim, max_precip_anim = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
@@ -740,7 +747,6 @@ with tab_anim:
         elif viz_option == "Gráfico de Barras de Carrera":
             st.subheader("Ranking Anual de Precipitación por Estación")
             if not df_anual_melted.empty:
-                # Ordenar estaciones por la precipitación total para una visualización estable
                 station_order = df_anual_melted.groupby('nom_est')['precipitacion'].sum().sort_values(ascending=True).index
                 
                 fig_racing = px.bar(
@@ -761,15 +767,12 @@ with tab_anim:
                     title_font_size=20,
                     font_size=12
                 )
-                # Mejorar la apariencia del slider del año
                 fig_racing.layout.sliders[0]['currentvalue']['font']['size'] = 24
                 fig_racing.layout.sliders[0]['currentvalue']['prefix'] = '<b>Año: </b>'
-                # Ajustar velocidad de la animación
                 fig_racing.layout.updatemenus[0].buttons[0].args[1]['frame']['duration'] = 800
                 fig_racing.layout.updatemenus[0].buttons[0].args[1]['transition']['duration'] = 500
                 st.plotly_chart(fig_racing, use_container_width=True)
-
-    # --- FIN DE CAMBIOS ---
+    
     with st.expander("Ver Comparación de Mapas anuales & Kriging", expanded=True):
         if not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             m1, m2 = st.columns([1,3])
