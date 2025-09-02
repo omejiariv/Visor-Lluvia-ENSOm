@@ -644,7 +644,6 @@ with tab_anim:
         st.subheader("Distribución Espacio-Temporal de la Lluvia en Antioquia")
         gif_path = "PPAM.gif"
         if os.path.exists(gif_path):
-            # --- INICIO DE LA CORRECCIÓN: Usar columnas y Base64 para mostrar el GIF ---
             img_col1, img_col2 = st.columns([1, 1])
             with img_col1:
                 file_ = open(gif_path, "rb")
@@ -656,7 +655,9 @@ with tab_anim:
                     unsafe_allow_html=True,
                 )
                 st.caption("Precipitación Promedio Anual Multianual en Antioquia")
-            # --- FIN DE LA CORRECCIÓN ---
+
+                if st.button("Reiniciar Animación", key="restart_gif"):
+                    st.rerun()
         else:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
