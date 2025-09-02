@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import folium
+from folium.plugins import MarkerCluster # <--- IMPORTANTE: Se añade la librería para clustering
 from streamlit_folium import folium_static
 import plotly.express as px
 import plotly.graph_objects as go
@@ -516,14 +517,14 @@ with tab1:
                     st.dataframe(df_values)
 
 with tab2:
-    st.header("Mapa de Ubicación de Estaciones")
+    st.header("Mapa de Ubicación de Estaciones con Agrupación (Clustering)")
     controls_col, map_col = st.columns([1, 4])
     gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)]
 
     with controls_col:
         st.subheader("Controles del Mapa")
         if not gdf_filtered.empty:
-            m1, m2 = st.columns([1,3])
+            m1, m2 = st.columns([1, 3])
             with m1:
                 if os.path.exists(logo_gota_path):
                     st.image(logo_gota_path, width=50)
@@ -556,13 +557,25 @@ with tab2:
                 m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
             folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
+
+            # --- INICIO DEL CAMBIO: Implementación de MarkerCluster ---
+            # 1. Crear un objeto MarkerCluster y añadirlo al mapa.
+            marker_cluster = MarkerCluster().add_to(m)
+
+            # 2. Iterar sobre las estaciones y añadir cada marcador AL CLUSTER, no al mapa directamente.
             for _, row in gdf_filtered.iterrows():
-                html = f"<b>Estación:</b> {row['nom_est']}<br><b>Municipio:</b> {row['municipio']}"
-                folium.Marker([row['latitud_geo'], row['longitud_geo']], tooltip=html).add_to(m)
+                html = f"<b>Estación:</b> {row['nom_est']}<br><b>Municipio:</b> {row['municipio']}<br><b>Celda:</b> {row['celda_xy']}"
+                folium.Marker(
+                    location=[row['latitud_geo'], row['longitud_geo']],
+                    tooltip=html
+                ).add_to(marker_cluster) # Se añade a 'marker_cluster'
+
+            # --- FIN DEL CAMBIO ---
 
             folium_static(m, width=1100, height=700)
         else:
             st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
+
 
 with tab_anim:
     st.header("Mapas Avanzados")
