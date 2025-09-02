@@ -16,6 +16,8 @@ import numpy as np
 from pykrige.ok import OrdinaryKriging
 import locale
 import base64
+from scipy import stats
+import statsmodels.api as sm
 
 # --- Función para corregir el formato de fecha antes de procesar ---
 def parse_spanish_dates(date_series):
@@ -458,8 +460,8 @@ if 'analysis_mode' not in st.session_state or st.session_state.analysis_mode != 
 df_monthly_to_process = st.session_state.df_monthly_processed
 
 # --- Pestañas Principales ---
-tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Descargas"]
-mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, descargas_tab = st.tabs(tab_names)
+tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
+mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, tendencias_tab, descargas_tab = st.tabs(tab_names)
 
 # Preparación de datos filtrados (se hará dentro de cada pestaña que los necesite)
 if selected_stations and meses_numeros:
@@ -735,6 +737,7 @@ with mapas_avanzados_tab:
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
                     st.session_state.gif_rerun_count += 1
+                    # Forzar la recarga del elemento
                     with open(gif_path, "rb") as file:
                         contents = file.read()
                         data_url = base64.b64encode(contents).decode("utf-8")
