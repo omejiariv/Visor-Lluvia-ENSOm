@@ -664,96 +664,112 @@ with tab2:
 
 with tab_anim:
     st.header("Mapas Avanzados")
-    # --- INICIO DE CAMBIOS: Se renombra la sección y se reestructura con un slider ---
-    with st.expander("Ver Explorador Interactivo de Precipitación Anual", expanded=True):
-        st.subheader("Explorador Anual de Precipitación")
+    # --- INICIO DE CAMBIOS: Nueva estructura con Selectbox y tres opciones ---
+    with st.expander("Visualización Temporal de Datos Anuales", expanded=True):
         
-        if not df_anual_melted.empty:
-            all_years_int = sorted([int(y) for y in df_anual_melted['año'].unique()])
-            
-            if all_years_int:
-                # Se reemplaza la animación con un slider interactivo
-                selected_year = st.slider(
-                    'Seleccione un Año para Explorar',
-                    min_value=min(all_years_int),
-                    max_value=max(all_years_int),
-                    value=min(all_years_int)
+        viz_option = st.selectbox(
+            "Seleccione un tipo de visualización:",
+            ("Explorador Anual Interactivo", "Gráfico de Barras de Carrera", "Mapa Animado")
+        )
+
+        if viz_option == "Explorador Anual Interactivo":
+            st.subheader("Explorador Anual de Precipitación")
+            if not df_anual_melted.empty:
+                all_years_int = sorted([int(y) for y in df_anual_melted['año'].unique()])
+                if all_years_int:
+                    selected_year = st.slider('Seleccione un Año para Explorar', min_value=min(all_years_int), max_value=max(all_years_int), value=min(all_years_int))
+                    controls_col, map_col = st.columns([1, 3])
+                    with controls_col:
+                        st.markdown("##### Opciones de Visualización")
+                        map_view_option = st.radio("Seleccionar vista geográfica:", ["Zona de Selección", "Antioquia", "Colombia"], horizontal=True, key="map_view_interactive")
+                        st.markdown(f"#### Resumen del Año: {selected_year}")
+                        df_year_filtered = df_anual_melted[df_anual_melted['año'] == str(selected_year)].dropna(subset=['precipitacion'])
+                        logo_col, info_col = st.columns([1, 4])
+                        with logo_col:
+                            if os.path.exists(logo_gota_path):
+                                st.image(logo_gota_path, width=40)
+                        with info_col:
+                            st.metric("Estaciones con Datos", f"{len(df_year_filtered)} de {len(selected_stations)}")
+                        if not df_year_filtered.empty:
+                            max_row = df_year_filtered.loc[df_year_filtered['precipitacion'].idxmax()]
+                            min_row = df_year_filtered.loc[df_year_filtered['precipitacion'].idxmin()]
+                            st.info(f"""
+                            **Ppt. Máxima ({selected_year}):**
+                            {max_row['nom_est']} ({max_row['precipitacion']:.1f} mm)
+                            **Ppt. Mínima ({selected_year}):**
+                            {min_row['nom_est']} ({min_row['precipitacion']:.1f} mm)
+                            """)
+                        else:
+                            st.warning(f"No hay datos de precipitación para el año {selected_year}.")
+                    with map_col:
+                        min_precip_range, max_precip_range = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
+                        fig_interactive_map = px.scatter_geo(
+                            df_year_filtered, lat='latitud_geo', lon='longitud_geo',
+                            color='precipitacion', size='precipitacion',
+                            hover_name='nom_est', title=f'Precipitación Anual por Estación - Año {selected_year}',
+                            color_continuous_scale=px.colors.sequential.YlGnBu, range_color=[min_precip_range, max_precip_range]
+                        )
+                        bounds = {}
+                        if map_view_option == "Zona de Selección":
+                            bounds_values = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
+                            bounds = {'lon': [bounds_values[0]-0.2, bounds_values[2]+0.2], 'lat': [bounds_values[1]-0.2, bounds_values[3]+0.2]}
+                        elif map_view_option == "Antioquia":
+                            bounds = {'lon': [-77, -74.5], 'lat': [5.5, 8.5]}
+                        elif map_view_option == "Colombia":
+                            bounds = {'lon': [-79, -67], 'lat': [-4.5, 12.5]}
+                        fig_interactive_map.update_geos(lataxis_range=bounds.get('lat'), lonaxis_range=bounds.get('lon'), visible=True, showcoastlines=True, coastlinewidth=0.5, showland=True, landcolor="rgb(243, 243, 243)", showocean=True, oceancolor="rgb(220, 235, 255)", showcountries=True, countrywidth=0.5)
+                        fig_interactive_map.update_layout(height=700)
+                        st.plotly_chart(fig_interactive_map, use_container_width=True)
+
+        elif viz_option == "Mapa Animado":
+            st.subheader("Mapa Animado de Precipitación Anual")
+            if not df_anual_melted.empty:
+                all_years = sorted(df_anual_melted['año'].unique())
+                if all_years:
+                    df_anim_complete = pd.merge(pd.MultiIndex.from_product([gdf_stations[gdf_stations['nom_est'].isin(selected_stations)]['nom_est'].unique(), all_years], names=['nom_est', 'año']).to_frame(index=False), gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates(), on='nom_est')
+                    df_anim_complete = pd.merge(df_anim_complete, df_anual_melted, on=['nom_est', 'año'], how='left')
+                    df_anim_complete['texto_tooltip'] = df_anim_complete.apply(lambda row: f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> {row['precipitacion']:.1f} mm" if pd.notna(row['precipitacion']) else f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> Sin datos", axis=1)
+                    df_anim_complete['precipitacion_plot'] = df_anim_complete['precipitacion'].fillna(0)
+                    min_precip_anim, max_precip_anim = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
+                    fig_mapa_animado = px.scatter_geo(df_anim_complete, lat='latitud_geo', lon='longitud_geo', color='precipitacion_plot', size='precipitacion_plot', hover_name='nom_est', hover_data={'latitud_geo': False, 'longitud_geo': False, 'precipitacion_plot': False, 'texto_tooltip': True}, animation_frame='año', projection='natural earth', title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu, range_color=[min_precip_anim, max_precip_anim])
+                    fig_mapa_animado.update_traces(hovertemplate='%{customdata[0]}')
+                    fig_mapa_animado.update_geos(fitbounds="locations", visible=True, showcoastlines=True, coastlinewidth=0.5, showland=True, landcolor="rgb(243, 243, 243)", showocean=True, oceancolor="rgb(220, 235, 255)", showcountries=True, countrywidth=0.5)
+                    fig_mapa_animado.update_layout(height=700, sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Año: </b>', visible=True))])
+                    st.plotly_chart(fig_mapa_animado, use_container_width=True)
+
+        elif viz_option == "Gráfico de Barras de Carrera":
+            st.subheader("Ranking Anual de Precipitación por Estación")
+            if not df_anual_melted.empty:
+                # Ordenar estaciones por la precipitación total para una visualización estable
+                station_order = df_anual_melted.groupby('nom_est')['precipitacion'].sum().sort_values(ascending=True).index
+                
+                fig_racing = px.bar(
+                    df_anual_melted,
+                    x="precipitacion",
+                    y="nom_est",
+                    animation_frame="año",
+                    orientation='h',
+                    text="precipitacion",
+                    labels={'precipitacion': 'Precipitación Anual (mm)', 'nom_est': 'Estación'},
+                    title="Evolución de Precipitación Anual por Estación",
+                    category_orders={'nom_est': station_order}
                 )
+                fig_racing.update_traces(texttemplate='%{x:.0f}', textposition='outside')
+                fig_racing.update_layout(
+                    xaxis_range=[0, df_anual_melted['precipitacion'].max() * 1.15],
+                    height=max(600, len(selected_stations) * 35),
+                    title_font_size=20,
+                    font_size=12
+                )
+                # Mejorar la apariencia del slider del año
+                fig_racing.layout.sliders[0]['currentvalue']['font']['size'] = 24
+                fig_racing.layout.sliders[0]['currentvalue']['prefix'] = '<b>Año: </b>'
+                # Ajustar velocidad de la animación
+                fig_racing.layout.updatemenus[0].buttons[0].args[1]['frame']['duration'] = 800
+                fig_racing.layout.updatemenus[0].buttons[0].args[1]['transition']['duration'] = 500
+                st.plotly_chart(fig_racing, use_container_width=True)
 
-                controls_col, map_col = st.columns([1, 3])
-
-                with controls_col:
-                    st.markdown("##### Opciones de Visualización")
-                    map_view_option = st.radio(
-                        "Seleccionar vista geográfica:",
-                        ["Zona de Selección", "Antioquia", "Colombia"],
-                        horizontal=True, key="map_view_interactive"
-                    )
-
-                    # Información dinámica basada en el año seleccionado
-                    st.markdown(f"#### Resumen del Año: {selected_year}")
-                    
-                    df_year_filtered = df_anual_melted[df_anual_melted['año'] == str(selected_year)].dropna(subset=['precipitacion'])
-                    
-                    logo_col, info_col = st.columns([1, 4])
-                    with logo_col:
-                        if os.path.exists(logo_gota_path):
-                            st.image(logo_gota_path, width=40)
-                    with info_col:
-                        st.metric("Estaciones con Datos", f"{len(df_year_filtered)} de {len(selected_stations)}")
-
-                    if not df_year_filtered.empty:
-                        max_row = df_year_filtered.loc[df_year_filtered['precipitacion'].idxmax()]
-                        min_row = df_year_filtered.loc[df_year_filtered['precipitacion'].idxmin()]
-                        
-                        st.info(f"""
-                        **Ppt. Máxima ({selected_year}):**
-                        {max_row['nom_est']} ({max_row['precipitacion']:.1f} mm)
-                        
-                        **Ppt. Mínima ({selected_year}):**
-                        {min_row['nom_est']} ({min_row['precipitacion']:.1f} mm)
-                        """)
-                    else:
-                        st.warning(f"No hay datos de precipitación para el año {selected_year}.")
-
-                with map_col:
-                    min_precip_range, max_precip_range = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
-
-                    fig_interactive_map = px.scatter_geo(
-                        df_year_filtered, lat='latitud_geo', lon='longitud_geo',
-                        color='precipitacion', size='precipitacion',
-                        hover_name='nom_est',
-                        title=f'Precipitación Anual por Estación - Año {selected_year}',
-                        color_continuous_scale=px.colors.sequential.YlGnBu,
-                        range_color=[min_precip_range, max_precip_range]
-                    )
-
-                    bounds = {}
-                    if map_view_option == "Zona de Selección":
-                        bounds_values = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
-                        bounds = {'lon': [bounds_values[0]-0.2, bounds_values[2]+0.2], 'lat': [bounds_values[1]-0.2, bounds_values[3]+0.2]}
-                    elif map_view_option == "Antioquia":
-                        bounds = {'lon': [-77, -74.5], 'lat': [5.5, 8.5]}
-                    elif map_view_option == "Colombia":
-                        bounds = {'lon': [-79, -67], 'lat': [-4.5, 12.5]}
-                    
-                    fig_interactive_map.update_geos(
-                        lataxis_range=bounds.get('lat'),
-                        lonaxis_range=bounds.get('lon'),
-                        visible=True,
-                        showcoastlines=True, coastlinewidth=0.5,
-                        showland=True, landcolor="rgb(243, 243, 243)",
-                        showocean=True, oceancolor="rgb(220, 235, 255)",
-                        showcountries=True, countrywidth=0.5
-                    )
-                    fig_interactive_map.update_layout(height=700)
-                    st.plotly_chart(fig_interactive_map, use_container_width=True)
-            else:
-                st.warning("No hay datos anuales en el rango de años seleccionado para generar el explorador.")
-        else:
-            st.info("Seleccione al menos una estación para ver el explorador.")
     # --- FIN DE CAMBIOS ---
-    
     with st.expander("Ver Comparación de Mapas anuales & Kriging", expanded=True):
         if not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             m1, m2 = st.columns([1,3])
