@@ -14,9 +14,8 @@ import os
 import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
-import locale
 
-# --- Función para corregir el formato de fecha antes de procesar ---
+# Función para corregir el formato de fecha antes de procesar
 def parse_spanish_dates(date_series):
     # Diccionario de meses en español a inglés
     months_es_to_en = {
@@ -730,7 +729,9 @@ with tab_anim:
                     all_selected_stations_info = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates()
                     full_grid = pd.MultiIndex.from_product([all_selected_stations_info['nom_est'], all_years], names=['nom_est', 'año']).to_frame(index=False)
                     full_grid = pd.merge(full_grid, all_selected_stations_info, on='nom_est')
+                    
                     df_anim_complete = pd.merge(full_grid, df_anual_melted[['nom_est', 'año', 'precipitacion']], on=['nom_est', 'año'], how='left')
+                    
                     df_anim_complete['texto_tooltip'] = df_anim_complete.apply(lambda row: f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> {row['precipitacion']:.1f} mm" if pd.notna(row['precipitacion']) else f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> Sin datos", axis=1)
                     df_anim_complete['precipitacion_plot'] = df_anim_complete['precipitacion'].fillna(0)
                     min_precip_anim, max_precip_anim = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
@@ -978,7 +979,7 @@ with tab4:
                 enso_anim_data['fase'] = np.select(conditions, phases, default='Neutral')
 
                 # Filtrar por el rango de años del slider principal
-                enso_anim_data_filtered = enso_anim_data[
+                enso_anim_data = enso_anim_data[
                     (enso_anim_data['fecha_mes_año'].dt.year >= year_range[0]) &
                     (enso_anim_data['fecha_mes_año'].dt.year <= year_range[1])
                 ]
@@ -990,20 +991,22 @@ with tab4:
                         if os.path.exists(logo_gota_path):
                             st.image(logo_gota_path, width=40)
                     with info_col:
-                        st.metric("Total Meses Analizados", len(enso_anim_data_filtered))
+                        st.metric("Total Meses Analizados", len(enso_anim_data))
                     
-                    phase_counts = enso_anim_data_filtered['fase'].value_counts()
+                    phase_counts = enso_anim_data['fase'].value_counts()
                     nino_months = phase_counts.get('El Niño', 0)
                     nina_months = phase_counts.get('La Niña', 0)
 
-                    enso_events_df = enso_anim_data_filtered[enso_anim_data_filtered['fase'] != 'Neutral']
+                    enso_events_df = enso_anim_data[enso_anim_data['fase'] != 'Neutral']
                     if not enso_events_df.empty:
+                        # Establecer el locale a español para nombres de meses
+                        import locale
                         try:
                             locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
                         except locale.Error:
-                            locale.setlocale(locale.LC_TIME, '')
+                            locale.setlocale(locale.LC_TIME, '') # Usa el default del sistema
                         
-                        enso_events_df.loc[:, 'mes_nombre'] = enso_events_df['fecha_mes_año'].dt.strftime('%B').str.capitalize()
+                        enso_events_df['mes_nombre'] = enso_events_df['fecha_mes_año'].dt.strftime('%B').str.capitalize()
                         most_frequent_month = enso_events_df['mes_nombre'].mode()[0]
                     else:
                         most_frequent_month = "N/A"
@@ -1018,11 +1021,11 @@ with tab4:
 
                 with map_col:
                     stations_subset = gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']]
-                    enso_anim_data_filtered.loc[:, 'fecha_str'] = enso_anim_data_filtered['fecha_mes_año'].dt.strftime('%Y-%m')
+                    enso_anim_data['fecha_str'] = enso_anim_data['fecha_mes_año'].dt.strftime('%Y-%m')
                     
-                    enso_anim_data_filtered.loc[:, 'key'] = 1
+                    enso_anim_data['key'] = 1
                     stations_subset['key'] = 1
-                    animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
+                    animation_df = pd.merge(stations_subset, enso_anim_data, on='key').drop('key', axis=1)
 
                     fig_enso_anim = px.scatter_geo(
                         animation_df, lat='latitud_geo', lon='longitud_geo',
@@ -1034,6 +1037,7 @@ with tab4:
                     )
                     fig_enso_anim.update_geos(fitbounds="locations", visible=True)
                     
+                    # Mejorar slider y leyenda
                     fig_enso_anim.update_layout(
                         height=700,
                         title="Fase ENSO por Mes en las Estaciones Seleccionadas",
