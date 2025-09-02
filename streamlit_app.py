@@ -36,7 +36,7 @@ except ImportError:
         def add_to(self, m): pass
 
 # --- Configuración de la página ---
-st.set_page_config(layout="wide", page_title="Visor de Precipitación y ENSO")
+st.set_page_config(layout="wide", page_title="Sistema de información de las lluvias y el Clima")
 
 # --- CSS para optimizar el espacio y estilo de métricas ---
 st.markdown("""
@@ -189,6 +189,54 @@ def create_enso_chart(enso_data):
     )
     return fig
 
+# --- INICIO DE CAMBIO: Nueva función para el gráfico de anomalías ---
+def create_anomaly_chart(df_plot):
+    if df_plot.empty:
+        return go.Figure()
+
+    df_plot['color'] = np.where(df_plot['anomalia'] < 0, 'red', 'blue')
+    
+    fig = go.Figure()
+
+    # Añadir barras de anomalía
+    fig.add_trace(go.Bar(
+        x=df_plot['fecha_mes_año'],
+        y=df_plot['anomalia'],
+        marker_color=df_plot['color'],
+        name='Anomalía de Precipitación'
+    ))
+
+    # Añadir sombreado para fases ENSO
+    y_min, y_max = df_plot['anomalia'].min(), df_plot['anomalia'].max()
+    y_range_shape = [y_min - abs(y_min*0.1), y_max + abs(y_max*0.1)]
+
+    df_plot_enso = df_plot.dropna(subset=['anomalia_oni'])
+    
+    nino_periods = df_plot_enso[df_plot_enso['anomalia_oni'] >= 0.5]
+    for _, row in nino_periods.iterrows():
+        fig.add_vrect(x0=row['fecha_mes_año'] - pd.DateOffset(days=15), x1=row['fecha_mes_año'] + pd.DateOffset(days=15), 
+                      fillcolor="red", opacity=0.15, layer="below", line_width=0)
+
+    nina_periods = df_plot_enso[df_plot_enso['anomalia_oni'] <= -0.5]
+    for _, row in nina_periods.iterrows():
+        fig.add_vrect(x0=row['fecha_mes_año'] - pd.DateOffset(days=15), x1=row['fecha_mes_año'] + pd.DateOffset(days=15), 
+                      fillcolor="blue", opacity=0.15, layer="below", line_width=0)
+
+    # Añadir elementos de leyenda para el sombreado
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(255, 0, 0, 0.3)'), name='Fase El Niño'))
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(0, 0, 255, 0.3)'), name='Fase La Niña'))
+    
+    fig.update_layout(
+        height=600,
+        title="Anomalías Mensuales de Precipitación y Fases ENSO",
+        yaxis_title="Anomalía de Precipitación (mm)",
+        xaxis_title="Fecha",
+        showlegend=True
+    )
+    return fig
+# --- FIN DE CAMBIO ---
+
+
 # --- Interfaz y Carga de Archivos ---
 logo_path = "CuencaVerdeLogo_V1.JPG"
 logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
@@ -198,7 +246,7 @@ with title_col1:
     if os.path.exists(logo_gota_path):
         st.image(logo_gota_path, width=50)
 with title_col2:
-    st.title('Visor de Precipitación y Fenómeno ENSO')
+    st.title('Sistema de información de las lluvias y el Clima en el norte de la región Andina')
 
 st.sidebar.header("Panel de Control")
 with st.sidebar.expander("**Cargar Archivos**", expanded=True):
@@ -413,7 +461,8 @@ if 'analysis_mode' not in st.session_state or st.session_state.analysis_mode != 
 df_monthly_to_process = st.session_state.df_monthly_processed
 
 # --- Pestañas Principales ---
-tab1, tab2, tab_anim, tab3, tab_stats, tab4, tab5 = st.tabs(["Mapa de Estaciones", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Estadísticas", "Análisis ENSO", "Descargas"])
+tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Descargas"]
+mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, descargas_tab = st.tabs(tab_names)
 
 # Preparación de datos filtrados (se hará dentro de cada pestaña que los necesite)
 if selected_stations and meses_numeros:
@@ -431,8 +480,8 @@ else:
     df_anual_melted = pd.DataFrame()
     df_monthly_filtered = pd.DataFrame()
 
-with tab1:
-    st.header("Análisis Espacial y de Datos de Estaciones")
+with mapa_tab:
+    st.header("Distribución espacial de las Estaciones de Lluvia (1970 - 2021)")
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
@@ -580,7 +629,7 @@ with tab1:
             else:
                 st.warning("No hay estaciones seleccionadas para mostrar el gráfico.")
 
-with tab2:
+with graficos_tab:
     st.header("Visualizaciones de Precipitación")
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
@@ -662,7 +711,7 @@ with tab2:
                     df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation')
                     st.dataframe(df_values)
     
-with tab_anim:
+with mapas_avanzados_tab:
     st.header("Mapas Avanzados")
     gif_tab, temporal_tab, compare_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Comparación de Mapas", "Interpolación Kriging"])
 
@@ -689,7 +738,6 @@ with tab_anim:
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
                     st.session_state.gif_rerun_count += 1
-                    # Forzar la recarga del elemento
                     with open(gif_path, "rb") as file:
                         contents = file.read()
                         data_url = base64.b64encode(contents).decode("utf-8")
@@ -862,7 +910,7 @@ with tab_anim:
         else:
             st.warning("No hay datos para realizar la interpolación.")
 
-with tab3:
+with tabla_estaciones_tab:
     st.header("Información Detallada de las Estaciones")
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
@@ -876,7 +924,7 @@ with tab3:
     else:
         st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
 
-with tab_stats:
+with estadisticas_tab:
     st.header("Estadísticas de Precipitación")
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
@@ -962,7 +1010,7 @@ with tab_stats:
                         f"{max_monthly_row['nom_est']} ({max_monthly_row['fecha_mes_año'].strftime('%Y-%m')})"
                     )
 
-with tab4:
+with enso_tab:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
     enso_series_tab, enso_anim_tab = st.tabs(["Series de Tiempo ENSO", "Mapa Animado ENSO"])
 
@@ -1056,7 +1104,7 @@ with tab4:
                 )
                 st.plotly_chart(fig_enso_anim, use_container_width=True)
 
-with tab5:
+with descargas_tab:
     st.header("Opciones de Descarga")
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para activar las descargas.")
