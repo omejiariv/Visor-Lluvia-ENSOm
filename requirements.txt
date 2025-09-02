@@ -12,3 +12,4 @@ pykrige
 plotly
 statsmodels
 matplotlib
+statsmodels
