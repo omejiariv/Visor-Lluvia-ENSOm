@@ -392,7 +392,6 @@ if 'analysis_mode' not in st.session_state or st.session_state.analysis_mode != 
 
 df_monthly_to_process = st.session_state.df_monthly_processed
 
-# --- INICIO DE LA CORRECCIÓN: Mover la creación de pestañas antes de las validaciones ---
 # --- Pestañas Principales ---
 tab1, tab2, tab_anim, tab3, tab_stats, tab4, tab5 = st.tabs(["Mapa de Estaciones", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Estadísticas", "Análisis ENSO", "Descargas"])
 
@@ -411,7 +410,6 @@ if selected_stations and meses_numeros:
 else:
     df_anual_melted = pd.DataFrame()
     df_monthly_filtered = pd.DataFrame()
-# --- FIN DE LA CORRECCIÓN ---
 
 with tab1:
     st.header("Análisis Espacial y de Datos de Estaciones")
@@ -654,18 +652,32 @@ with tab_anim:
         if os.path.exists(gif_path):
             img_col1, img_col2 = st.columns([1, 1])
             with img_col1:
-                file_ = open(gif_path, "rb")
-                contents = file_.read()
-                data_url = base64.b64encode(contents).decode("utf-8")
-                file_.close()
-                st.markdown(
-                    f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM" style="width:100%;">',
-                    unsafe_allow_html=True,
-                )
+                # --- INICIO DE LA CORRECCIÓN: Usar st.image y botón de reinicio ---
+                if 'gif_rerun_count' not in st.session_state:
+                    st.session_state.gif_rerun_count = 0
+
+                gif_placeholder = st.empty()
+                
+                with open(gif_path, "rb") as file:
+                    contents = file.read()
+                    data_url = base64.b64encode(contents).decode("utf-8")
+                    gif_placeholder.markdown(
+                        f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM" style="width:100%;">',
+                        unsafe_allow_html=True,
+                    )
                 st.caption("Precipitación Promedio Anual Multianual en Antioquia")
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
-                    st.rerun()
+                    st.session_state.gif_rerun_count += 1
+                    # Forzar la recarga del elemento
+                    with open(gif_path, "rb") as file:
+                        contents = file.read()
+                        data_url = base64.b64encode(contents).decode("utf-8")
+                        gif_placeholder.markdown(
+                            f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM {st.session_state.gif_rerun_count}" style="width:100%;">',
+                            unsafe_allow_html=True,
+                        )
+                # --- FIN DE LA CORRECCIÓN ---
         else:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
