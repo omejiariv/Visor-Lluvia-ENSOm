@@ -737,7 +737,6 @@ with mapas_avanzados_tab:
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
                     st.session_state.gif_rerun_count += 1
-                    # Forzar la recarga del elemento
                     with open(gif_path, "rb") as file:
                         contents = file.read()
                         data_url = base64.b64encode(contents).decode("utf-8")
@@ -947,6 +946,7 @@ with anomalias_tab:
                 st.plotly_chart(fig, use_container_width=True)
 
             with anom_fase_tab:
+                # FIX: Use df_anomalias directly as it already contains anomalia_oni
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
                 conditions = [df_anomalias_enso['anomalia_oni'] >= 0.5, df_anomalias_enso['anomalia_oni'] <= -0.5]
                 phases = ['El Niño', 'La Niña']
@@ -1152,6 +1152,86 @@ with enso_tab:
                     legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant')
                 )
                 st.plotly_chart(fig_enso_anim, use_container_width=True)
+
+with tendencias_tab:
+    st.header("Análisis de Tendencias y Pronósticos")
+    if not selected_stations:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+    else:
+        tendencia_tab, pronostico_tab = st.tabs(["Análisis de Tendencia", "Pronóstico SARIMA"])
+
+        with tendencia_tab:
+            st.subheader("Tendencia de Precipitación Anual")
+            st.info("Esta sección analiza si la precipitación anual promedio de las estaciones seleccionadas ha aumentado o disminuido a lo largo del tiempo.")
+            
+            avg_annual_precip = df_anual_melted.groupby('año')['precipitacion'].mean().reset_index()
+            avg_annual_precip['año_num'] = pd.to_numeric(avg_annual_precip['año'])
+
+            if len(avg_annual_precip) > 2:
+                slope, intercept, r_value, p_value, std_err = stats.linregress(avg_annual_precip['año_num'], avg_annual_precip['precipitacion'])
+                avg_annual_precip['tendencia'] = slope * avg_annual_precip['año_num'] + intercept
+
+                fig_tendencia = px.scatter(avg_annual_precip, x='año_num', y='precipitacion', title='Tendencia de la Precipitación Anual Promedio')
+                fig_tendencia.add_trace(go.Scatter(x=avg_annual_precip['año_num'], y=avg_annual_precip['tendencia'], mode='lines', name='Línea de Tendencia', line=dict(color='red')))
+                fig_tendencia.update_layout(xaxis_title="Año", yaxis_title="Precipitación Anual Promedio (mm)")
+                st.plotly_chart(fig_tendencia, use_container_width=True)
+
+                st.subheader("Interpretación de la Tendencia")
+                tendencia_texto = "aumentando" if slope > 0 else "disminuyendo"
+                significancia_texto = "**estadísticamente significativa**" if p_value < 0.05 else "no es estadísticamente significativa"
+                st.markdown(f"La tendencia de la precipitación es de **{slope:.2f} mm/año** (es decir, está {tendencia_texto}). Con un valor p de **{p_value:.3f}**, esta tendencia **{significancia_texto}**.")
+
+        with pronostico_tab:
+            st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
+            st.info(
+                """
+                **Nota Importante:** Este pronóstico se basa en modelos estadísticos (SARIMA) que identifican patrones históricos y estacionales en los datos. 
+                Los resultados son probabilísticos y deben ser interpretados con precaución, ya que están sujetos a un grado de incertidumbre.
+                """
+            )
+
+            station_to_forecast = st.selectbox(
+                "Seleccione una estación para el pronóstico:",
+                options=selected_stations,
+                help="El pronóstico se realiza para una única serie de tiempo."
+            )
+            
+            forecast_horizon = st.slider("Meses a pronosticar:", 12, 36, 12, step=12)
+
+            if st.button("Generar Pronóstico"):
+                with st.spinner("Entrenando modelo y generando pronóstico... Esto puede tardar un momento."):
+                    try:
+                        # Preparar la serie de tiempo para la estación seleccionada
+                        ts_data = df_monthly_to_process[df_monthly_to_process['nom_est'] == station_to_forecast][['fecha_mes_año', 'precipitation']].copy()
+                        ts_data = ts_data.set_index('fecha_mes_año').sort_index()
+                        ts_data = ts_data['precipitation'].asfreq('MS')
+
+                        # Entrenar el modelo SARIMA
+                        # (p,d,q)(P,D,Q,s) - Parámetros comunes para precipitación mensual
+                        model = sm.tsa.statespace.SARIMAX(ts_data,
+                                                          order=(1, 1, 1),
+                                                          seasonal_order=(1, 1, 1, 12),
+                                                          enforce_stationarity=False,
+                                                          enforce_invertibility=False)
+                        results = model.fit(disp=False)
+                        
+                        # Generar pronóstico
+                        forecast = results.get_forecast(steps=forecast_horizon)
+                        forecast_mean = forecast.predicted_mean
+                        forecast_ci = forecast.conf_int()
+
+                        # Crear figura
+                        fig_pronostico = go.Figure()
+                        fig_pronostico.add_trace(go.Scatter(x=ts_data.index, y=ts_data, mode='lines', name='Datos Históricos'))
+                        fig_pronostico.add_trace(go.Scatter(x=forecast_mean.index, y=forecast_mean, mode='lines', name='Pronóstico', line=dict(color='red', dash='dash')))
+                        fig_pronostico.add_trace(go.Scatter(x=forecast_ci.index, y=forecast_ci.iloc[:, 0], fill=None, mode='lines', line=dict(color='rgba(255,0,0,0.2)'), showlegend=False))
+                        fig_pronostico.add_trace(go.Scatter(x=forecast_ci.index, y=forecast_ci.iloc[:, 1], fill='tonexty', mode='lines', line=dict(color='rgba(255,0,0,0.2)'), name='Intervalo de Confianza'))
+                        
+                        fig_pronostico.update_layout(title=f"Pronóstico de Precipitación para {station_to_forecast}", xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
+                        st.plotly_chart(fig_pronostico, use_container_width=True)
+
+                    except Exception as e:
+                        st.error(f"No se pudo generar el pronóstico para '{station_to_forecast}'. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
 
 with descargas_tab:
     st.header("Opciones de Descarga")
