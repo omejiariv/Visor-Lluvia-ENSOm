@@ -407,11 +407,8 @@ df_monthly_filtered = df_monthly_to_process[
 ]
 
 # --- Pestañas Principales ---
-# --- INICIO DEL CAMBIO: Se intercambia el orden de las pestañas ---
 tab1, tab2, tab_anim, tab3, tab_stats, tab4, tab5 = st.tabs(["Mapa de Estaciones", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Estadísticas", "Análisis ENSO", "Descargas"])
-# --- FIN DEL CAMBIO ---
 
-# --- INICIO DEL CAMBIO: El código del mapa ahora está en la primera pestaña (tab1) ---
 with tab1:
     st.header("Análisis Espacial y de Datos de Estaciones")
     gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].copy()
@@ -557,9 +554,7 @@ with tab1:
                 st.plotly_chart(fig_disp, use_container_width=True)
         else:
             st.warning("No hay estaciones seleccionadas para mostrar el gráfico.")
-# --- FIN DEL CAMBIO ---
 
-# --- INICIO DEL CAMBIO: El código de gráficos ahora está en la segunda pestaña (tab2) ---
 with tab2:
     st.header("Visualizaciones de Precipitación")
     sub_tab_anual, sub_tab_mensual = st.tabs(["Serie Anual", "Serie Mensual"])
@@ -666,17 +661,83 @@ with tab2:
                 if not df_monthly_filtered.empty:
                     df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation')
                     st.dataframe(df_values)
-# --- FIN DEL CAMBIO ---
 
 with tab_anim:
     st.header("Mapas Avanzados")
     with st.expander("Ver Animación de Puntos", expanded=True):
         st.subheader("Mapa Animado de Precipitación Anual")
         if not df_anual_melted.empty:
-            fig_mapa_animado = px.scatter_geo(df_anual_melted, lat='latitud_geo', lon='longitud_geo', color='precipitacion', size='precipitacion', hover_name='nom_est', animation_frame='año', projection='natural earth', title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu)
-            fig_mapa_animado.update_geos(fitbounds="locations", visible=True)
-            fig_mapa_animado.update_layout(height=700)
-            st.plotly_chart(fig_mapa_animado, use_container_width=True)
+            # --- INICIO DE CAMBIOS PARA EL MAPA ANIMADO ---
+
+            # 1. Crear una base completa de estaciones y años para asegurar que todas las estaciones aparezcan siempre.
+            all_selected_stations_info = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates()
+            all_years = sorted(df_anual_melted['año'].unique())
+            
+            if all_years:
+                full_grid = pd.MultiIndex.from_product([all_selected_stations_info['nom_est'], all_years], names=['nom_est', 'año']).to_frame(index=False)
+                full_grid = pd.merge(full_grid, all_selected_stations_info, on='nom_est')
+                
+                # Unir los datos de precipitación existentes a la base completa
+                df_anim_complete = pd.merge(full_grid, df_anual_melted[['nom_est', 'año', 'precipitacion']], on=['nom_est', 'año'], how='left')
+
+                # Crear un texto personalizado para el tooltip
+                df_anim_complete['texto_tooltip'] = df_anim_complete.apply(
+                    lambda row: f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> {row['precipitacion']:.1f} mm" if pd.notna(row['precipitacion']) else f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> Sin datos",
+                    axis=1
+                )
+                
+                # Rellenar NaNs con 0 para que los puntos se dibujen, pero serán pequeños y de color base
+                df_anim_complete['precipitacion_plot'] = df_anim_complete['precipitacion'].fillna(0)
+
+                # 2. Fijar la escala de colores usando el mínimo y máximo real de los datos.
+                min_precip_anim = df_anual_melted['precipitacion'].min()
+                max_precip_anim = df_anual_melted['precipitacion'].max()
+
+                fig_mapa_animado = px.scatter_geo(
+                    df_anim_complete, 
+                    lat='latitud_geo', 
+                    lon='longitud_geo', 
+                    color='precipitacion_plot',
+                    size='precipitacion_plot',
+                    hover_name='nom_est',
+                    hover_data={'latitud_geo': False, 'longitud_geo': False, 'precipitacion_plot': False, 'texto_tooltip': True},
+                    animation_frame='año',
+                    projection='natural earth',
+                    title='Precipitación Anual por Estación',
+                    color_continuous_scale=px.colors.sequential.YlGnBu,
+                    range_color=[min_precip_anim, max_precip_anim] # Escala fija
+                )
+
+                fig_mapa_animado.update_traces(hovertemplate='%{customdata[0]}')
+
+                # 3. Añadir un mapa geográfico más detallado.
+                fig_mapa_animado.update_geos(
+                    fitbounds="locations", 
+                    visible=True,
+                    showcoastlines=True, coastlinewidth=0.5,
+                    showland=True, landcolor="rgb(243, 243, 243)",
+                    showocean=True, oceancolor="rgb(220, 235, 255)",
+                    showcountries=True, countrywidth=0.5
+                )
+
+                # 4. Agrandar el indicador de año de la animación.
+                fig_mapa_animado.update_layout(
+                    height=700,
+                    sliders=[dict(
+                        currentvalue=dict(
+                            font=dict(size=24, color="#707070"),
+                            prefix='<b>Año: </b>',
+                            visible=True,
+                        ),
+                    )]
+                )
+                
+                st.plotly_chart(fig_mapa_animado, use_container_width=True)
+            else:
+                st.warning("No hay datos anuales en el rango de años seleccionado para generar la animación.")
+            # --- FIN DE CAMBIOS ---
+        else:
+            st.info("Seleccione al menos una estación para ver la animación.")
 
     with st.expander("Ver Comparación de Mapas anuales & Kriging", expanded=True):
         if not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
