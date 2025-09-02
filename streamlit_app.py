@@ -36,7 +36,7 @@ except ImportError:
         def add_to(self, m): pass
 
 # --- Configuración de la página ---
-st.set_page_config(layout="wide", page_title="Sistema de información de las lluvias y el Clima")
+st.set_page_config(layout="wide", page_title="Sistema de información de las lluvias y el Clima en el norte de la región Andina")
 
 # --- CSS para optimizar el espacio y estilo de métricas ---
 st.markdown("""
@@ -189,7 +189,6 @@ def create_enso_chart(enso_data):
     )
     return fig
 
-# --- INICIO DE CAMBIO: Nueva función para el gráfico de anomalías ---
 def create_anomaly_chart(df_plot):
     if df_plot.empty:
         return go.Figure()
@@ -208,8 +207,7 @@ def create_anomaly_chart(df_plot):
 
     # Añadir sombreado para fases ENSO
     y_min, y_max = df_plot['anomalia'].min(), df_plot['anomalia'].max()
-    y_range_shape = [y_min - abs(y_min*0.1), y_max + abs(y_max*0.1)]
-
+    
     df_plot_enso = df_plot.dropna(subset=['anomalia_oni'])
     
     nino_periods = df_plot_enso[df_plot_enso['anomalia_oni'] >= 0.5]
@@ -234,7 +232,6 @@ def create_anomaly_chart(df_plot):
         showlegend=True
     )
     return fig
-# --- FIN DE CAMBIO ---
 
 
 # --- Interfaz y Carga de Archivos ---
@@ -738,6 +735,7 @@ with mapas_avanzados_tab:
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
                     st.session_state.gif_rerun_count += 1
+                    # Forzar la recarga del elemento
                     with open(gif_path, "rb") as file:
                         contents = file.read()
                         data_url = base64.b64encode(contents).decode("utf-8")
@@ -923,6 +921,55 @@ with tabla_estaciones_tab:
         st.dataframe(df_info_table[df_info_table['nom_est'].isin(selected_stations)])
     else:
         st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
+
+with anomalias_tab:
+    st.header("Análisis de Anomalías de Precipitación")
+    if not selected_stations:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+    else:
+        df_long_filtered_stations = df_long[df_long['nom_est'].isin(selected_stations)]
+        df_climatology = df_long_filtered_stations.groupby(['nom_est', 'mes'])['precipitation'].mean().reset_index().rename(columns={'precipitation': 'precip_promedio_mes'})
+        
+        df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=['nom_est', 'mes'], how='left')
+        df_anomalias['anomalia'] = df_anomalias['precipitation'] - df_anomalias['precip_promedio_mes']
+
+        if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
+            st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
+        else:
+            anom_graf_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
+
+            with anom_graf_tab:
+                avg_monthly_anom = df_anomalias.groupby(['fecha_mes_año', 'mes'])['anomalia'].mean().reset_index()
+                df_plot = pd.merge(avg_monthly_anom, df_enso[['fecha_mes_año', 'anomalia_oni']], on='fecha_mes_año', how='left')
+                fig = create_anomaly_chart(df_plot)
+                st.plotly_chart(fig, use_container_width=True)
+
+            with anom_fase_tab:
+                df_anomalias_enso = pd.merge(df_anomalias, df_enso[['fecha_mes_año', 'anomalia_oni']], on='fecha_mes_año', how='left').dropna(subset=['anomalia_oni'])
+                conditions = [df_anomalias_enso['anomalia_oni'] >= 0.5, df_anomalias_enso['anomalia_oni'] <= -0.5]
+                phases = ['El Niño', 'La Niña']
+                df_anomalias_enso['enso_fase'] = np.select(conditions, phases, default='Neutral')
+                
+                fig_box = px.box(df_anomalias_enso, x='enso_fase', y='anomalia', color='enso_fase',
+                                 title="Distribución de Anomalías de Precipitación por Fase ENSO",
+                                 labels={'anomalia': 'Anomalía de Precipitación (mm)', 'enso_fase': 'Fase ENSO'},
+                                 points='all')
+                st.plotly_chart(fig_box, use_container_width=True)
+
+            with anom_extremos_tab:
+                st.subheader("Eventos Mensuales Extremos (Basado en Anomalías)")
+                df_extremos = df_anomalias.dropna(subset=['anomalia']).copy()
+                df_extremos['fecha'] = df_extremos['fecha_mes_año'].dt.strftime('%Y-%m')
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("##### 10 Meses más Secos")
+                    secos = df_extremos.nsmallest(10, 'anomalia')[['fecha', 'nom_est', 'anomalia', 'precipitation', 'precip_promedio_mes']]
+                    st.dataframe(secos.rename(columns={'nom_est': 'Estación', 'anomalia': 'Anomalía (mm)', 'precipitation': 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}), use_container_width=True)
+                with col2:
+                    st.markdown("##### 10 Meses más Húmedos")
+                    humedos = df_extremos.nlargest(10, 'anomalia')[['fecha', 'nom_est', 'anomalia', 'precipitation', 'precip_promedio_mes']]
+                    st.dataframe(humedos.rename(columns={'nom_est': 'Estación', 'anomalia': 'Anomalía (mm)', 'precipitation': 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}), use_container_width=True)
 
 with estadisticas_tab:
     st.header("Estadísticas de Precipitación")
