@@ -672,32 +672,18 @@ with tab_anim:
         if os.path.exists(gif_path):
             img_col1, img_col2 = st.columns([1, 1])
             with img_col1:
-                if 'gif_rerun_count' not in st.session_state:
-                    st.session_state.gif_rerun_count = 0
-
-                gif_placeholder = st.empty()
-                
-                with open(gif_path, "rb") as file:
-                    contents = file.read()
-                    data_url = base64.b64encode(contents).decode("utf-8")
-                    file.close()
-                gif_placeholder.markdown(
+                file_ = open(gif_path, "rb")
+                contents = file_.read()
+                data_url = base64.b64encode(contents).decode("utf-8")
+                file_.close()
+                st.markdown(
                     f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM" style="width:100%;">',
                     unsafe_allow_html=True,
                 )
                 st.caption("Precipitación Promedio Anual Multianual en Antioquia")
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
-                    st.session_state.gif_rerun_count += 1
-                    # Forzar la recarga del elemento
-                    with open(gif_path, "rb") as file:
-                        contents = file.read()
-                        data_url = base64.b64encode(contents).decode("utf-8")
-                        file.close()
-                    gif_placeholder.markdown(
-                        f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM {st.session_state.gif_rerun_count}" style="width:100%;">',
-                        unsafe_allow_html=True,
-                    )
+                    st.rerun()
         else:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
@@ -881,66 +867,52 @@ with tab_stats:
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
-        st.subheader("Matriz de Disponibilidad de Datos Anual")
-        original_data_counts = df_long[df_long['nom_est'].isin(selected_stations)]
-        original_data_counts = original_data_counts.groupby(['nom_est', 'año']).size().reset_index(name='count')
-        original_data_counts['porc_original'] = (original_data_counts['count'] / 12) * 100
-        heatmap_original_df = original_data_counts.pivot(index='nom_est', columns='año', values='porc_original')
+        matriz_tab, resumen_mensual_tab, sintesis_tab = st.tabs(["Matriz de Disponibilidad", "Resumen Mensual", "Síntesis General"])
 
-        heatmap_df = heatmap_original_df
-        color_scale = "Greens"
-        title_text = "Porcentaje de Datos Originales (%) por Estación y Año"
+        with matriz_tab:
+            st.subheader("Matriz de Disponibilidad de Datos Anual")
+            original_data_counts = df_long[df_long['nom_est'].isin(selected_stations)]
+            original_data_counts = original_data_counts.groupby(['nom_est', 'año']).size().reset_index(name='count')
+            original_data_counts['porc_original'] = (original_data_counts['count'] / 12) * 100
+            heatmap_original_df = original_data_counts.pivot(index='nom_est', columns='año', values='porc_original')
 
-        if analysis_mode == "Completar series (interpolación)":
-            view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Completados"), horizontal=True)
+            heatmap_df = heatmap_original_df
+            color_scale = "Greens"
+            title_text = "Disponibilidad Promedio de Datos Originales"
 
-            if view_mode == "Porcentaje de Datos Completados":
-                completed_data = df_monthly_to_process[
-                    (df_monthly_to_process['nom_est'].isin(selected_stations)) &
-                    (df_monthly_to_process['origen'] == 'Completado')
-                ]
-                if not completed_data.empty:
-                    completed_counts = completed_data.groupby(['nom_est', 'año']).size().reset_index(name='count')
-                    completed_counts['porc_completado'] = (completed_counts['count'] / 12) * 100
-                    heatmap_df = completed_counts.pivot(index='nom_est', columns='año', values='porc_completado')
-                    color_scale = "Reds"
-                    title_text = "Porcentaje de Datos Completados (%) por Estación y Año"
-                else:
-                    heatmap_df = pd.DataFrame()
+            if analysis_mode == "Completar series (interpolación)":
+                view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Completados"), horizontal=True)
 
-        if not heatmap_df.empty:
-            fig_heatmap = px.imshow(
-                heatmap_df,
-                text_auto='.0f',
-                aspect="auto",
-                color_continuous_scale=color_scale,
-                labels=dict(x="Año", y="Estación", color="% Datos"),
-                title=title_text
-            )
-            fig_heatmap.update_layout(height=max(400, len(selected_stations) * 40))
-            st.plotly_chart(fig_heatmap, use_container_width=True)
-        else:
-            st.info("No hay datos para mostrar en la matriz con la selección actual.")
+                if view_mode == "Porcentaje de Datos Completados":
+                    completed_data = df_monthly_to_process[(df_monthly_to_process['nom_est'].isin(selected_stations)) & (df_monthly_to_process['origen'] == 'Completado')]
+                    if not completed_data.empty:
+                        completed_counts = completed_data.groupby(['nom_est', 'año']).size().reset_index(name='count')
+                        completed_counts['porc_completado'] = (completed_counts['count'] / 12) * 100
+                        heatmap_df = completed_counts.pivot(index='nom_est', columns='año', values='porc_completado')
+                        color_scale = "Reds"
+                        title_text = "Disponibilidad Promedio de Datos Completados"
+                    else:
+                        heatmap_df = pd.DataFrame()
 
-        st.markdown("---")
-        if not df_monthly_filtered.empty and not df_anual_melted.empty:
-            st.subheader("Síntesis General")
-            max_annual_row = df_anual_melted.loc[df_anual_melted['precipitacion'].idxmax()]
-            max_monthly_row = df_monthly_filtered.loc[df_monthly_filtered['precipitation'].idxmax()]
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric(
-                    "Máxima Ppt. Anual Registrada",
-                    f"{max_annual_row['precipitacion']:.1f} mm",
-                    f"{max_annual_row['nom_est']} (Año {max_annual_row['año']})"
-                )
-            with col2:
-                st.metric(
-                    "Máxima Ppt. Mensual Registrada",
-                    f"{max_monthly_row['precipitation']:.1f} mm",
-                    f"{max_monthly_row['nom_est']} ({max_monthly_row['fecha_mes_año'].strftime('%Y-%m')})"
-                )
-            st.markdown("---")
+            if not heatmap_df.empty:
+                avg_availability = heatmap_df.stack().mean()
+                
+                logo_col, metric_col = st.columns([1, 5])
+                with logo_col:
+                    if os.path.exists(logo_gota_path):
+                        st.image(logo_gota_path, width=50)
+                with metric_col:
+                    st.metric(label=title_text, value=f"{avg_availability:.1f}%")
+
+                styled_df = heatmap_df.style.background_gradient(cmap=color_scale, axis=None, vmin=0, vmax=100).format("{:.0f}%", na_rep="-").set_table_styles([
+                    {'selector': 'th', 'props': [('background-color', '#333'), ('color', 'white'), ('font-size', '14px')]},
+                    {'selector': 'td', 'props': [('text-align', 'center')]}
+                ])
+                st.dataframe(styled_df, use_container_width=True)
+            else:
+                st.info("No hay datos para mostrar en la matriz con la selección actual.")
+
+        with resumen_mensual_tab:
             st.subheader("Resumen de Estadísticas Mensuales por Estación")
             summary_data = []
             for station_name, group in df_monthly_filtered.groupby('nom_est'):
@@ -956,6 +928,25 @@ with tab_stats:
                 })
             summary_df = pd.DataFrame(summary_data)
             st.dataframe(summary_df.round(2), use_container_width=True)
+
+        with sintesis_tab:
+            st.subheader("Síntesis General de Precipitación")
+            if not df_monthly_filtered.empty and not df_anual_melted.empty:
+                max_annual_row = df_anual_melted.loc[df_anual_melted['precipitacion'].idxmax()]
+                max_monthly_row = df_monthly_filtered.loc[df_monthly_filtered['precipitation'].idxmax()]
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric(
+                        "Máxima Ppt. Anual Registrada",
+                        f"{max_annual_row['precipitacion']:.1f} mm",
+                        f"{max_annual_row['nom_est']} (Año {max_annual_row['año']})"
+                    )
+                with col2:
+                    st.metric(
+                        "Máxima Ppt. Mensual Registrada",
+                        f"{max_monthly_row['precipitation']:.1f} mm",
+                        f"{max_monthly_row['nom_est']} ({max_monthly_row['fecha_mes_año'].strftime('%Y-%m')})"
+                    )
 
 with tab4:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
