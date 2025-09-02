@@ -643,10 +643,7 @@ with tab_anim:
         st.subheader("Distribución Espacio-Temporal de la Lluvia en Antioquia")
         gif_path = "PPAM.gif"
         if os.path.exists(gif_path):
-            st.image(gif_path, caption="Precipitación Promedio Anual Multianual en Antioquia", use_column_width='always')
-            if st.button("Ver en Pantalla Completa", key="gif_fullscreen"):
-                with st.dialog("Animación en Pantalla Completa"):
-                    st.image(gif_path)
+            st.image(gif_path, caption="Precipitación Promedio Anual Multianual en Antioquia", use_container_width=True)
         else:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
@@ -913,9 +910,11 @@ with tab4:
             if not available_tabs:
                 st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
             else:
-                selected_tabs = st.tabs(available_tabs)
+                # Crear las pestañas para las variables ENSO disponibles
+                enso_variable_tabs = st.tabs(available_tabs)
                 for i, var_name in enumerate(available_tabs):
-                    with selected_tabs[i]:
+                    with enso_variable_tabs[i]:
+                        # Encontrar el código de la variable correspondiente al nombre de la pestaña
                         var_code = [code for code, name in enso_vars_available.items() if name == var_name][0]
                         df_enso_filtered = df_enso[(df_enso['fecha_mes_año'].dt.year >= year_range[0]) & (df_enso['fecha_mes_año'].dt.year <= year_range[1]) & (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))]
                         if not df_enso_filtered.empty and var_code in df_enso_filtered.columns and not df_enso_filtered[var_code].isnull().all():
