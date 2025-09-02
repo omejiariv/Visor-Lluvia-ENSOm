@@ -558,10 +558,13 @@ with tab1:
 
 with tab2:
     st.header("Visualizaciones de Precipitación")
-    sub_tab_anual, sub_tab_mensual = st.tabs(["Serie Anual", "Serie Mensual"])
+    # --- INICIO DE CAMBIOS: Reemplazar expanders con st.tabs ---
+    sub_tab_anual, sub_tab_mensual = st.tabs(["Análisis Anual", "Análisis Mensual"])
 
     with sub_tab_anual:
-        with st.expander("Ver Gráfico de Precipitación Anual", expanded=True):
+        anual_graf_tab, anual_analisis_tab = st.tabs(["Gráfico de Serie Anual", "Análisis Multianual"])
+        
+        with anual_graf_tab:
             if not df_anual_melted.empty:
                 st.subheader("Precipitación Anual (mm)")
                 chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(
@@ -572,100 +575,70 @@ with tab2:
                 ).properties(height=600).interactive()
                 st.altair_chart(chart_anual, use_container_width=True)
 
-        with st.expander("Ver Análisis de Precipitación Media Multianual"):
+        with anual_analisis_tab:
             if not df_anual_melted.empty:
-                st.subheader("Análisis de Precipitación Media Multianual")
+                st.subheader("Precipitación Media Multianual")
                 st.caption(f"Período de análisis: {year_range[0]} - {year_range[1]}")
 
-                chart_type_annual = st.radio("Seleccionar tipo de gráfico:",
-                                                ("Gráfico de Barras (Promedio)", "Gráfico de Cajas (Distribución)"),
-                                                key="avg_chart_type_annual", horizontal=True)
+                chart_type_annual = st.radio("Seleccionar tipo de gráfico:", ("Gráfico de Barras (Promedio)", "Gráfico de Cajas (Distribución)"), key="avg_chart_type_annual", horizontal=True)
 
                 if chart_type_annual == "Gráfico de Barras (Promedio)":
                     df_summary = df_anual_melted.groupby('nom_est', as_index=False)['precipitacion'].mean().round(2)
-                    sort_order = st.radio(
-                        "Ordenar estaciones por:",
-                        ["Promedio (Mayor a Menor)", "Promedio (Menor a Mayor)", "Alfabético"],
-                        horizontal=True, key="sort_annual_avg"
-                        )
+                    sort_order = st.radio("Ordenar estaciones por:", ["Promedio (Mayor a Menor)", "Promedio (Menor a Mayor)", "Alfabético"], horizontal=True, key="sort_annual_avg")
+                    if "Mayor a Menor" in sort_order: df_summary = df_summary.sort_values("precipitacion", ascending=False)
+                    elif "Menor a Mayor" in sort_order: df_summary = df_summary.sort_values("precipitacion", ascending=True)
+                    else: df_summary = df_summary.sort_values("nom_est", ascending=True)
 
-                    if "Mayor a Menor" in sort_order:
-                        df_summary = df_summary.sort_values("precipitacion", ascending=False)
-                    elif "Menor a Mayor" in sort_order:
-                        df_summary = df_summary.sort_values("precipitacion", ascending=True)
-                    else:
-                        df_summary = df_summary.sort_values("nom_est", ascending=True)
-
-                    fig_avg = px.bar(df_summary, x='nom_est', y='precipitacion', title='Promedio de Precipitación Anual',
-                                        labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Media Anual (mm)'},
-                                        color='precipitacion', color_continuous_scale=px.colors.sequential.Blues_r)
-                    fig_avg.update_layout(
-                        height=600,
-                        xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')}
-                        )
+                    fig_avg = px.bar(df_summary, x='nom_est', y='precipitacion', title='Promedio de Precipitación Anual', labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Media Anual (mm)'}, color='precipitacion', color_continuous_scale=px.colors.sequential.Blues_r)
+                    fig_avg.update_layout(height=600, xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')})
                     st.plotly_chart(fig_avg, use_container_width=True)
                 else:
-                    fig_box = px.box(df_anual_melted, x='nom_est', y='precipitacion', color='nom_est',
-                                        points='all',
-                                        title='Distribución de la Precipitación Anual por Estación',
-                                        labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
+                    fig_box = px.box(df_anual_melted, x='nom_est', y='precipitacion', color='nom_est', points='all', title='Distribución de la Precipitación Anual por Estación', labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
                     fig_box.update_layout(height=600)
                     st.plotly_chart(fig_box, use_container_width=True)
 
     with sub_tab_mensual:
-        if not df_monthly_filtered.empty:
-            with st.expander("Ver Gráfico de Precipitación Mensual", expanded=True):
+        mensual_graf_tab, mensual_enso_tab, mensual_datos_tab = st.tabs(["Gráfico de Serie Mensual", "Análisis ENSO en el Período", "Tabla de Datos"])
+
+        with mensual_graf_tab:
+            if not df_monthly_filtered.empty:
                 control_col1, control_col2 = st.columns(2)
                 chart_type = control_col1.radio("Tipo de Gráfico:", ["Líneas y Puntos", "Nube de Puntos", "Gráfico de Cajas (Distribución Mensual)"], key="monthly_chart_type")
                 color_by = control_col2.radio("Colorear por:", ["Estación", "Mes"], key="monthly_color_by", disabled=(chart_type == "Gráfico de Cajas (Distribución Mensual)"))
 
                 if chart_type != "Gráfico de Cajas (Distribución Mensual)":
-                    base_chart = alt.Chart(df_monthly_filtered).encode(
-                        x=alt.X('fecha_mes_año:T', title='Fecha'),
-                        y=alt.Y('precipitation:Q', title='Precipitación (mm)'),
-                        tooltip=[alt.Tooltip('fecha_mes_año', format='%Y-%m'), 'precipitation', 'nom_est', 'origen', alt.Tooltip('mes:N', title="Mes")]
-                    )
-
-                    if color_by == "Estación":
-                        color_encoding = alt.Color('nom_est:N', legend=alt.Legend(title="Estaciones"))
-                    else:
-                        color_encoding = alt.Color('month(fecha_mes_año):N', legend=alt.Legend(title="Meses"), scale=alt.Scale(scheme='tableau20'))
-
+                    base_chart = alt.Chart(df_monthly_filtered).encode(x=alt.X('fecha_mes_año:T', title='Fecha'), y=alt.Y('precipitation:Q', title='Precipitación (mm)'), tooltip=[alt.Tooltip('fecha_mes_año', format='%Y-%m'), 'precipitation', 'nom_est', 'origen', alt.Tooltip('mes:N', title="Mes")])
+                    if color_by == "Estación": color_encoding = alt.Color('nom_est:N', legend=alt.Legend(title="Estaciones"))
+                    else: color_encoding = alt.Color('month(fecha_mes_año):N', legend=alt.Legend(title="Meses"), scale=alt.Scale(scheme='tableau20'))
+                    
                     if chart_type == "Líneas y Puntos":
                         line_chart = base_chart.mark_line(opacity=0.4, color='lightgray').encode(detail='nom_est:N')
                         point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding)
                         final_chart = (line_chart + point_chart)
-                    else: # Nube de Puntos
+                    else:
                         point_chart = base_chart.mark_point(filled=True, size=60).encode(color=color_encoding)
                         final_chart = point_chart
-
                     st.altair_chart(final_chart.properties(height=600).interactive(), use_container_width=True)
                 else:
                     st.subheader("Distribución de la Precipitación Mensual")
-                    fig_box_monthly = px.box(df_monthly_filtered, x='mes', y='precipitation', color='nom_est',
-                                                title='Distribución de la Precipitación por Mes',
-                                                labels={'mes': 'Mes', 'precipitation': 'Precipitación Mensual (mm)', 'nom_est': 'Estación'})
+                    fig_box_monthly = px.box(df_monthly_filtered, x='mes', y='precipitation', color='nom_est', title='Distribución de la Precipitación por Mes', labels={'mes': 'Mes', 'precipitation': 'Precipitación Mensual (mm)', 'nom_est': 'Estación'})
                     fig_box_monthly.update_layout(height=600)
                     st.plotly_chart(fig_box_monthly, use_container_width=True)
+        
+        with mensual_enso_tab:
+            enso_filtered = df_enso[(df_enso['fecha_mes_año'].dt.year >= year_range[0]) & (df_enso['fecha_mes_año'].dt.year <= year_range[1]) & (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))]
+            fig_enso_mensual = create_enso_chart(enso_filtered)
+            st.plotly_chart(fig_enso_mensual, use_container_width=True, key="enso_chart_mensual")
 
-            with st.expander("Ver Análisis del Fenómeno ENSO"):
-                enso_filtered = df_enso[
-                    (df_enso['fecha_mes_año'].dt.year >= year_range[0]) &
-                    (df_enso['fecha_mes_año'].dt.year <= year_range[1]) &
-                    (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))
-                ]
-                fig_enso_mensual = create_enso_chart(enso_filtered)
-                st.plotly_chart(fig_enso_mensual, use_container_width=True, key="enso_chart_mensual")
-
-            with st.expander("Ver Tabla de Datos Detallados"):
-                st.subheader("Datos de Precipitación Mensual Detallados")
-                if not df_monthly_filtered.empty:
-                    df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation')
-                    st.dataframe(df_values)
-
+        with mensual_datos_tab:
+            st.subheader("Datos de Precipitación Mensual Detallados")
+            if not df_monthly_filtered.empty:
+                df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation')
+                st.dataframe(df_values)
+    # --- FIN DE CAMBIOS ---
+    
 with tab_anim:
     st.header("Mapas Avanzados")
-    # --- INICIO DE CAMBIOS: Nueva estructura con sub-pestañas ---
     gif_tab, temporal_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal de Datos", "Comparación y Kriging"])
 
     with gif_tab:
@@ -848,8 +821,7 @@ with tab_anim:
                             st.plotly_chart(fig, use_container_width=True, key=f'map_diff_{i}')
         else:
             st.warning("No hay años disponibles en la selección actual para la comparación.")
-    # --- FIN DE CAMBIOS ---
-    
+
 with tab3:
     st.header("Información Detallada de las Estaciones")
     if not df_anual_melted.empty:
@@ -943,102 +915,98 @@ with tab_stats:
 
 with tab4:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
-    if df_enso.empty:
-        st.warning("No se encontraron datos del fenómeno ENSO en el archivo de precipitación cargado. El análisis ENSO no está disponible.")
-    else:
-        st.subheader("Visualización de Variables ENSO")
-        enso_vars_available = [v for v in ['anomalia_oni', 'temp_sst', 'temp_media'] if v in df_enso.columns]
-        if not enso_vars_available:
-            st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
+    # --- INICIO DE CAMBIOS: Reemplazar expanders con st.tabs ---
+    enso_series_tab, enso_anim_tab = st.tabs(["Series de Tiempo ENSO", "Mapa Animado ENSO"])
+
+    with enso_series_tab:
+        if df_enso.empty:
+            st.warning("No se encontraron datos del fenómeno ENSO en el archivo de precipitación cargado.")
         else:
-            variable_enso = st.selectbox("Seleccione la variable ENSO a visualizar:", enso_vars_available)
-            df_enso_filtered = df_enso[
-                (df_enso['fecha_mes_año'].dt.year >= year_range[0]) &
-                (df_enso['fecha_mes_año'].dt.year <= year_range[1]) &
-                (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))
-            ]
-            if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
-                fig_enso_series = px.line(df_enso_filtered, x='fecha_mes_año', y=variable_enso, title=f"Serie de Tiempo para {variable_enso}")
-                st.plotly_chart(fig_enso_series, use_container_width=True)
+            st.subheader("Visualización de Variables ENSO")
+            enso_vars_available = [v for v in ['anomalia_oni', 'temp_sst', 'temp_media'] if v in df_enso.columns]
+            if not enso_vars_available:
+                st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
             else:
-                st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
+                variable_enso = st.selectbox("Seleccione la variable ENSO a visualizar:", enso_vars_available)
+                df_enso_filtered = df_enso[(df_enso['fecha_mes_año'].dt.year >= year_range[0]) & (df_enso['fecha_mes_año'].dt.year <= year_range[1]) & (df_enso['fecha_mes_año'].dt.month.isin(meses_numeros))]
+                if not df_enso_filtered.empty and variable_enso in df_enso_filtered.columns and not df_enso_filtered[variable_enso].isnull().all():
+                    fig_enso_series = px.line(df_enso_filtered, x='fecha_mes_año', y=variable_enso, title=f"Serie de Tiempo para {variable_enso}")
+                    st.plotly_chart(fig_enso_series, use_container_width=True)
+                else:
+                    st.warning(f"No hay datos disponibles para '{variable_enso}' en el período seleccionado.")
 
-        with st.expander("Mapa Animado del Fenómeno ENSO"):
-            st.subheader("Evolución Mensual del Fenómeno ENSO")
-            if not df_enso.empty and not gdf_stations.empty:
+    with enso_anim_tab:
+        st.subheader("Evolución Mensual del Fenómeno ENSO")
+        if not df_enso.empty and not gdf_stations.empty:
+            
+            controls_col, map_col = st.columns([1, 3])
+            
+            enso_anim_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
+            enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
+            conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
+            phases = ['El Niño', 'La Niña']
+            enso_anim_data['fase'] = np.select(conditions, phases, default='Neutral')
+
+            enso_anim_data_filtered = enso_anim_data[(enso_anim_data['fecha_mes_año'].dt.year >= year_range[0]) & (enso_anim_data['fecha_mes_año'].dt.year <= year_range[1])]
+            
+            with controls_col:
+                st.markdown("##### Estadísticas ENSO")
+                logo_col, info_col = st.columns([1, 4])
+                with logo_col:
+                    if os.path.exists(logo_gota_path):
+                        st.image(logo_gota_path, width=40)
+                with info_col:
+                    st.metric("Total Meses Analizados", len(enso_anim_data_filtered))
                 
-                controls_col, map_col = st.columns([1, 3])
+                phase_counts = enso_anim_data_filtered['fase'].value_counts()
+                nino_months = phase_counts.get('El Niño', 0)
+                nina_months = phase_counts.get('La Niña', 0)
+
+                enso_events_df = enso_anim_data_filtered[enso_anim_data_filtered['fase'] != 'Neutral']
+                if not enso_events_df.empty:
+                    try:
+                        locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+                    except locale.Error:
+                        locale.setlocale(locale.LC_TIME, '')
+                    
+                    enso_events_df.loc[:, 'mes_nombre'] = enso_events_df['fecha_mes_año'].dt.strftime('%B').str.capitalize()
+                    most_frequent_month = enso_events_df['mes_nombre'].mode()[0]
+                else:
+                    most_frequent_month = "N/A"
+
+                st.info(f"""
+                **Meses en Fase 'El Niño':** {nino_months}
+                **Meses en Fase 'La Niña':** {nina_months}
+                **Mes más frecuente para eventos:** {most_frequent_month}
+                """)
+
+            with map_col:
+                stations_subset = gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']]
+                enso_anim_data_filtered.loc[:, 'fecha_str'] = enso_anim_data_filtered['fecha_mes_año'].dt.strftime('%Y-%m')
                 
-                enso_anim_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
-                enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
-                conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
-                phases = ['El Niño', 'La Niña']
-                enso_anim_data['fase'] = np.select(conditions, phases, default='Neutral')
+                enso_anim_data_filtered.loc[:, 'key'] = 1
+                stations_subset['key'] = 1
+                animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
 
-                enso_anim_data_filtered = enso_anim_data[
-                    (enso_anim_data['fecha_mes_año'].dt.year >= year_range[0]) &
-                    (enso_anim_data['fecha_mes_año'].dt.year <= year_range[1])
-                ]
+                fig_enso_anim = px.scatter_geo(
+                    animation_df, lat='latitud_geo', lon='longitud_geo',
+                    color='fase', animation_frame='fecha_str',
+                    hover_name='nom_est',
+                    color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
+                    category_orders={"fase": ["El Niño", "La Niña", "Neutral"]},
+                    projection='natural earth'
+                )
+                fig_enso_anim.update_geos(fitbounds="locations", visible=True)
                 
-                with controls_col:
-                    st.markdown("##### Estadísticas ENSO")
-                    logo_col, info_col = st.columns([1, 4])
-                    with logo_col:
-                        if os.path.exists(logo_gota_path):
-                            st.image(logo_gota_path, width=40)
-                    with info_col:
-                        st.metric("Total Meses Analizados", len(enso_anim_data_filtered))
-                    
-                    phase_counts = enso_anim_data_filtered['fase'].value_counts()
-                    nino_months = phase_counts.get('El Niño', 0)
-                    nina_months = phase_counts.get('La Niña', 0)
-
-                    enso_events_df = enso_anim_data_filtered[enso_anim_data_filtered['fase'] != 'Neutral']
-                    if not enso_events_df.empty:
-                        try:
-                            locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
-                        except locale.Error:
-                            locale.setlocale(locale.LC_TIME, '')
-                        
-                        enso_events_df.loc[:, 'mes_nombre'] = enso_events_df['fecha_mes_año'].dt.strftime('%B').str.capitalize()
-                        most_frequent_month = enso_events_df['mes_nombre'].mode()[0]
-                    else:
-                        most_frequent_month = "N/A"
-
-                    st.info(f"""
-                    **Meses en Fase 'El Niño':** {nino_months}
-                    
-                    **Meses en Fase 'La Niña':** {nina_months}
-                    
-                    **Mes más frecuente para eventos:** {most_frequent_month}
-                    """)
-
-                with map_col:
-                    stations_subset = gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']]
-                    enso_anim_data_filtered.loc[:, 'fecha_str'] = enso_anim_data_filtered['fecha_mes_año'].dt.strftime('%Y-%m')
-                    
-                    enso_anim_data_filtered.loc[:, 'key'] = 1
-                    stations_subset['key'] = 1
-                    animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
-
-                    fig_enso_anim = px.scatter_geo(
-                        animation_df, lat='latitud_geo', lon='longitud_geo',
-                        color='fase', animation_frame='fecha_str',
-                        hover_name='nom_est',
-                        color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
-                        category_orders={"fase": ["El Niño", "La Niña", "Neutral"]},
-                        projection='natural earth'
-                    )
-                    fig_enso_anim.update_geos(fitbounds="locations", visible=True)
-                    
-                    fig_enso_anim.update_layout(
-                        height=700,
-                        title="Fase ENSO por Mes en las Estaciones Seleccionadas",
-                        sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))],
-                        legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant')
-                    )
-                    st.plotly_chart(fig_enso_anim, use_container_width=True)
-
+                fig_enso_anim.update_layout(
+                    height=700,
+                    title="Fase ENSO por Mes en las Estaciones Seleccionadas",
+                    sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))],
+                    legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant')
+                )
+                st.plotly_chart(fig_enso_anim, use_container_width=True)
+    # --- FIN DE CAMBIOS ---
+    
 with tab5:
     st.header("Opciones de Descarga")
     @st.cache_data
