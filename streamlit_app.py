@@ -15,6 +15,7 @@ import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
 import locale
+import base64
 
 # --- Función para corregir el formato de fecha antes de procesar ---
 def parse_spanish_dates(date_series):
@@ -477,9 +478,7 @@ with tab1:
                         tooltip=html
                     ).add_to(marker_cluster)
 
-                # --- INICIO DE LA CORRECCIÓN: Eliminar ancho fijo ---
                 folium_static(m, height=700)
-                # --- FIN DE LA CORRECCIÓN ---
             else:
                 st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
 
@@ -645,8 +644,18 @@ with tab_anim:
         st.subheader("Distribución Espacio-Temporal de la Lluvia en Antioquia")
         gif_path = "PPAM.gif"
         if os.path.exists(gif_path):
-            # --- INICIO DE LA CORRECCIÓN: Usar use_container_width y eliminar st.dialog ---
-            st.image(gif_path, caption="Precipitación Promedio Anual Multianual en Antioquia", use_container_width=True)
+            # --- INICIO DE LA CORRECCIÓN: Usar columnas y Base64 para mostrar el GIF ---
+            img_col1, img_col2 = st.columns([1, 1])
+            with img_col1:
+                file_ = open(gif_path, "rb")
+                contents = file_.read()
+                data_url = base64.b64encode(contents).decode("utf-8")
+                file_.close()
+                st.markdown(
+                    f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM">',
+                    unsafe_allow_html=True,
+                )
+                st.caption("Precipitación Promedio Anual Multianual en Antioquia")
             # --- FIN DE LA CORRECCIÓN ---
         else:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
