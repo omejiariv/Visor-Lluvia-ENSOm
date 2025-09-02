@@ -672,18 +672,32 @@ with tab_anim:
         if os.path.exists(gif_path):
             img_col1, img_col2 = st.columns([1, 1])
             with img_col1:
-                file_ = open(gif_path, "rb")
-                contents = file_.read()
-                data_url = base64.b64encode(contents).decode("utf-8")
-                file_.close()
-                st.markdown(
+                if 'gif_rerun_count' not in st.session_state:
+                    st.session_state.gif_rerun_count = 0
+
+                gif_placeholder = st.empty()
+                
+                with open(gif_path, "rb") as file:
+                    contents = file.read()
+                    data_url = base64.b64encode(contents).decode("utf-8")
+                    file.close()
+                gif_placeholder.markdown(
                     f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM" style="width:100%;">',
                     unsafe_allow_html=True,
                 )
                 st.caption("Precipitación Promedio Anual Multianual en Antioquia")
 
                 if st.button("Reiniciar Animación", key="restart_gif"):
-                    st.rerun()
+                    st.session_state.gif_rerun_count += 1
+                    # Forzar la recarga del elemento
+                    with open(gif_path, "rb") as file:
+                        contents = file.read()
+                        data_url = base64.b64encode(contents).decode("utf-8")
+                        file.close()
+                    gif_placeholder.markdown(
+                        f'<img src="data:image/gif;base64,{data_url}" alt="Animación PPAM {st.session_state.gif_rerun_count}" style="width:100%;">',
+                        unsafe_allow_html=True,
+                    )
         else:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
