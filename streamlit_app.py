@@ -1035,8 +1035,8 @@ with anomalias_tab:
                         fig_anom_map.update_geos(fitbounds="locations", visible=True)
                     else:
                         if st.session_state.map_view_anom["bounds"]:
-                             fig_anom_map.update_geos(fitbounds="locations", visible=True) # First fit to data
-                             fig_anom_map.update_geos(center=None) # Then apply manual override if needed
+                             fig_anom_map.update_geos(fitbounds="locations", visible=True) 
+                             fig_anom_map.update_geos(center=None) 
                         else:
                              fig_anom_map.update_geos(
                                 center=st.session_state.map_view_anom["center"],
