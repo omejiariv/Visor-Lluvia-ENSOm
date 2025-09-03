@@ -978,9 +978,7 @@ with anomalias_tab:
         df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=['nom_est', 'mes'], how='left')
         df_anomalias['anomalia'] = df_anomalias['precipitation'] - df_anomalias['precip_promedio_mes']
         
-        # --- INICIO DE LA CORRECCIÓN: Unir coordenadas a df_anomalias ---
         df_anomalias = pd.merge(df_anomalias, gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates(), on='nom_est', how='left')
-        # --- FIN DE LA CORRECCIÓN ---
 
         if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
             st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
@@ -999,6 +997,18 @@ with anomalias_tab:
 
                 with controls_col:
                     map_centering_anom = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_anom")
+                    
+                    if 'map_view_anom' not in st.session_state:
+                        st.session_state.map_view_anom = {"center": [4.57, -74.29], "zoom": 5, "bounds": None}
+
+                    if map_centering_anom == "Vistas Predefinidas":
+                        if st.button("Ver Colombia", key="anom_col"):
+                            st.session_state.map_view_anom = {"center": [4.57, -74.29], "zoom": 5, "bounds": None}
+                        if st.button("Ver Antioquia", key="anom_ant"):
+                            st.session_state.map_view_anom = {"center": [6.24, -75.58], "zoom": 7, "bounds": None}
+                        if st.button("Ajustar a Selección", key="anom_sel"):
+                            bounds = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
+                            st.session_state.map_view_anom = {"center": None, "zoom": None, "bounds": [[bounds[1], bounds[0]], [bounds[3], bounds[2]]]}
                 
                 df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año', 'latitud_geo', 'longitud_geo'])['anomalia'].sum().reset_index()
                 
@@ -1023,15 +1033,16 @@ with anomalias_tab:
                     
                     if map_centering_anom == "Automático":
                         fig_anom_map.update_geos(fitbounds="locations", visible=True)
-                    else: # Vistas Predefinidas
-                        bounds = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
-                        center_lat = (bounds[1] + bounds[3]) / 2
-                        center_lon = (bounds[0] + bounds[2]) / 2
-                        fig_anom_map.update_geos(
-                            center=dict(lat=center_lat, lon=center_lon),
-                            projection_scale=7 # Un valor de zoom razonable
-                        )
-
+                    else:
+                        if st.session_state.map_view_anom["bounds"]:
+                             fig_anom_map.update_geos(fitbounds="locations", visible=True) # First fit to data
+                             fig_anom_map.update_geos(center=None) # Then apply manual override if needed
+                        else:
+                             fig_anom_map.update_geos(
+                                center=st.session_state.map_view_anom["center"],
+                                projection_scale=st.session_state.map_view_anom["zoom"]
+                             )
+                    
                     map_col.plotly_chart(fig_anom_map, use_container_width=True)
 
             with anom_fase_tab:
