@@ -468,7 +468,7 @@ df_monthly_to_process = st.session_state.df_monthly_processed
 tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
 mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, tendencias_tab, descargas_tab = st.tabs(tab_names)
 
-# Preparación de datos filtrados
+# Preparación de datos filtrados (se hará dentro de cada pestaña que los necesite)
 if selected_stations and meses_numeros:
     df_anual_melted = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].melt(
         id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo'],
@@ -530,7 +530,7 @@ with mapa_tab:
                             center_lon = (bounds[0] + bounds[2]) / 2
                             st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
                 
-                # --- INICIO DE CAMBIOS: Resumen de filtros activos ---
+                # Resumen de filtros activos
                 st.markdown("---")
                 with st.expander("Resumen de Filtros Activos", expanded=True):
                     summary_text = f"**Período:** {year_range[0]} - {year_range[1]}\n\n"
@@ -540,7 +540,6 @@ with mapa_tab:
                     if selected_municipios: summary_text += f"**Municipio:** {', '.join(selected_municipios)}\n\n"
                     if selected_celdas: summary_text += f"**Celda XY:** {', '.join(selected_celdas)}\n\n"
                     st.info(summary_text)
-                # --- FIN DE CAMBIOS ---
                 
             with map_col:
                 if not gdf_filtered.empty:
@@ -1006,6 +1005,7 @@ with anomalias_tab:
                     st.plotly_chart(fig_anom_map, use_container_width=True)
 
             with anom_fase_tab:
+                # FIX: Use df_anomalias directly as it already contains anomalia_oni
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
                 conditions = [df_anomalias_enso['anomalia_oni'] >= 0.5, df_anomalias_enso['anomalia_oni'] <= -0.5]
                 phases = ['El Niño', 'La Niña']
