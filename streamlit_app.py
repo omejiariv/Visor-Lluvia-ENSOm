@@ -1033,6 +1033,12 @@ with anomalias_tab:
 
                     # Paso 5: Filtrar y clasificar datos para el año seleccionado
                     df_map_year = df_map_data[df_map_data['año'] == str(year_to_map)].copy()
+                    
+                    # --- INICIO DE LA CORRECCIÓN ---
+                    # Eliminar filas donde la anomalía no se pudo calcular para evitar el error
+                    df_map_year.dropna(subset=['anomalia_anual'], inplace=True)
+                    # --- FIN DE LA CORRECCIÓN ---
+
                     df_map_year['umbral_mm'] = (neutral_threshold_perc / 100) * df_map_year['precip_media_historica']
                     
                     conditions = [
