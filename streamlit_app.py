@@ -999,16 +999,16 @@ with anomalias_tab:
                     map_centering_anom = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_anom")
                     
                     if 'map_view_anom' not in st.session_state:
-                        st.session_state.map_view_anom = {"center": [4.57, -74.29], "zoom": 5, "bounds": None}
+                        st.session_state.map_view_anom = {"bounds": None}
 
                     if map_centering_anom == "Vistas Predefinidas":
                         if st.button("Ver Colombia", key="anom_col"):
-                            st.session_state.map_view_anom = {"center": [4.57, -74.29], "zoom": 5, "bounds": None}
+                            st.session_state.map_view_anom = {"bounds": {'lon': [-79, -67], 'lat': [-4.5, 12.5]}}
                         if st.button("Ver Antioquia", key="anom_ant"):
-                            st.session_state.map_view_anom = {"center": [6.24, -75.58], "zoom": 7, "bounds": None}
+                            st.session_state.map_view_anom = {"bounds": {'lon': [-77, -74.5], 'lat': [5.5, 8.5]}}
                         if st.button("Ajustar a Selección", key="anom_sel"):
-                            bounds = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
-                            st.session_state.map_view_anom = {"center": None, "zoom": None, "bounds": [[bounds[1], bounds[0]], [bounds[3], bounds[2]]]}
+                            bounds_values = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
+                            st.session_state.map_view_anom = {"bounds": {'lon': [bounds_values[0]-0.2, bounds_values[2]+0.2], 'lat': [bounds_values[1]-0.2, bounds_values[3]+0.2]}}
                 
                 df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año', 'latitud_geo', 'longitud_geo'])['anomalia'].sum().reset_index()
                 
@@ -1018,6 +1018,7 @@ with anomalias_tab:
                     df_map_anom = df_anomalias_anual[df_anomalias_anual['año'] == str(year_to_map)]
 
                     max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
+                    if max_abs_anom == 0: max_abs_anom = 1 # Evitar rango cero
 
                     fig_anom_map = px.scatter_geo(
                         df_map_anom,
@@ -1034,13 +1035,11 @@ with anomalias_tab:
                     if map_centering_anom == "Automático":
                         fig_anom_map.update_geos(fitbounds="locations", visible=True)
                     else:
-                        if st.session_state.map_view_anom["bounds"]:
-                             fig_anom_map.update_geos(fitbounds="locations", visible=True) 
-                             fig_anom_map.update_geos(center=None) 
-                        else:
+                        if st.session_state.map_view_anom.get("bounds"):
                              fig_anom_map.update_geos(
-                                center=st.session_state.map_view_anom["center"],
-                                projection_scale=st.session_state.map_view_anom["zoom"]
+                                 lataxis_range=st.session_state.map_view_anom["bounds"]['lat'], 
+                                 lonaxis_range=st.session_state.map_view_anom["bounds"]['lon'], 
+                                 visible=True
                              )
                     
                     map_col.plotly_chart(fig_anom_map, use_container_width=True)
