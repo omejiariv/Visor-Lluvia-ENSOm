@@ -468,7 +468,7 @@ df_monthly_to_process = st.session_state.df_monthly_processed
 tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
 mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, tendencias_tab, descargas_tab = st.tabs(tab_names)
 
-# Preparación de datos filtrados (se hará dentro de cada pestaña que los necesite)
+# Preparación de datos filtrados
 if selected_stations and meses_numeros:
     df_anual_melted = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].melt(
         id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo'],
@@ -981,8 +981,9 @@ with anomalias_tab:
 
             with anom_mapa_tab:
                 st.subheader("Mapa Interactivo de Anomalías Anuales")
-                df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año', 'latitud_geo', 'longitud_geo'])['anomalia'].sum().reset_index()
-                
+                df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año'])['anomalia'].sum().reset_index()
+                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
+
                 years_with_anomalies = sorted(df_anomalias_anual['año'].unique().astype(int))
                 if years_with_anomalies:
                     year_to_map = st.slider("Seleccione un año para visualizar en el mapa:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
@@ -1005,7 +1006,6 @@ with anomalias_tab:
                     st.plotly_chart(fig_anom_map, use_container_width=True)
 
             with anom_fase_tab:
-                # FIX: Use df_anomalias directly as it already contains anomalia_oni
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
                 conditions = [df_anomalias_enso['anomalia_oni'] >= 0.5, df_anomalias_enso['anomalia_oni'] <= -0.5]
                 phases = ['El Niño', 'La Niña']
