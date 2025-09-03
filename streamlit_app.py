@@ -43,7 +43,7 @@ st.set_page_config(layout="wide", page_title="Sistema de información de las llu
 # --- CSS para optimizar el espacio y estilo de métricas ---
 st.markdown("""
 <style>
-div.block-container {padding-top: 1rem;}
+div.block-container {padding-top: 2rem;}
 .sidebar .sidebar-content {font-size: 13px; }
 [data-testid="stMetricValue"] {
     font-size: 1.8rem;
@@ -244,12 +244,12 @@ def create_anomaly_chart(df_plot):
 logo_path = "CuencaVerdeLogo_V1.JPG"
 logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 
-title_col1, title_col2 = st.columns([1, 5])
+title_col1, title_col2 = st.columns([0.07, 0.93])
 with title_col1:
     if os.path.exists(logo_gota_path):
         st.image(logo_gota_path, width=50)
 with title_col2:
-    st.markdown('<h1 style="font-size:28px;">Sistema de información de las lluvias y el Clima en el norte de la región Andina</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 style="font-size:28px; margin-top:1rem;">Sistema de información de las lluvias y el Clima en el norte de la región Andina</h1>', unsafe_allow_html=True)
 
 st.sidebar.header("Panel de Control")
 with st.sidebar.expander("**Cargar Archivos**", expanded=True):
@@ -928,7 +928,13 @@ with mapas_avanzados_tab:
                 st.warning(f"Se necesitan al menos 3 estaciones con datos en el año {year_kriging} para generar el mapa Kriging.")
             else:
                 with st.spinner("Generando mapa Kriging..."):
+                    # --- INICIO DE CAMBIOS: Añadir tooltip al mapa Kriging ---
+                    data_year_kriging['tooltip'] = data_year_kriging.apply(
+                        lambda row: f"<b>{row['nom_est']}</b><br>Municipio: {row['municipio']}<br>Ppt: {row['precipitacion']:.0f} mm",
+                        axis=1
+                    )
                     lons, lats, vals = data_year_kriging['longitud_geo'].values, data_year_kriging['latitud_geo'].values, data_year_kriging['precipitacion'].values
+                    # --- FIN DE CAMBIOS ---
                     bounds = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
                     lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
                     lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
@@ -937,7 +943,15 @@ with mapas_avanzados_tab:
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
 
                     fig_krig = go.Figure(data=go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
-                    fig_krig.add_trace(go.Scatter(x=lons, y=lats, mode='markers', marker=dict(color='red', size=5, symbol='circle'), name='Estaciones'))
+                    # --- INICIO DE CAMBIOS: Añadir tooltip al mapa Kriging ---
+                    fig_krig.add_trace(go.Scatter(
+                        x=lons, y=lats, mode='markers', 
+                        marker=dict(color='red', size=5, symbol='circle'), 
+                        name='Estaciones',
+                        text=data_year_kriging['tooltip'],
+                        hoverinfo='text'
+                    ))
+                    # --- FIN DE CAMBIOS ---
                     fig_krig.update_layout(height=700, title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}", xaxis_title="Longitud", yaxis_title="Latitud")
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
