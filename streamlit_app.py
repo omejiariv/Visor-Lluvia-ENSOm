@@ -468,15 +468,20 @@ df_monthly_to_process = st.session_state.df_monthly_processed
 tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
 mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, tendencias_tab, descargas_tab = st.tabs(tab_names)
 
-# Preparación de datos filtrados
+# --- Preparación de datos filtrados ---
 if selected_stations and meses_numeros:
     df_anual_melted = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].melt(
         id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo'],
         value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
         var_name='año', value_name='precipitacion')
-    # Asegurarse de que la columna de precipitación sea numérica para los cálculos
-    df_anual_melted['precipitacion'] = pd.to_numeric(df_anual_melted['precipitacion'], errors='coerce')
-
+    
+    # --- CORRECCIÓN CLAVE ---
+    # Convertir la precipitación a un tipo numérico, manejando comas y errores.
+    df_anual_melted['precipitacion'] = pd.to_numeric(
+        df_anual_melted['precipitacion'].astype(str).str.replace(',', '.'), 
+        errors='coerce'
+    )
+    
     df_monthly_filtered = df_monthly_to_process[
         (df_monthly_to_process['nom_est'].isin(selected_stations)) &
         (df_monthly_to_process['fecha_mes_año'].dt.year >= year_range[0]) &
@@ -776,7 +781,7 @@ with mapas_avanzados_tab:
             with exp_tab:
                 st.subheader("Explorador Anual de Precipitación")
                 if not df_anual_melted.empty:
-                    all_years_int = sorted([int(y) for y in df_anual_melted['año'].unique()])
+                    all_years_int = sorted(df_anual_melted['año'].dropna().astype(int).unique())
                     if all_years_int:
                         selected_year = st.slider('Seleccione un Año para Explorar', min_value=min(all_years_int), max_value=max(all_years_int), value=min(all_years_int))
                         controls_col, map_col = st.columns([1, 3])
@@ -830,7 +835,7 @@ with mapas_avanzados_tab:
                     station_order = df_anual_melted.groupby('nom_est')['precipitacion'].sum().sort_values(ascending=True).index
                     
                     fig_racing = px.bar(
-                        df_anual_melted,
+                        df_anual_melted.dropna(subset=['precipitacion']),
                         x="precipitacion",
                         y="nom_est",
                         animation_frame="año",
@@ -1002,7 +1007,7 @@ with anomalias_tab:
 
                     control_col1, control_col2 = st.columns([2,3])
                     with control_col1:
-                        years_with_anomalies = sorted(df_map_data['año'].unique().astype(int))
+                        years_with_anomalies = sorted(df_map_data['año'].dropna().astype(int).unique())
                         year_to_map = st.slider("Seleccione un año para visualizar:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
                     with control_col2:
                         neutral_threshold_perc = st.slider("Definir umbral de neutralidad (% de la media histórica):", 0, 20, 5, help="Las estaciones cuya anomalía (en valor absoluto) sea menor a este porcentaje de su propia media histórica se considerarán 'Promedio'.")
@@ -1034,16 +1039,13 @@ with anomalias_tab:
                         categories = ["Húmedo", "Seco"]
                         df_map_year['categoria'] = np.select(conditions, categories, default="Promedio")
                         
-                        # --- INICIO DE LA CORRECCIÓN ---
-                        # Crear una nueva columna para el tamaño y usar su nombre en `px.scatter_geo`
                         df_map_year['anomalia_size'] = df_map_year['anomalia_anual'].abs()
-                        # --- FIN DE LA CORRECCIÓN ---
 
                         fig_anom_map = px.scatter_geo(
                             df_map_year,
                             lat='latitud_geo', lon='longitud_geo',
                             color='categoria',
-                            size='anomalia_size', # <--- Usar el nombre de la columna
+                            size='anomalia_size',
                             hover_name='nom_est',
                             hover_data={
                                 'precipitacion': ':.0f',
