@@ -977,6 +977,10 @@ with anomalias_tab:
         
         df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=['nom_est', 'mes'], how='left')
         df_anomalias['anomalia'] = df_anomalias['precipitation'] - df_anomalias['precip_promedio_mes']
+        
+        # --- INICIO DE LA CORRECCIÓN: Unir coordenadas a df_anomalias ---
+        df_anomalias = pd.merge(df_anomalias, gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates(), on='nom_est', how='left')
+        # --- FIN DE LA CORRECCIÓN ---
 
         if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
             st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
@@ -991,12 +995,16 @@ with anomalias_tab:
 
             with anom_mapa_tab:
                 st.subheader("Mapa Interactivo de Anomalías Anuales")
-                df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año'])['anomalia'].sum().reset_index()
-                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
+                controls_col, map_col = st.columns([1, 3])
 
+                with controls_col:
+                    map_centering_anom = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_anom")
+                
+                df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año', 'latitud_geo', 'longitud_geo'])['anomalia'].sum().reset_index()
+                
                 years_with_anomalies = sorted(df_anomalias_anual['año'].unique().astype(int))
                 if years_with_anomalies:
-                    year_to_map = st.slider("Seleccione un año para visualizar en el mapa:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
+                    year_to_map = controls_col.slider("Seleccione un año para visualizar:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
                     df_map_anom = df_anomalias_anual[df_anomalias_anual['año'] == str(year_to_map)]
 
                     max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
@@ -1012,8 +1020,19 @@ with anomalias_tab:
                         range_color=[-max_abs_anom, max_abs_anom],
                         title=f"Anomalía de Precipitación Anual para el año {year_to_map}"
                     )
-                    fig_anom_map.update_geos(fitbounds="locations", visible=True)
-                    st.plotly_chart(fig_anom_map, use_container_width=True)
+                    
+                    if map_centering_anom == "Automático":
+                        fig_anom_map.update_geos(fitbounds="locations", visible=True)
+                    else: # Vistas Predefinidas
+                        bounds = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
+                        center_lat = (bounds[1] + bounds[3]) / 2
+                        center_lon = (bounds[0] + bounds[2]) / 2
+                        fig_anom_map.update_geos(
+                            center=dict(lat=center_lat, lon=center_lon),
+                            projection_scale=7 # Un valor de zoom razonable
+                        )
+
+                    map_col.plotly_chart(fig_anom_map, use_container_width=True)
 
             with anom_fase_tab:
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
