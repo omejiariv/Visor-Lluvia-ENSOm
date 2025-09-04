@@ -305,7 +305,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
             df_precip_mensual[col] = df_precip_mensual[col].astype(str).str.replace(',', '.')
 
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
-                                     value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
+                                        value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
 
     # Corrección: Conversión de los campos a numérico
     df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
@@ -468,20 +468,12 @@ df_monthly_to_process = st.session_state.df_monthly_processed
 tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
 mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, tendencias_tab, descargas_tab = st.tabs(tab_names)
 
-# --- Preparación de datos filtrados ---
+# Preparación de datos filtrados
 if selected_stations and meses_numeros:
     df_anual_melted = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].melt(
         id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo'],
         value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
         var_name='año', value_name='precipitacion')
-    
-    # --- CORRECCIÓN CLAVE ---
-    # Convertir la precipitación a un tipo numérico, manejando comas y errores.
-    df_anual_melted['precipitacion'] = pd.to_numeric(
-        df_anual_melted['precipitacion'].astype(str).str.replace(',', '.'), 
-        errors='coerce'
-    )
-    
     df_monthly_filtered = df_monthly_to_process[
         (df_monthly_to_process['nom_est'].isin(selected_stations)) &
         (df_monthly_to_process['fecha_mes_año'].dt.year >= year_range[0]) &
@@ -500,7 +492,7 @@ with mapa_tab:
         gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].copy()
 
         if not df_anual_melted.empty:
-            df_mean_precip = df_anual_melted.dropna(subset=['precipitacion']).groupby('nom_est')['precipitacion'].mean().reset_index()
+            df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().reset_index()
             gdf_filtered = gdf_filtered.merge(df_mean_precip.rename(columns={'precipitacion': 'precip_media_anual'}), on='nom_est', how='left')
         else:
             gdf_filtered['precip_media_anual'] = np.nan
@@ -611,13 +603,13 @@ with mapa_tab:
                     )
 
                     fig_comp = px.bar(df_plot,
-                                      x='nom_est',
-                                      y='Porcentaje',
-                                      color='Tipo de Dato',
-                                      title='Composición de Datos por Estación',
-                                      labels={'nom_est': 'Estación', 'Porcentaje': '% del Período'},
-                                      color_discrete_map={'% Original': '#1f77b4', '% Completado': '#ff7f0e'},
-                                      text_auto='.1f')
+                                     x='nom_est',
+                                     y='Porcentaje',
+                                     color='Tipo de Dato',
+                                     title='Composición de Datos por Estación',
+                                     labels={'nom_est': 'Estación', 'Porcentaje': '% del Período'},
+                                     color_discrete_map={'% Original': '#1f77b4', '% Completado': '#ff7f0e'},
+                                     text_auto='.1f')
                     fig_comp.update_layout(height=600, xaxis={'categoryorder': 'trace'})
                     st.plotly_chart(fig_comp, use_container_width=True)
 
@@ -781,7 +773,7 @@ with mapas_avanzados_tab:
             with exp_tab:
                 st.subheader("Explorador Anual de Precipitación")
                 if not df_anual_melted.empty:
-                    all_years_int = sorted(df_anual_melted['año'].dropna().astype(int).unique())
+                    all_years_int = sorted([int(y) for y in df_anual_melted['año'].unique()])
                     if all_years_int:
                         selected_year = st.slider('Seleccione un Año para Explorar', min_value=min(all_years_int), max_value=max(all_years_int), value=min(all_years_int))
                         controls_col, map_col = st.columns([1, 3])
@@ -800,10 +792,10 @@ with mapas_avanzados_tab:
                                 max_row = df_year_filtered.loc[df_year_filtered['precipitacion'].idxmax()]
                                 min_row = df_year_filtered.loc[df_year_filtered['precipitacion'].idxmin()]
                                 st.info(f"""
-                                 **Ppt. Máxima ({selected_year}):**
+                                **Ppt. Máxima ({selected_year}):**
                                 {max_row['nom_est']} ({max_row['precipitacion']:.0f} mm)
-                                 
-                                 **Ppt. Mínima ({selected_year}):**
+                                
+                                **Ppt. Mínima ({selected_year}):**
                                 {min_row['nom_est']} ({min_row['precipitacion']:.0f} mm)
                                 """)
                             else:
@@ -835,7 +827,7 @@ with mapas_avanzados_tab:
                     station_order = df_anual_melted.groupby('nom_est')['precipitacion'].sum().sort_values(ascending=True).index
                     
                     fig_racing = px.bar(
-                        df_anual_melted.dropna(subset=['precipitacion']),
+                        df_anual_melted,
                         x="precipitacion",
                         y="nom_est",
                         animation_frame="año",
@@ -936,11 +928,13 @@ with mapas_avanzados_tab:
                 st.warning(f"Se necesitan al menos 3 estaciones con datos en el año {year_kriging} para generar el mapa Kriging.")
             else:
                 with st.spinner("Generando mapa Kriging..."):
+                    # --- INICIO DE CAMBIOS: Añadir tooltip al mapa Kriging ---
                     data_year_kriging['tooltip'] = data_year_kriging.apply(
                         lambda row: f"<b>{row['nom_est']}</b><br>Municipio: {row['municipio']}<br>Ppt: {row['precipitacion']:.0f} mm",
                         axis=1
                     )
                     lons, lats, vals = data_year_kriging['longitud_geo'].values, data_year_kriging['latitud_geo'].values, data_year_kriging['precipitacion'].values
+                    # --- FIN DE CAMBIOS ---
                     bounds = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
                     lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
                     lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
@@ -949,6 +943,7 @@ with mapas_avanzados_tab:
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
 
                     fig_krig = go.Figure(data=go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
+                    # --- INICIO DE CAMBIOS: Añadir tooltip al mapa Kriging ---
                     fig_krig.add_trace(go.Scatter(
                         x=lons, y=lats, mode='markers', 
                         marker=dict(color='red', size=5, symbol='circle'), 
@@ -956,6 +951,7 @@ with mapas_avanzados_tab:
                         text=data_year_kriging['tooltip'],
                         hoverinfo='text'
                     ))
+                    # --- FIN DE CAMBIOS ---
                     fig_krig.update_layout(height=700, title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}", xaxis_title="Longitud", yaxis_title="Latitud")
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
@@ -982,6 +978,7 @@ with anomalias_tab:
     else:
         df_long_filtered_stations = df_long[df_long['nom_est'].isin(selected_stations)]
         df_climatology = df_long_filtered_stations.groupby(['nom_est', 'mes'])['precipitation'].mean().reset_index().rename(columns={'precipitation': 'precip_promedio_mes'})
+        
         df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=['nom_est', 'mes'], how='left')
         df_anomalias['anomalia'] = df_anomalias['precipitation'] - df_anomalias['precip_promedio_mes']
 
@@ -997,85 +994,30 @@ with anomalias_tab:
                 st.plotly_chart(fig, use_container_width=True)
 
             with anom_mapa_tab:
-                st.subheader("Mapa Interactivo de Anomalías Anuales de Precipitación")
-                if not df_anual_melted.empty:
-                    df_climatology_anual = df_anual_melted.dropna(subset=['precipitacion']).groupby('nom_est')['precipitacion'].mean().reset_index().rename(columns={'precipitacion': 'precip_media_historica'})
-                    df_anomalias_anual = pd.merge(df_anual_melted, df_climatology_anual, on='nom_est', how='left')
-                    df_anomalias_anual['anomalia_anual'] = df_anomalias_anual['precipitacion'] - df_anomalias_anual['precip_media_historica']
-                    
-                    df_map_data = pd.merge(df_anomalias_anual, gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
+                st.subheader("Mapa Interactivo de Anomalías Anuales")
+                df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año'])['anomalia'].sum().reset_index()
+                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
 
-                    control_col1, control_col2 = st.columns([2,3])
-                    with control_col1:
-                        years_with_anomalies = sorted(df_map_data['año'].dropna().astype(int).unique())
-                        year_to_map = st.slider("Seleccione un año para visualizar:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
-                    with control_col2:
-                        neutral_threshold_perc = st.slider("Definir umbral de neutralidad (% de la media histórica):", 0, 20, 5, help="Las estaciones cuya anomalía (en valor absoluto) sea menor a este porcentaje de su propia media histórica se considerarán 'Promedio'.")
+                years_with_anomalies = sorted(df_anomalias_anual['año'].unique().astype(int))
+                if years_with_anomalies:
+                    year_to_map = st.slider("Seleccione un año para visualizar en el mapa:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
+                    df_map_anom = df_anomalias_anual[df_anomalias_anual['año'] == str(year_to_map)]
 
-                    st.markdown("---")
-                    map_view_col1, map_view_col2 = st.columns([1,3])
-                    with map_view_col1:
-                         map_centering_anom = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_anom_radio")
-                    with map_view_col2:
-                        if map_centering_anom == "Vistas Predefinidas":
-                            c1, c2, c3 = st.columns(3)
-                            if c1.button("Ver Colombia", key="colombia_anom"):
-                                st.session_state.map_scope_anom = {'lon': [-79, -67], 'lat': [-4.5, 12.5]}
-                            if c2.button("Ver Antioquia", key="antioquia_anom"):
-                                st.session_state.map_scope_anom = {'lon': [-77, -74.5], 'lat': [5.5, 8.5]}
-                            if c3.button("Ajustar a Selección", key="selection_anom"):
-                                st.session_state.map_scope_anom = "locations"
+                    max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
 
-                    df_map_year = df_map_data[df_map_data['año'] == str(year_to_map)].copy()
-                    df_map_year.dropna(subset=['anomalia_anual'], inplace=True)
-                    
-                    if not df_map_year.empty:
-                        df_map_year['umbral_mm'] = (neutral_threshold_perc / 100) * df_map_year['precip_media_historica']
-                        
-                        conditions = [
-                            df_map_year['anomalia_anual'] > df_map_year['umbral_mm'],
-                            df_map_year['anomalia_anual'] < -df_map_year['umbral_mm']
-                        ]
-                        categories = ["Húmedo", "Seco"]
-                        df_map_year['categoria'] = np.select(conditions, categories, default="Promedio")
-                        
-                        df_map_year['anomalia_size'] = df_map_year['anomalia_anual'].abs()
-
-                        fig_anom_map = px.scatter_geo(
-                            df_map_year,
-                            lat='latitud_geo', lon='longitud_geo',
-                            color='categoria',
-                            size='anomalia_size',
-                            hover_name='nom_est',
-                            hover_data={
-                                'precipitacion': ':.0f',
-                                'precip_media_historica': ':.0f',
-                                'anomalia_anual': ':.0f',
-                                'categoria': True,
-                                'latitud_geo': False, 'longitud_geo': False
-                            },
-                            color_discrete_map={'Húmedo': '#2E86C1', 'Seco': '#CB4335', 'Promedio': '#BFC9CA'},
-                            category_orders={"categoria": ["Húmedo", "Seco", "Promedio"]},
-                            title=f"Anomalía de Precipitación Anual ({year_to_map})"
-                        )
-                        
-                        if 'map_scope_anom' not in st.session_state:
-                             st.session_state.map_scope_anom = "locations"
-                        
-                        if map_centering_anom == "Automático":
-                            fig_anom_map.update_geos(fitbounds="locations", visible=True)
-                        else:
-                            if st.session_state.map_scope_anom == "locations":
-                                 fig_anom_map.update_geos(fitbounds="locations", visible=True)
-                            else:
-                                 fig_anom_map.update_geos(lataxis_range=st.session_state.map_scope_anom.get('lat'), lonaxis_range=st.session_state.map_scope_anom.get('lon'), visible=True)
-
-                        fig_anom_map.update_layout(height=700, legend_title_text='Categoría del Año')
-                        st.plotly_chart(fig_anom_map, use_container_width=True)
-                    else:
-                        st.warning(f"No hay datos de anomalías para mostrar en el año {year_to_map}.")
-                else:
-                    st.warning("No hay datos anuales cargados o seleccionados para calcular las anomalías.")
+                    fig_anom_map = px.scatter_geo(
+                        df_map_anom,
+                        lat='latitud_geo', lon='longitud_geo',
+                        color='anomalia',
+                        size=df_map_anom['anomalia'].abs(),
+                        hover_name='nom_est',
+                        hover_data={'anomalia': ':.0f'},
+                        color_continuous_scale='RdBu',
+                        range_color=[-max_abs_anom, max_abs_anom],
+                        title=f"Anomalía de Precipitación Anual para el año {year_to_map}"
+                    )
+                    fig_anom_map.update_geos(fitbounds="locations", visible=True)
+                    st.plotly_chart(fig_anom_map, use_container_width=True)
 
             with anom_fase_tab:
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
@@ -1174,7 +1116,7 @@ with estadisticas_tab:
         with sintesis_tab:
             st.subheader("Síntesis General de Precipitación")
             if not df_monthly_filtered.empty and not df_anual_melted.empty:
-                max_annual_row = df_anual_melted.dropna(subset=['precipitacion']).loc[df_anual_melted['precipitacion'].idxmax()]
+                max_annual_row = df_anual_melted.loc[df_anual_melted['precipitacion'].idxmax()]
                 max_monthly_row = df_monthly_filtered.loc[df_monthly_filtered['precipitation'].idxmax()]
                 col1, col2 = st.columns(2)
                 with col1:
@@ -1257,14 +1199,14 @@ with enso_tab:
                 st.info(f"""
                 **Meses en Fase 'El Niño':** {nino_months}
                 **Meses en Fase 'La Niña':** {nina_months}
-                 **Mes más frecuente para eventos:** {most_frequent_month}
+                **Mes más frecuente para eventos:** {most_frequent_month}
                 """)
 
             with map_col:
                 stations_subset = gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']]
                 enso_anim_data_filtered.loc[:, 'fecha_str'] = enso_anim_data_filtered['fecha_mes_año'].dt.strftime('%Y-%m')
                 enso_anim_data_filtered.loc[:, 'key'] = 1
-                stations_subset.loc[:, 'key'] = 1
+                stations_subset['key'] = 1
                 animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
 
                 fig_enso_anim = px.scatter_geo(
@@ -1304,19 +1246,18 @@ with tendencias_tab:
                 if station_to_analyze:
                     df_to_analyze = df_anual_melted[df_anual_melted['nom_est'] == station_to_analyze]
             
-            if df_to_analyze is not None and not df_to_analyze.empty and df_to_analyze['precipitacion'].notna().sum() > 2:
-                df_to_analyze_clean = df_to_analyze.dropna(subset=['precipitacion'])
-                df_to_analyze_clean['año_num'] = pd.to_numeric(df_to_analyze_clean['año'])
-                slope, intercept, r_value, p_value, std_err = stats.linregress(df_to_analyze_clean['año_num'], df_to_analyze_clean['precipitacion'])
+            if df_to_analyze is not None and len(df_to_analyze) > 2:
+                df_to_analyze['año_num'] = pd.to_numeric(df_to_analyze['año'])
+                slope, intercept, r_value, p_value, std_err = stats.linregress(df_to_analyze['año_num'], df_to_analyze['precipitacion'])
                 
                 tendencia_texto = "aumentando" if slope > 0 else "disminuyendo"
                 significancia_texto = "**estadísticamente significativa**" if p_value < 0.05 else "no es estadísticamente significativa"
                 st.markdown(f"La tendencia de la precipitación es de **{slope:.2f} mm/año** (es decir, está {tendencia_texto}). Con un valor p de **{p_value:.3f}**, esta tendencia **{significancia_texto}**.")
                 
-                df_to_analyze_clean['tendencia'] = slope * df_to_analyze_clean['año_num'] + intercept
+                df_to_analyze['tendencia'] = slope * df_to_analyze['año_num'] + intercept
 
-                fig_tendencia = px.scatter(df_to_analyze_clean, x='año_num', y='precipitacion', title='Tendencia de la Precipitación Anual')
-                fig_tendencia.add_trace(go.Scatter(x=df_to_analyze_clean['año_num'], y=df_to_analyze_clean['tendencia'], mode='lines', name='Línea de Tendencia', line=dict(color='red')))
+                fig_tendencia = px.scatter(df_to_analyze, x='año_num', y='precipitacion', title='Tendencia de la Precipitación Anual')
+                fig_tendencia.add_trace(go.Scatter(x=df_to_analyze['año_num'], y=df_to_analyze['tendencia'], mode='lines', name='Línea de Tendencia', line=dict(color='red')))
                 fig_tendencia.update_layout(xaxis_title="Año", yaxis_title="Precipitación Anual (mm)")
                 st.plotly_chart(fig_tendencia, use_container_width=True)
             else:
