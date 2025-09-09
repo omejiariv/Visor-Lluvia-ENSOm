@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import folium
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster, MiniMap
 from folium.raster_layers import WmsTileLayer
 from streamlit_folium import folium_static
 import plotly.express as px
@@ -354,9 +354,10 @@ if st.session_state.gdf_stations is None:
 # Carga de datos de la sesión
 gdf_stations = st.session_state.gdf_stations
 df_precip_anual = st.session_state.df_precip_anual
-gdf_municipios = st.session_state.gdf_municipios
 df_long = st.session_state.df_long
 df_enso = st.session_state.df_enso
+gdf_municipios = st.session_state.gdf_municipios
+
 
 # --- LÓGICA DE FILTRADO OPTIMIZADA ---
 @st.cache_data
@@ -543,19 +544,26 @@ with mapa_tab:
             with controls_col:
                 st.subheader("Controles del Mapa")
                 
-                # --- [NUEVO] Opciones de Mapas Base WMS/WMTS ---
+                # --- Opciones de Mapas Base WMS/WMTS ---
                 map_options = {
-                    "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": None},
-                    "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": None},
-                    "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'},
-                    "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": None},
-                    "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021"},
-                    "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM"},
-                    "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC"},
+                    "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": None, "overlay": False},
+                    "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": None, "overlay": False},
+                    "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)', "overlay": False},
+                    "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": None, "overlay": False},
+                    "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021", "overlay": True},
+                    "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM", "overlay": True},
+                    "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC", "overlay": True},
                 }
-                selected_map_name = st.selectbox("Seleccionar Mapa Base", list(map_options.keys()))
-
+                
+                base_maps = {k: v for k, v in map_options.items() if not v.get("overlay")}
+                overlays = {k: v for k, v in map_options.items() if v.get("overlay")}
+                
+                selected_base_map_name = st.selectbox("Seleccionar Mapa Base", list(base_maps.keys()))
+                
+                selected_overlays = st.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()))
+                
                 if not gdf_filtered.empty:
+                    st.markdown("---")
                     m1, m2 = st.columns([1, 3])
                     with m1:
                         if os.path.exists(logo_gota_path):
@@ -597,35 +605,41 @@ with mapa_tab:
                 
             with map_col:
                 if not gdf_filtered.empty:
-                    selected_map_config = map_options[selected_map_name]
+                    base_map_config = base_maps[selected_base_map_name]
                     
-                    # --- [NUEVO] Lógica para crear el mapa con las capas seleccionadas ---
-                    if "url" in selected_map_config: # Es una capa WMS/WMTS
-                        m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"])
-                        folium.raster_layers.WmsTileLayer(
-                            url=selected_map_config["url"],
-                            layers=selected_map_config["layers"],
-                            fmt='image/png',
-                            transparent=selected_map_config.get("transparent", False),
-                            overlay=True,
-                            control=True,
-                            name=selected_map_name
-                        ).add_to(m)
-                        folium.LayerControl().add_to(m)
-                    else: # Es un mapa base tradicional
-                        m = folium.Map(
-                            location=st.session_state.map_view["location"],
-                            zoom_start=st.session_state.map_view["zoom"],
-                            tiles=selected_map_config.get("tiles", "OpenStreetMap"),
-                            attr=selected_map_config.get("attr", None)
-                        )
-                    # --- [FIN NUEVO] ---
-
+                    m = folium.Map(
+                        location=st.session_state.map_view["location"],
+                        zoom_start=st.session_state.map_view["zoom"],
+                        tiles=base_map_config.get("tiles", "OpenStreetMap"),
+                        attr=base_map_config.get("attr", None)
+                    )
+                    
                     if map_centering == "Automático":
                         bounds = gdf_filtered.total_bounds
                         m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
+                    # Añadir capas WMS seleccionadas
+                    for layer_name in selected_overlays:
+                        layer_config = overlays[layer_name]
+                        folium.raster_layers.WmsTileLayer(
+                            url=layer_config["url"],
+                            layers=layer_config["layers"],
+                            fmt='image/png',
+                            transparent=layer_config.get("transparent", False),
+                            overlay=True,
+                            control=True,
+                            name=layer_name
+                        ).add_to(m)
+
                     folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
+                    
+                    # Añadir control de capas para las capas WMS
+                    folium.LayerControl().add_to(m)
+                    
+                    # Añadir Minimapa
+                    minimap = MiniMap(toggle_display=True)
+                    m.add_child(minimap)
+                    
                     marker_cluster = MarkerCluster().add_to(m)
 
                     for _, row in gdf_filtered.iterrows():
