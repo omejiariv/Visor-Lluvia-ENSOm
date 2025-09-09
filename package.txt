@@ -1,6 +1,0 @@
-libgdal-dev
-libgeos-c1v5
-locales
-build-essential
-gfortran
-python3-dev
