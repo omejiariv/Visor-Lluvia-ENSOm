@@ -549,7 +549,9 @@ with mapa_tab:
                     "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": None},
                     "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'},
                     "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": None},
-                    "Capa de Elevación (WMS)": {"url": "https://data.geonorge.no/skwms1/wms.elevation?service=WMS&version=1.3.0&request=GetCapabilities", "layers": "elevation:land_cover", "transparent": True},
+                    "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021"},
+                    "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM"},
+                    "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC"},
                 }
                 selected_map_name = st.selectbox("Seleccionar Mapa Base", list(map_options.keys()))
 
@@ -1228,7 +1230,7 @@ with estadisticas_tab:
                     st.metric(
                         "Máxima Ppt. Mensual Registrada",
                         f"{max_monthly_row['precipitation']:.0f} mm",
-                        f"{max_monthly_row['nom_est']} ({max_monthly_row['fecha_mes_año'].strftime('%Y-%m')})"
+                        f"{max_monthly_row['nom_mes']}"
                     )
 
 with enso_tab:
