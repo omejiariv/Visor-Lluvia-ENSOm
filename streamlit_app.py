@@ -546,10 +546,10 @@ with mapa_tab:
                 
                 # --- Opciones de Mapas Base WMS/WMTS ---
                 map_options = {
-                    "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": None, "overlay": False},
-                    "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": None, "overlay": False},
+                    "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": '&copy; <a href="https://carto.com/attributions">CartoDB</a>', "overlay": False},
+                    "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
                     "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)', "overlay": False},
-                    "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": None, "overlay": False},
+                    "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
                     "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021", "overlay": True},
                     "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM", "overlay": True},
                     "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC", "overlay": True},
@@ -618,7 +618,10 @@ with mapa_tab:
                         bounds = gdf_filtered.total_bounds
                         m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-                    # Añadir capas WMS seleccionadas
+                    # Añadir la capa de municipios
+                    folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
+
+                    # Añadir las capas WMS seleccionadas
                     for layer_name in selected_overlays:
                         layer_config = overlays[layer_name]
                         folium.raster_layers.WmsTileLayer(
@@ -630,18 +633,9 @@ with mapa_tab:
                             control=True,
                             name=layer_name
                         ).add_to(m)
-
-                    folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
                     
-                    # Añadir control de capas para las capas WMS
-                    folium.LayerControl().add_to(m)
-                    
-                    # Añadir Minimapa
-                    minimap = MiniMap(toggle_display=True)
-                    m.add_child(minimap)
-                    
-                    marker_cluster = MarkerCluster().add_to(m)
-
+                    # Añadir la capa de estaciones DE ÚLTIMO para que se vean sobre todas las capas
+                    marker_cluster = MarkerCluster(name='Estaciones').add_to(m)
                     for _, row in gdf_filtered.iterrows():
                         html = f"""
                         <b>Estación:</b> {row['nom_est']}<br>
@@ -655,6 +649,13 @@ with mapa_tab:
                             tooltip=html
                         ).add_to(marker_cluster)
 
+                    # Añadir el control de capas para poder ver y ocultar las capas
+                    folium.LayerControl().add_to(m)
+                    
+                    # Añadir Minimapa
+                    minimap = MiniMap(toggle_display=True)
+                    m.add_child(minimap)
+                    
                     folium_static(m, height=700)
                 else:
                     st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
