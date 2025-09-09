@@ -360,7 +360,7 @@ gdf_municipios = st.session_state.gdf_municipios
 
 
 # --- LÓGICA DE FILTRADO OPTIMIZADA Y DINÁMICA ---
-@st.cache_data
+# La función de filtro ahora no está cacheadas para evitar UnhashableParamError
 def apply_filters_to_stations(df, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
     """Aplica los filtros geográficos y de datos para obtener la lista de estaciones disponibles."""
     stations_filtered = df.copy()
