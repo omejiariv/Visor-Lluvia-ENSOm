@@ -285,7 +285,6 @@ def create_anomaly_chart(df_plot):
     )
     return fig
 
-
 # --- Configuración de la página y CSS ---
 st.set_page_config(layout="wide", page_title="Sistema de información de las lluvias y el Clima en el norte de la región Andina")
 
@@ -320,36 +319,33 @@ with title_col2:
     st.markdown('<h1 style="font-size:28px; margin-top:1rem;">Sistema de información de las lluvias y el Clima en el norte de la región Andina</h1>', unsafe_allow_html=True)
 
 st.sidebar.header("Panel de Control")
+
+# --- Lógica de carga de datos persistente y recarga ---
 with st.sidebar.expander("**Cargar Archivos**", expanded=True):
     uploaded_file_mapa = st.file_uploader("1. Cargar archivo de estaciones (mapaCVENSO.csv)", type="csv")
     uploaded_file_precip = st.file_uploader("2. Cargar archivo de precipitación mensual y ENSO (DatosPptnmes_ENSO.csv)", type="csv")
     uploaded_zip_shapefile = st.file_uploader("3. Cargar shapefile de municipios (.zip)", type="zip")
-
-# --- Lógica de carga de datos y pantalla de inicio mejorada ---
-if 'data_loaded' not in st.session_state:
-    st.session_state.data_loaded = False
-    st.session_state.gdf_stations = None
-    st.session_state.df_precip_anual = None
-    st.session_state.gdf_municipios = None
-    st.session_state.df_long = None
-    st.session_state.df_enso = None
     
-if not all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
-    st.info("Por favor, suba los 3 archivos requeridos para habilitar la aplicación. Una vez cargados, la plataforma se iniciará automáticamente.")
-    st.session_state.data_loaded = False
-    st.stop()
-
-# Si los archivos están cargados pero los datos aún no, procesarlos
-if not st.session_state.data_loaded:
-    with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
-        st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
-    if st.session_state.gdf_stations is not None:
-        st.session_state.data_loaded = True
+    if st.button("Recargar Datos"):
+        st.session_state.data_loaded = False
+        st.cache_data.clear()
         st.rerun()
-    else:
-        st.error("Hubo un error al procesar los archivos. Por favor, verifique que los archivos sean correctos y vuelva a intentarlo.")
-        st.stop()
 
+# Si no hay datos en la sesión, forzar la carga inicial
+if 'data_loaded' not in st.session_state or not st.session_state.data_loaded:
+    if not all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
+        st.info("Por favor, suba los 3 archivos requeridos para habilitar la aplicación. Una vez cargados, la plataforma se iniciará automáticamente y no necesitará volver a cargarlos.")
+        st.stop()
+    else:
+        with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
+            st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+        if st.session_state.gdf_stations is not None:
+            st.session_state.data_loaded = True
+            st.rerun()
+        else:
+            st.error("Hubo un error al procesar los archivos. Por favor, verifique que los archivos sean correctos y vuelva a intentarlo.")
+            st.stop()
+            
 # Si los datos no se cargaron, detener la ejecución de la app
 if st.session_state.gdf_stations is None:
     st.stop()
@@ -361,63 +357,106 @@ gdf_municipios = st.session_state.gdf_municipios
 df_long = st.session_state.df_long
 df_enso = st.session_state.df_enso
 
-# --- Controles en la Barra Lateral ---
-st.sidebar.header("Panel de Control")
-with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
-    if 'porc_datos' in gdf_stations.columns:
-        gdf_stations['porc_datos'] = pd.to_numeric(gdf_stations['porc_datos'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-        min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, 0)
-        stations_master_list = gdf_stations[gdf_stations['porc_datos'] >= min_data_perc]
-    else:
-        st.text("Advertencia: Columna 'porc_datos' no encontrada.")
-        stations_master_list = gdf_stations.copy()
-
-    # Filtro por Altitud
-    altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
-    selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges)
-
-    stations_available = stations_master_list.copy()
-
+# --- NUEVA LÓGICA DE FILTRADO OPTIMIZADA ---
+@st.cache_data
+def filter_and_process_data(gdf_stations, df_precip_anual, df_long, year_range, meses_numeros, selected_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
+    """Filtra y prepara todos los dataframes en una sola función para ser cacheados."""
+    
+    # Aplicar filtros secuenciales en gdf_stations
+    stations_available = gdf_stations.copy()
+    if 'porc_datos' in stations_available.columns:
+        stations_available['porc_datos'] = pd.to_numeric(stations_available['porc_datos'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        stations_available = stations_available[stations_available['porc_datos'] >= min_data_perc]
+    
     if selected_altitudes:
         conditions = []
         for r in selected_altitudes:
-            if r == '0-500':
-                conditions.append((stations_available['alt_est'] >= 0) & (stations_available['alt_est'] <= 500))
-            elif r == '500-1000':
-                conditions.append((stations_available['alt_est'] > 500) & (stations_available['alt_est'] <= 1000))
-            elif r == '1000-2000':
-                conditions.append((stations_available['alt_est'] > 1000) & (stations_available['alt_est'] <= 2000))
-            elif r == '2000-3000':
-                conditions.append((stations_available['alt_est'] > 2000) & (stations_available['alt_est'] <= 3000))
-            elif r == '>3000':
-                conditions.append(stations_available['alt_est'] > 3000)
-        
+            if r == '0-500': conditions.append((stations_available['alt_est'] >= 0) & (stations_available['alt_est'] <= 500))
+            elif r == '500-1000': conditions.append((stations_available['alt_est'] > 500) & (stations_available['alt_est'] <= 1000))
+            elif r == '1000-2000': conditions.append((stations_available['alt_est'] > 1000) & (stations_available['alt_est'] <= 2000))
+            elif r == '2000-3000': conditions.append((stations_available['alt_est'] > 2000) & (stations_available['alt_est'] <= 3000))
+            elif r == '>3000': conditions.append(stations_available['alt_est'] > 3000)
         if conditions:
             combined_condition = pd.concat(conditions, axis=1).any(axis=1)
             stations_available = stations_available[combined_condition]
 
-    # Filtro por Depto/Región
-    if 'depto_region' in stations_available.columns:
-        regions_list = sorted(stations_available['depto_region'].dropna().unique())
-        selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list)
-        if selected_regions:
-            stations_available = stations_available[stations_available['depto_region'].isin(selected_regions)]
-
-    # Filtros existentes
-    municipios_list = sorted(stations_available['municipio'].unique())
-    selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list)
+    if selected_regions:
+        stations_available = stations_available[stations_available['depto_region'].isin(selected_regions)]
+    
     if selected_municipios:
         stations_available = stations_available[stations_available['municipio'].isin(selected_municipios)]
-
-    celdas_list = sorted(stations_available['celda_xy'].unique())
-    selected_celdas = st.multiselect('Filtrar por Celda_XY', options=celdas_list)
+    
     if selected_celdas:
         stations_available = stations_available[stations_available['celda_xy'].isin(selected_celdas)]
+    
+    stations_options = sorted(stations_available['nom_est'].unique())
+    
+    # Si hay una selección manual, usarla
+    if selected_stations:
+        filtered_gdf_stations = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].copy()
+    else:
+        filtered_gdf_stations = stations_available.copy()
 
-stations_options = sorted(stations_available['nom_est'].unique())
+    # Filtrar datos anuales
+    df_anual_melted = filtered_gdf_stations.melt(
+        id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo'],
+        value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
+        var_name='año', value_name='precipitacion')
+
+    # Filtrar datos mensuales
+    df_monthly_filtered = df_long[
+        (df_long['nom_est'].isin(filtered_gdf_stations['nom_est'].unique())) &
+        (df_long['fecha_mes_año'].dt.year >= year_range[0]) &
+        (df_long['fecha_mes_año'].dt.year <= year_range[1]) &
+        (df_long['fecha_mes_año'].dt.month.isin(meses_numeros))
+    ].copy()
+    
+    return filtered_gdf_stations, df_anual_melted, df_monthly_filtered, stations_options
+
+# --- Controles en la Barra Lateral ---
+st.sidebar.header("Panel de Control")
+with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
+    min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, 0)
+    altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
+    selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges)
+    regions_list = sorted(gdf_stations['depto_region'].dropna().unique())
+    selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list)
+    municipios_list = sorted(gdf_stations['municipio'].unique())
+    selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list)
+    celdas_list = sorted(gdf_stations['celda_xy'].unique())
+    selected_celdas = st.multiselect('Filtrar por Celda_XY', options=celdas_list)
 
 with st.sidebar.expander("**2. Selección de Estaciones y Período**", expanded=True):
-    # Checkbox para seleccionar/deseleccionar todas las estaciones
+    stations_master_list = gdf_stations.copy()
+    if 'porc_datos' in stations_master_list.columns:
+        stations_master_list['porc_datos'] = pd.to_numeric(stations_master_list['porc_datos'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+    
+    # Pre-filtrado para mostrar solo opciones disponibles
+    if min_data_perc > 0:
+        stations_master_list = stations_master_list[stations_master_list['porc_datos'] >= min_data_perc]
+    
+    # Aplicar filtros adicionales para la lista de selección
+    if selected_altitudes:
+        conditions = []
+        for r in selected_altitudes:
+            if r == '0-500': conditions.append((stations_master_list['alt_est'] >= 0) & (stations_master_list['alt_est'] <= 500))
+            elif r == '500-1000': conditions.append((stations_master_list['alt_est'] > 500) & (stations_master_list['alt_est'] <= 1000))
+            elif r == '1000-2000': conditions.append((stations_master_list['alt_est'] > 1000) & (stations_master_list['alt_est'] <= 2000))
+            elif r == '2000-3000': conditions.append((stations_master_list['alt_est'] > 2000) & (stations_master_list['alt_est'] <= 3000))
+            elif r == '>3000': conditions.append(stations_master_list['alt_est'] > 3000)
+        if conditions:
+            combined_condition = pd.concat(conditions, axis=1).any(axis=1)
+            stations_master_list = stations_master_list[combined_condition]
+    
+    if selected_regions:
+        stations_master_list = stations_master_list[stations_master_list['depto_region'].isin(selected_regions)]
+    if selected_municipios:
+        stations_master_list = stations_master_list[stations_master_list['municipio'].isin(selected_municipios)]
+    if selected_celdas:
+        stations_master_list = stations_master_list[stations_master_list['celda_xy'].isin(selected_celdas)]
+
+    stations_options = sorted(stations_master_list['nom_est'].unique())
+
     if 'select_all_stations_state' not in st.session_state:
         st.session_state.select_all_stations_state = False
 
@@ -431,6 +470,11 @@ with st.sidebar.expander("**2. Selección de Estaciones y Período**", expanded=
             key='station_multiselect'
         )
     
+    if set(selected_stations) == set(stations_options) and not st.session_state.select_all_stations_state:
+        st.session_state.select_all_stations_state = True
+    elif set(selected_stations) != set(stations_options) and st.session_state.select_all_stations_state:
+        st.session_state.select_all_stations_state = False
+    
     años_disponibles = sorted([int(col) for col in gdf_stations.columns if str(col).isdigit()])
     if not años_disponibles:
         st.error("No se encontraron columnas de años (ej: '2020', '2021') en el archivo de estaciones.")
@@ -440,13 +484,6 @@ with st.sidebar.expander("**2. Selección de Estaciones y Período**", expanded=
     meses_dict = {'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12}
     meses_nombres = st.multiselect("Seleccionar Meses", list(meses_dict.keys()), default=list(meses_dict.keys()))
     meses_numeros = [meses_dict[m] for m in meses_nombres]
-    
-    # Se actualiza el estado del checkbox si la selección manual cambia
-    if set(selected_stations) == set(stations_options) and not st.session_state.select_all_stations_state:
-        st.session_state.select_all_stations_state = True
-    elif set(selected_stations) != set(stations_options) and st.session_state.select_all_stations_state:
-        st.session_state.select_all_stations_state = False
-
 
 with st.sidebar.expander("**3. Opciones de Análisis Avanzado**", expanded=False):
     analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"))
@@ -454,39 +491,39 @@ with st.sidebar.expander("**3. Opciones de Análisis Avanzado**", expanded=False
 if 'analysis_mode' not in st.session_state or st.session_state.analysis_mode != analysis_mode:
     st.session_state.analysis_mode = analysis_mode
     if analysis_mode == "Completar series (interpolación)":
-        st.session_state.df_monthly_processed = complete_series(df_long)
+        st.session_state.df_monthly_processed = complete_series(st.session_state.df_long)
     else:
-        st.session_state.df_monthly_processed = df_long.copy()
+        st.session_state.df_monthly_processed = st.session_state.df_long.copy()
 
 df_monthly_to_process = st.session_state.df_monthly_processed
+
+# --- Llama a la función de filtrado optimizada ---
+with st.spinner("Filtrando datos..."):
+    filtered_data = filter_and_process_data(
+        gdf_stations,
+        df_precip_anual,
+        df_monthly_to_process,
+        year_range,
+        meses_numeros,
+        selected_stations,
+        min_data_perc,
+        selected_altitudes,
+        selected_regions,
+        selected_municipios,
+        selected_celdas
+    )
+gdf_filtered, df_anual_melted, df_monthly_filtered, stations_options = filtered_data
+
 
 # --- Pestañas Principales ---
 tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
 mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, tendencias_tab, descargas_tab = st.tabs(tab_names)
-
-# Preparación de datos filtrados
-if selected_stations and meses_numeros:
-    df_anual_melted = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].melt(
-        id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo'],
-        value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
-        var_name='año', value_name='precipitacion')
-    df_monthly_filtered = df_monthly_to_process[
-        (df_monthly_to_process['nom_est'].isin(selected_stations)) &
-        (df_monthly_to_process['fecha_mes_año'].dt.year >= year_range[0]) &
-        (df_monthly_to_process['fecha_mes_año'].dt.year <= year_range[1]) &
-        (df_monthly_to_process['fecha_mes_año'].dt.month.isin(meses_numeros))
-    ]
-else:
-    df_anual_melted = pd.DataFrame()
-    df_monthly_filtered = pd.DataFrame()
 
 with mapa_tab:
     st.header("Distribución espacial de las Estaciones de Lluvia (1970 - 2021)")
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
-        gdf_filtered = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].copy()
-
         if not df_anual_melted.empty:
             df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().reset_index()
             gdf_filtered = gdf_filtered.merge(df_mean_precip.rename(columns={'precipitacion': 'precip_media_anual'}), on='nom_est', how='left')
@@ -742,8 +779,6 @@ with graficos_tab:
                 st.markdown("##### Precipitación Mensual Promedio")
                 df_monthly_avg = df_monthly_filtered.groupby(['nom_est', 'mes'])['precipitation'].mean().reset_index()
                 
-                mes_order = [meses_dict[m] for m in meses_nombres]
-                
                 fig_avg_monthly = px.line(df_monthly_avg, 
                                           x='mes', y='precipitation', color='nom_est',
                                           labels={'mes': 'Mes', 'precipitation': 'Precipitación Promedio (mm)'},
@@ -928,7 +963,6 @@ with mapas_avanzados_tab:
             with metric_col2:
                 st.metric(f"Estaciones con datos en {year2}", f"{len(data_year2)} de {len(selected_stations)}")
 
-
             min_precip_comp, max_precip_comp = int(df_anual_melted['precipitacion'].min()), int(df_anual_melted['precipitacion'].max())
             color_range_comp = st.slider("Rango de Escala de Color (mm)", min_precip_comp, max_precip_comp, (min_precip_comp, max_precip_comp), key="color_comp")
 
@@ -991,12 +1025,9 @@ with tabla_estaciones_tab:
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     elif not df_anual_melted.empty:
-        display_cols = [col for col in gdf_stations.columns if col != 'geometry']
-        df_info_table = gdf_stations[display_cols]
-        df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().round(0).reset_index()
-        df_mean_precip.rename(columns={'precipitacion': 'Precipitación media anual (mm)'}, inplace=True)
-        df_info_table = df_info_table.merge(df_mean_precip, on='nom_est', how='left')
-        st.dataframe(df_info_table[df_info_table['nom_est'].isin(selected_stations)])
+        display_cols = [col for col in gdf_filtered.columns if col != 'geometry']
+        df_info_table = gdf_filtered[display_cols]
+        st.dataframe(df_info_table)
     else:
         st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
 
@@ -1188,7 +1219,7 @@ with enso_tab:
                             fig_enso_series = px.line(df_enso_filtered, x='fecha_mes_año', y=var_code, title=f"Serie de Tiempo para {var_name}")
                             st.plotly_chart(fig_enso_series, use_container_width=True)
                         else:
-                            st.warning(f"No hay datos disponibles para '{var_name}' en el período seleccionado.")
+                            st.warning(f"No hay datos disponibles para '{var_code}' en el período seleccionado.")
 
     with enso_anim_tab:
         st.subheader("Evolución Mensual del Fenómeno ENSO")
