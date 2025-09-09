@@ -4,6 +4,7 @@ import pandas as pd
 import altair as alt
 import folium
 from folium.plugins import MarkerCluster
+from folium.raster_layers import WmsTileLayer
 from streamlit_folium import folium_static
 import plotly.express as px
 import plotly.graph_objects as go
@@ -541,6 +542,17 @@ with mapa_tab:
             
             with controls_col:
                 st.subheader("Controles del Mapa")
+                
+                # --- [NUEVO] Opciones de Mapas Base WMS/WMTS ---
+                map_options = {
+                    "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": None},
+                    "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": None},
+                    "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'},
+                    "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": None},
+                    "Capa de Elevación (WMS)": {"url": "https://data.geonorge.no/skwms1/wms.elevation?service=WMS&version=1.3.0&request=GetCapabilities", "layers": "elevation:land_cover", "transparent": True},
+                }
+                selected_map_name = st.selectbox("Seleccionar Mapa Base", list(map_options.keys()))
+
                 if not gdf_filtered.empty:
                     m1, m2 = st.columns([1, 3])
                     with m1:
@@ -583,7 +595,29 @@ with mapa_tab:
                 
             with map_col:
                 if not gdf_filtered.empty:
-                    m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"], tiles="cartodbpositron")
+                    selected_map_config = map_options[selected_map_name]
+                    
+                    # --- [NUEVO] Lógica para crear el mapa con las capas seleccionadas ---
+                    if "url" in selected_map_config: # Es una capa WMS/WMTS
+                        m = folium.Map(location=st.session_state.map_view["location"], zoom_start=st.session_state.map_view["zoom"])
+                        folium.raster_layers.WmsTileLayer(
+                            url=selected_map_config["url"],
+                            layers=selected_map_config["layers"],
+                            fmt='image/png',
+                            transparent=selected_map_config.get("transparent", False),
+                            overlay=True,
+                            control=True,
+                            name=selected_map_name
+                        ).add_to(m)
+                        folium.LayerControl().add_to(m)
+                    else: # Es un mapa base tradicional
+                        m = folium.Map(
+                            location=st.session_state.map_view["location"],
+                            zoom_start=st.session_state.map_view["zoom"],
+                            tiles=selected_map_config.get("tiles", "OpenStreetMap"),
+                            attr=selected_map_config.get("attr", None)
+                        )
+                    # --- [FIN NUEVO] ---
 
                     if map_centering == "Automático":
                         bounds = gdf_filtered.total_bounds
@@ -772,7 +806,7 @@ with graficos_tab:
                 if not df_monthly_filtered.empty:
                     df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation').round(0)
                     st.dataframe(df_values)
-        
+            
         with sub_tab_comparacion:
             st.subheader("Comparación de Precipitación entre Estaciones")
             if len(selected_stations) < 2:
@@ -792,8 +826,8 @@ with graficos_tab:
                 # Gráfico de Cajas para Precipitación Anual
                 st.markdown("##### Distribución de Precipitación Anual")
                 fig_box_annual = px.box(df_anual_melted, x='nom_est', y='precipitacion', color='nom_est',
-                                        title='Distribución de la Precipitación Anual por Estación',
-                                        labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
+                                         title='Distribución de la Precipitación Anual por Estación',
+                                         labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
                 st.plotly_chart(fig_box_annual, use_container_width=True)
 
 
