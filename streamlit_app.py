@@ -360,21 +360,7 @@ gdf_municipios = st.session_state.gdf_municipios
 
 
 # --- LÓGICA DE FILTRADO OPTIMIZADA Y DINÁMICA ---
-# Se crea un estado para almacenar los filtros intermedios
-if 'filtered_stations_list' not in st.session_state:
-    st.session_state.filtered_stations_list = gdf_stations['nom_est'].unique()
-
 @st.cache_data
-def get_available_filters(filtered_stations_df):
-    """Obtiene las opciones de filtro disponibles a partir del DataFrame filtrado."""
-    return {
-        "regions": sorted(filtered_stations_df['depto_region'].dropna().unique()),
-        "municipios": sorted(filtered_stations_df['municipio'].dropna().unique()),
-        "celdas": sorted(filtered_stations_df['celda_xy'].dropna().unique()),
-        "stations": sorted(filtered_stations_df['nom_est'].dropna().unique()),
-        "years": sorted([int(col) for col in filtered_stations_df.columns if str(col).isdigit()])
-    }
-
 def apply_filters_to_stations(df, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
     """Aplica los filtros geográficos y de datos para obtener la lista de estaciones disponibles."""
     stations_filtered = df.copy()
@@ -404,7 +390,6 @@ def apply_filters_to_stations(df, min_data_perc, selected_altitudes, selected_re
         stations_filtered = stations_filtered[stations_filtered['celda_xy'].isin(selected_celdas)]
     
     return stations_filtered
-
 
 # --- Controles en la Barra Lateral ---
 st.sidebar.header("Panel de Control")
@@ -480,21 +465,40 @@ if 'analysis_mode' not in st.session_state or st.session_state.analysis_mode != 
 
 df_monthly_to_process = st.session_state.df_monthly_processed
 
-# --- Llama a la función de filtrado optimizada ---
+# --- Lógica de filtrado de datos principal ---
 with st.spinner("Filtrando datos..."):
-    filtered_data = filter_and_process_data(
-        df_precip_anual,
-        df_monthly_to_process,
-        year_range,
-        meses_numeros,
-        selected_stations,
+    # 1. Filtrar las estaciones con base en los filtros de la barra lateral
+    gdf_filtered = apply_filters_to_stations(
+        gdf_stations,
         min_data_perc,
         selected_altitudes,
         selected_regions,
         selected_municipios,
         selected_celdas
     )
-gdf_filtered, df_anual_melted, df_monthly_filtered, stations_options = filtered_data
+
+    # 2. Filtrar los datos anuales a partir de las estaciones seleccionadas
+    df_anual_melted = gdf_filtered.melt(
+        id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo', 'alt_est'],
+        value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
+        var_name='año', value_name='precipitacion')
+    df_anual_melted.dropna(subset=['precipitacion'], inplace=True)
+
+
+    # 3. Filtrar los datos mensuales a partir de las estaciones seleccionadas
+    df_monthly_filtered = df_monthly_to_process[
+        (df_monthly_to_process['nom_est'].isin(gdf_filtered['nom_est'].unique())) &
+        (df_monthly_to_process['fecha_mes_año'].dt.year >= year_range[0]) &
+        (df_monthly_to_process['fecha_mes_año'].dt.year <= year_range[1]) &
+        (df_monthly_to_process['fecha_mes_año'].dt.month.isin(meses_numeros))
+    ].copy()
+
+    # 4. Actualizar las opciones de estaciones si se usa el multiselect manual
+    stations_options = sorted(gdf_filtered['nom_est'].unique())
+    if selected_stations:
+        gdf_filtered = gdf_filtered[gdf_filtered['nom_est'].isin(selected_stations)]
+        df_anual_melted = df_anual_melted[df_anual_melted['nom_est'].isin(selected_stations)]
+        df_monthly_filtered = df_monthly_filtered[df_monthly_filtered['nom_est'].isin(selected_stations)]
 
 
 # --- Pestañas Principales ---
