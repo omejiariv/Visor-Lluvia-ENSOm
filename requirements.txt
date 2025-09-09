@@ -1,3 +1,4 @@
+plotly>=5.0.0
 streamlit
 pandas
 altair
@@ -9,3 +10,7 @@ pykrige
 scipy
 statsmodels
 pyhomogeneity==1.1
+numpy
+shapely
+scikit-learn
+matplotlib
