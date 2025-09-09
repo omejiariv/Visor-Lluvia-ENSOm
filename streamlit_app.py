@@ -360,7 +360,7 @@ gdf_municipios = st.session_state.gdf_municipios
 
 
 # --- LÓGICA DE FILTRADO OPTIMIZADA Y DINÁMICA ---
-# La función de filtro ahora no está cacheadas para evitar UnhashableParamError
+@st.cache_data
 def apply_filters_to_stations(df, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
     """Aplica los filtros geográficos y de datos para obtener la lista de estaciones disponibles."""
     stations_filtered = df.copy()
@@ -507,7 +507,7 @@ mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab
 
 with mapa_tab:
     st.header("Distribución espacial de las Estaciones de Lluvia (1970 - 2021)")
-    if not stations_for_analysis:
+    if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         if not df_anual_melted.empty:
@@ -721,7 +721,7 @@ with mapa_tab:
 
 with graficos_tab:
     st.header("Visualizaciones de Precipitación")
-    if not stations_for_analysis:
+    if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         sub_tab_anual, sub_tab_mensual, sub_tab_comparacion, sub_tab_distribucion, sub_tab_acumulada, sub_tab_altitud = st.tabs(["Análisis Anual", "Análisis Mensual", "Comparación Rápida", "Distribución", "Acumulada", "Relación Altitud"])
@@ -920,7 +920,7 @@ with mapas_avanzados_tab:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
     with temporal_tab:
-        if not stations_for_analysis:
+        if len(stations_for_analysis) == 0:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         else:
             exp_tab, race_tab, anim_tab = st.tabs(["Explorador Interactivo", "Gráfico de Carrera", "Mapa Animado"])
@@ -1025,7 +1025,7 @@ with mapas_avanzados_tab:
     
     with compare_tab:
         st.subheader("Comparación de Mapas Anuales")
-        if not stations_for_analysis:
+        if len(stations_for_analysis) < 1:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         elif not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             map_col1, map_col2 = st.columns(2)
@@ -1067,7 +1067,7 @@ with mapas_avanzados_tab:
 
     with kriging_tab:
         st.subheader("Interpolación Kriging para un Año Específico")
-        if not stations_for_analysis:
+        if len(stations_for_analysis) == 0:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         elif not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             min_year, max_year = int(df_anual_melted['año'].min()), int(df_anual_melted['año'].max())
@@ -1112,7 +1112,7 @@ with mapas_avanzados_tab:
 
 with tabla_estaciones_tab:
     st.header("Información Detallada de las Estaciones")
-    if not stations_for_analysis:
+    if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     elif not df_anual_melted.empty:
         df_info_table = gdf_filtered[['nom_est', 'alt_est', 'municipio', 'depto_region', 'porc_datos']].copy()
@@ -1125,7 +1125,7 @@ with tabla_estaciones_tab:
 
 with anomalias_tab:
     st.header("Análisis de Anomalías de Precipitación")
-    if not stations_for_analysis:
+    if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         df_long_filtered_stations = df_long[df_long['nom_est'].isin(stations_for_analysis)]
@@ -1200,7 +1200,7 @@ with anomalias_tab:
 
 with estadisticas_tab:
     st.header("Estadísticas de Precipitación")
-    if not stations_for_analysis:
+    if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         matriz_tab, resumen_mensual_tab, sintesis_tab = st.tabs(["Matriz de Disponibilidad", "Resumen Mensual", "Síntesis General"])
@@ -1322,7 +1322,9 @@ with enso_tab:
 
     with enso_anim_tab:
         st.subheader("Evolución Mensual del Fenómeno ENSO")
-        if not df_enso.empty and not gdf_stations.empty:
+        if df_enso.empty or gdf_stations.empty:
+            st.warning("No hay datos disponibles para generar esta animación.")
+        else:
             controls_col, map_col = st.columns([1, 3])
             enso_anim_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
             enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
@@ -1387,7 +1389,7 @@ with enso_tab:
 
 with tendencias_tab:
     st.header("Análisis de Tendencias y Pronósticos")
-    if not stations_for_analysis:
+    if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         tendencia_tab, pronostico_tab = st.tabs(["Análisis de Tendencia", "Pronóstico SARIMA"])
@@ -1462,7 +1464,7 @@ with tendencias_tab:
 
 with descargas_tab:
     st.header("Opciones de Descarga")
-    if not stations_for_analysis:
+    if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para activar las descargas.")
     else:
         @st.cache_data
