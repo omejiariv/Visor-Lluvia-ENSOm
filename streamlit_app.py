@@ -360,7 +360,7 @@ gdf_municipios = st.session_state.gdf_municipios
 
 
 # --- LÓGICA DE FILTRADO OPTIMIZADA Y DINÁMICA ---
-@st.cache_data
+# La función de filtro ahora no está cacheadas para evitar UnhashableParamError
 def apply_filters_to_stations(df, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
     """Aplica los filtros geográficos y de datos para obtener la lista de estaciones disponibles."""
     stations_filtered = df.copy()
@@ -721,7 +721,7 @@ with mapa_tab:
 
 with graficos_tab:
     st.header("Visualizaciones de Precipitación")
-    if not selected_stations:
+    if not stations_for_analysis:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         sub_tab_anual, sub_tab_mensual, sub_tab_comparacion, sub_tab_distribucion, sub_tab_acumulada, sub_tab_altitud = st.tabs(["Análisis Anual", "Análisis Mensual", "Comparación Rápida", "Distribución", "Acumulada", "Relación Altitud"])
@@ -761,9 +761,10 @@ with graficos_tab:
                         fig_avg.update_layout(height=600, xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')})
                         st.plotly_chart(fig_avg, use_container_width=True)
                     else:
-                        fig_box = px.box(df_anual_melted, x='nom_est', y='precipitacion', color='nom_est', points='all', title='Distribución de la Precipitación Anual por Estación', labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
-                        fig_box.update_layout(height=600)
-                        st.plotly_chart(fig_box, use_container_width=True)
+                        df_anual_filtered_for_box = df_anual_melted[df_anual_melted['nom_est'].isin(stations_for_analysis)]
+                        fig_box_annual = px.box(df_anual_filtered_for_box, x='nom_est', y='precipitacion', color='nom_est', points='all', title='Distribución de la Precipitación Anual por Estación', labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
+                        fig_box_annual.update_layout(height=600)
+                        st.plotly_chart(fig_box_annual, use_container_width=True)
 
         with sub_tab_mensual:
             mensual_graf_tab, mensual_enso_tab, mensual_datos_tab = st.tabs(["Gráfico de Serie Mensual", "Análisis ENSO en el Período", "Tabla de Datos"])
@@ -825,9 +826,7 @@ with graficos_tab:
                 # Gráfico de Cajas para Precipitación Anual
                 st.markdown("##### Distribución de Precipitación Anual")
                 df_anual_filtered_for_box = df_anual_melted[df_anual_melted['nom_est'].isin(stations_for_analysis)]
-                fig_box_annual = px.box(df_anual_filtered_for_box, x='nom_est', y='precipitacion', color='nom_est',
-                                         title='Distribución de la Precipitación Anual por Estación',
-                                         labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
+                fig_box_annual = px.box(df_anual_filtered_for_box, x='nom_est', y='precipitacion', color='nom_est', points='all', title='Distribución de la Precipitación Anual por Estación', labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
                 fig_box_annual.update_layout(height=600)
                 st.plotly_chart(fig_box_annual, use_container_width=True)
 
