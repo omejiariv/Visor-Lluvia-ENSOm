@@ -1218,7 +1218,14 @@ with estadisticas_tab:
             st.subheader("Síntesis General de Precipitación")
             if not df_monthly_filtered.empty and not df_anual_melted.empty:
                 max_annual_row = df_anual_melted.loc[df_anual_melted['precipitacion'].idxmax()]
+                
+                # Obtener la fila con la precipitación mensual máxima
                 max_monthly_row = df_monthly_filtered.loc[df_monthly_filtered['precipitation'].idxmax()]
+                
+                # Crear la columna 'nom_mes' para mostrar el nombre del mes
+                meses_map = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
+                max_monthly_row['nom_mes'] = meses_map.get(max_monthly_row['mes'])
+
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric(
@@ -1230,7 +1237,7 @@ with estadisticas_tab:
                     st.metric(
                         "Máxima Ppt. Mensual Registrada",
                         f"{max_monthly_row['precipitation']:.0f} mm",
-                        f"{max_monthly_row['nom_mes']}"
+                        f"{max_monthly_row['nom_est']} ({max_monthly_row['nom_mes']} {max_monthly_row['fecha_mes_año'].year})"
                     )
 
 with enso_tab:
