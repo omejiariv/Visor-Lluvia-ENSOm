@@ -19,51 +19,21 @@ import base64
 from scipy import stats
 import statsmodels.api as sm
 
-# --- Función para corregir el formato de fecha antes de procesar ---
+# --- Funciones de Carga y Procesamiento ---
 def parse_spanish_dates(date_series):
-    # Diccionario de meses en español a inglés
+    """Convierte abreviaturas de meses en español a inglés."""
     months_es_to_en = {
         'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec'
     }
-    # Reemplazar los meses en español con los en inglés
     for es, en in months_es_to_en.items():
         date_series = date_series.str.replace(es, en, regex=False, case=False)
     return date_series
 
-try:
-    from folium.plugins import ScaleControl
-except ImportError:
-    class ScaleControl:
-        def __init__(self, *args, **kwargs): pass
-        def add_to(self, m): pass
-
-# --- Configuración de la página ---
-st.set_page_config(layout="wide", page_title="Sistema de información de las lluvias y el Clima en el norte de la región Andina")
-
-# --- CSS para optimizar el espacio y estilo de métricas ---
-st.markdown("""
-<style>
-div.block-container {padding-top: 2rem;}
-.sidebar .sidebar-content {font-size: 13px; }
-[data-testid="stMetricValue"] {
-    font-size: 1.8rem;
-}
-[data-testid="stMetricLabel"] {
-    font-size: 1rem;
-    padding-bottom: 5px;
-}
-button[data-baseweb="tab"] {
-    font-size: 16px;
-    font-weight: bold;
-    color: #333;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# --- Funciones de Carga y Procesamiento ---
 @st.cache_data
 def load_data(file_path, sep=';', date_cols=None, lower_case=True):
-    if file_path is None: return None
+    """Carga y decodifica un archivo CSV de manera robusta."""
+    if file_path is None:
+        return None
     try:
         content = file_path.getvalue()
         if not content.strip():
@@ -88,6 +58,7 @@ def load_data(file_path, sep=';', date_cols=None, lower_case=True):
 
 @st.cache_data
 def load_shapefile(file_path):
+    """Procesa y carga un shapefile desde un archivo .zip."""
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
@@ -108,6 +79,7 @@ def load_shapefile(file_path):
 
 @st.cache_data
 def complete_series(_df):
+    """Completa las series de tiempo de precipitación usando interpolación."""
     all_completed_dfs = []
     station_list = _df['nom_est'].unique()
     progress_bar = st.progress(0, text="Completando todas las series...")
@@ -121,7 +93,6 @@ def complete_series(_df):
 
         original_data = df_station[['precipitation', 'origen']].copy()
         df_resampled = df_station.resample('MS').asfreq()
-
         df_resampled['precipitation'] = original_data['precipitation']
         df_resampled['origen'] = original_data['origen']
         df_resampled['anomalia_oni'] = df_station['anomalia_oni']
@@ -136,6 +107,81 @@ def complete_series(_df):
         progress_bar.progress((i + 1) / len(station_list), text=f"Completando series... Estación: {station}")
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
+
+@st.cache_data
+def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
+    """Preprocesa todos los archivos de entrada."""
+    df_precip_anual = load_data(uploaded_file_mapa)
+    df_precip_mensual_raw = load_data(uploaded_file_precip)
+    gdf_municipios = load_shapefile(uploaded_zip_shapefile)
+
+    if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
+        return None, None, None, None, None
+
+    # Preprocesamiento de datos anuales y de estaciones
+    lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
+    lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
+    if not all([lon_col, lat_col]):
+        st.error("No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
+        return None, None, None, None, None
+    df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
+    df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
+    if 'alt_est' in df_precip_anual.columns:
+        df_precip_anual['alt_est'] = pd.to_numeric(df_precip_anual['alt_est'].astype(str).str.replace(',', '.'), errors='coerce')
+    df_precip_anual.dropna(subset=[lon_col, lat_col], inplace=True)
+    gdf_temp = gpd.GeoDataFrame(df_precip_anual, geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]), crs="EPSG:9377")
+    gdf_stations = gdf_temp.to_crs("EPSG:4326")
+    gdf_stations['longitud_geo'] = gdf_stations.geometry.x
+    gdf_stations['latitud_geo'] = gdf_stations.geometry.y
+
+    # Preprocesamiento de datos mensuales y ENSO
+    df_precip_mensual = df_precip_mensual_raw.copy()
+    station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
+    if not station_cols:
+        st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
+        return None, None, None, None, None
+
+    id_vars_base = ['id', 'fecha_mes_año', 'año', 'mes', 'enso_año', 'enso_mes']
+    id_vars_enso = ['anomalia_oni', 'temp_sst', 'temp_media']
+    id_vars = id_vars_base + id_vars_enso
+    
+    for col in id_vars_enso:
+        if col in df_precip_mensual.columns:
+            df_precip_mensual[col] = df_precip_mensual[col].astype(str).str.replace(',', '.')
+
+    df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
+                                     value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
+
+    df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
+    for col in id_vars_enso:
+        if col in df_long.columns:
+            df_long[col] = pd.to_numeric(df_long[col], errors='coerce')
+    
+    df_long.dropna(subset=['precipitation'], inplace=True)
+    df_long['fecha_mes_año'] = parse_spanish_dates(df_long['fecha_mes_año'])
+    df_long['fecha_mes_año'] = pd.to_datetime(df_long['fecha_mes_año'], format='%b-%y', errors='coerce')
+    
+    df_long.dropna(subset=['fecha_mes_año'], inplace=True)
+    df_long['origen'] = 'Original'
+
+    gdf_stations['id_estacio'] = gdf_stations['id_estacio'].astype(str).str.strip()
+    df_long['id_estacion'] = df_long['id_estacion'].astype(str).str.strip()
+    station_mapping = gdf_stations.set_index('id_estacio')['nom_est'].to_dict()
+    df_long['nom_est'] = df_long['id_estacion'].map(station_mapping)
+    df_long.dropna(subset=['nom_est'], inplace=True)
+
+    enso_cols = ['id', 'fecha_mes_año', 'anomalia_oni', 'temp_sst', 'temp_media']
+    df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
+    for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
+        if col in df_enso.columns:
+            df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
+    
+    df_enso['fecha_mes_año'] = parse_spanish_dates(df_enso['fecha_mes_año'])
+    df_enso['fecha_mes_año'] = pd.to_datetime(df_enso['fecha_mes_año'], format='%b-%y', errors='coerce')
+    
+    df_enso.dropna(subset=['fecha_mes_año'], inplace=True)
+
+    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
 
 def create_enso_chart(enso_data):
     if enso_data.empty or 'anomalia_oni' not in enso_data.columns:
@@ -240,7 +286,29 @@ def create_anomaly_chart(df_plot):
     return fig
 
 
-# --- Interfaz y Carga de Archivos ---
+# --- Configuración de la página y CSS ---
+st.set_page_config(layout="wide", page_title="Sistema de información de las lluvias y el Clima en el norte de la región Andina")
+
+st.markdown("""
+<style>
+div.block-container {padding-top: 2rem;}
+.sidebar .sidebar-content {font-size: 13px; }
+[data-testid="stMetricValue"] {
+    font-size: 1.8rem;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 1rem;
+    padding-bottom: 5px;
+}
+button[data-baseweb="tab"] {
+    font-size: 16px;
+    font-weight: bold;
+    color: #333;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# --- Interfaz de Carga de Archivos ---
 logo_path = "CuencaVerdeLogo_V1.JPG"
 logo_gota_path = "CuencaVerdeGoticaLogo.JPG"
 
@@ -286,86 +354,6 @@ if not st.session_state.data_loaded:
 if st.session_state.gdf_stations is None:
     st.stop()
 
-# --- Funciones de Preprocesamiento después de la carga ---
-@st.cache_data
-def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
-    df_precip_anual = load_data(uploaded_file_mapa)
-    df_precip_mensual_raw = load_data(uploaded_file_precip)
-    gdf_municipios = load_shapefile(uploaded_zip_shapefile)
-
-    if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
-        return None, None, None, None, None
-
-    # Preprocesamiento de datos anuales y de estaciones
-    lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
-    lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
-    if not all([lon_col, lat_col]):
-        st.error("No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
-        return None, None, None, None, None
-    df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
-    df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
-    if 'alt_est' in df_precip_anual.columns:
-        df_precip_anual['alt_est'] = pd.to_numeric(df_precip_anual['alt_est'].astype(str).str.replace(',', '.'), errors='coerce')
-    df_precip_anual.dropna(subset=[lon_col, lat_col], inplace=True)
-    gdf_temp = gpd.GeoDataFrame(df_precip_anual, geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]), crs="EPSG:9377")
-    gdf_stations = gdf_temp.to_crs("EPSG:4326")
-    gdf_stations['longitud_geo'] = gdf_stations.geometry.x
-    gdf_stations['latitud_geo'] = gdf_stations.geometry.y
-
-    # Preprocesamiento de datos mensuales y ENSO
-    df_precip_mensual = df_precip_mensual_raw.copy()
-    station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
-    if not station_cols:
-        st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
-        return None, None, None, None, None
-
-    # El campo 'anomalia_oni' se incluye en id_vars para que se mantenga en el proceso de melt
-    id_vars_base = ['id', 'fecha_mes_año', 'año', 'mes', 'enso_año', 'enso_mes']
-    id_vars_enso = ['anomalia_oni', 'temp_sst', 'temp_media']
-    id_vars = id_vars_base + id_vars_enso
-    
-    # Asegurarse de que las columnas numéricas con comas se convierten a puntos
-    for col in id_vars_enso:
-        if col in df_precip_mensual.columns:
-            df_precip_mensual[col] = df_precip_mensual[col].astype(str).str.replace(',', '.')
-
-    df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
-                                     value_vars=station_cols, var_name='id_estacion', value_name='precipitation')
-
-    # Corrección: Conversión de los campos a numérico
-    df_long['precipitation'] = pd.to_numeric(df_long['precipitation'].astype(str).str.replace(',', '.'), errors='coerce')
-    for col in id_vars_enso:
-        if col in df_long.columns:
-            df_long[col] = pd.to_numeric(df_long[col], errors='coerce')
-    
-    df_long.dropna(subset=['precipitation'], inplace=True)
-    
-    # Aplicar la función de corrección de fechas antes de la conversión a datetime
-    df_long['fecha_mes_año'] = parse_spanish_dates(df_long['fecha_mes_año'])
-    df_long['fecha_mes_año'] = pd.to_datetime(df_long['fecha_mes_año'], format='%b-%y', errors='coerce')
-    
-    df_long.dropna(subset=['fecha_mes_año'], inplace=True)
-    df_long['origen'] = 'Original'
-
-    gdf_stations['id_estacio'] = gdf_stations['id_estacio'].astype(str).str.strip()
-    df_long['id_estacion'] = df_long['id_estacion'].astype(str).str.strip()
-    station_mapping = gdf_stations.set_index('id_estacio')['nom_est'].to_dict()
-    df_long['nom_est'] = df_long['id_estacion'].map(station_mapping)
-    df_long.dropna(subset=['nom_est'], inplace=True)
-
-    enso_cols = ['id', 'fecha_mes_año', 'anomalia_oni', 'temp_sst', 'temp_media']
-    df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
-    for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
-        if col in df_enso.columns:
-            df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
-    
-    df_enso['fecha_mes_año'] = parse_spanish_dates(df_enso['fecha_mes_año'])
-    df_enso['fecha_mes_año'] = pd.to_datetime(df_enso['fecha_mes_año'], format='%b-%y', errors='coerce')
-    
-    df_enso.dropna(subset=['fecha_mes_año'], inplace=True)
-
-    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
-
 # Carga de datos de la sesión
 gdf_stations = st.session_state.gdf_stations
 df_precip_anual = st.session_state.df_precip_anual
@@ -393,11 +381,16 @@ with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True
     if selected_altitudes:
         conditions = []
         for r in selected_altitudes:
-            if r == '0-500': conditions.append((stations_available['alt_est'] >= 0) & (stations_available['alt_est'] <= 500))
-            elif r == '500-1000': conditions.append((stations_available['alt_est'] > 500) & (stations_available['alt_est'] <= 1000))
-            elif r == '1000-2000': conditions.append((stations_available['alt_est'] > 1000) & (stations_available['alt_est'] <= 2000))
-            elif r == '2000-3000': conditions.append((stations_available['alt_est'] > 2000) & (stations_available['alt_est'] <= 3000))
-            elif r == '>3000': conditions.append(stations_available['alt_est'] > 3000)
+            if r == '0-500':
+                conditions.append((stations_available['alt_est'] >= 0) & (stations_available['alt_est'] <= 500))
+            elif r == '500-1000':
+                conditions.append((stations_available['alt_est'] > 500) & (stations_available['alt_est'] <= 1000))
+            elif r == '1000-2000':
+                conditions.append((stations_available['alt_est'] > 1000) & (stations_available['alt_est'] <= 2000))
+            elif r == '2000-3000':
+                conditions.append((stations_available['alt_est'] > 2000) & (stations_available['alt_est'] <= 3000))
+            elif r == '>3000':
+                conditions.append(stations_available['alt_est'] > 3000)
         
         if conditions:
             combined_condition = pd.concat(conditions, axis=1).any(axis=1)
@@ -538,10 +531,14 @@ with mapa_tab:
                 with st.expander("Resumen de Filtros Activos", expanded=True):
                     summary_text = f"**Período:** {year_range[0]} - {year_range[1]}\n\n"
                     summary_text += f"**% Mínimo de Datos:** {min_data_perc}%\n\n"
-                    if selected_altitudes: summary_text += f"**Altitud:** {', '.join(selected_altitudes)}\n\n"
-                    if selected_regions: summary_text += f"**Región:** {', '.join(selected_regions)}\n\n"
-                    if selected_municipios: summary_text += f"**Municipio:** {', '.join(selected_municipios)}\n\n"
-                    if selected_celdas: summary_text += f"**Celda XY:** {', '.join(selected_celdas)}\n\n"
+                    if selected_altitudes:
+                        summary_text += f"**Altitud:** {', '.join(selected_altitudes)}\n\n"
+                    if selected_regions:
+                        summary_text += f"**Región:** {', '.join(selected_regions)}\n\n"
+                    if selected_municipios:
+                        summary_text += f"**Municipio:** {', '.join(selected_municipios)}\n\n"
+                    if selected_celdas:
+                        summary_text += f"**Celda XY:** {', '.join(selected_celdas)}\n\n"
                     st.info(summary_text)
                 
             with map_col:
@@ -579,8 +576,10 @@ with mapa_tab:
                     st.info("Mostrando la composición de datos originales vs. completados para el período seleccionado.")
                     
                     data_composition = df_monthly_filtered.groupby(['nom_est', 'origen']).size().unstack(fill_value=0)
-                    if 'Original' not in data_composition: data_composition['Original'] = 0
-                    if 'Completado' not in data_composition: data_composition['Completado'] = 0
+                    if 'Original' not in data_composition:
+                        data_composition['Original'] = 0
+                    if 'Completado' not in data_composition:
+                        data_composition['Completado'] = 0
                     
                     data_composition['total'] = data_composition['Original'] + data_composition['Completado']
                     data_composition['% Original'] = (data_composition['Original'] / data_composition['total']) * 100
@@ -652,7 +651,6 @@ with graficos_tab:
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
-        # --- NUEVOS GRÁFICOS AÑADIDOS ---
         sub_tab_anual, sub_tab_mensual, sub_tab_comparacion = st.tabs(["Análisis Anual", "Análisis Mensual", "Comparación Rápida"])
 
         with sub_tab_anual:
@@ -679,9 +677,12 @@ with graficos_tab:
                     if chart_type_annual == "Gráfico de Barras (Promedio)":
                         df_summary = df_anual_melted.groupby('nom_est', as_index=False)['precipitacion'].mean().round(0)
                         sort_order = st.radio("Ordenar estaciones por:", ["Promedio (Mayor a Menor)", "Promedio (Menor a Mayor)", "Alfabético"], horizontal=True, key="sort_annual_avg")
-                        if "Mayor a Menor" in sort_order: df_summary = df_summary.sort_values("precipitacion", ascending=False)
-                        elif "Menor a Mayor" in sort_order: df_summary = df_summary.sort_values("precipitacion", ascending=True)
-                        else: df_summary = df_summary.sort_values("nom_est", ascending=True)
+                        if "Mayor a Menor" in sort_order:
+                            df_summary = df_summary.sort_values("precipitacion", ascending=False)
+                        elif "Menor a Mayor" in sort_order:
+                            df_summary = df_summary.sort_values("precipitacion", ascending=True)
+                        else:
+                            df_summary = df_summary.sort_values("nom_est", ascending=True)
 
                         fig_avg = px.bar(df_summary, x='nom_est', y='precipitacion', title='Promedio de Precipitación Anual', labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Media Anual (mm)'}, color='precipitacion', color_continuous_scale=px.colors.sequential.Blues_r)
                         fig_avg.update_layout(height=600, xaxis={'categoryorder':'total descending' if "Mayor a Menor" in sort_order else ('total ascending' if "Menor a Mayor" in sort_order else 'trace')})
@@ -702,8 +703,10 @@ with graficos_tab:
 
                     if chart_type != "Gráfico de Cajas (Distribución Mensual)":
                         base_chart = alt.Chart(df_monthly_filtered).encode(x=alt.X('fecha_mes_año:T', title='Fecha'), y=alt.Y('precipitation:Q', title='Precipitación (mm)'), tooltip=[alt.Tooltip('fecha_mes_año', format='%Y-%m'), alt.Tooltip('precipitation', format='.0f'), 'nom_est', 'origen', alt.Tooltip('mes:N', title="Mes")])
-                        if color_by == "Estación": color_encoding = alt.Color('nom_est:N', legend=alt.Legend(title="Estaciones"))
-                        else: color_encoding = alt.Color('month(fecha_mes_año):N', legend=alt.Legend(title="Meses"), scale=alt.Scale(scheme='tableau20'))
+                        if color_by == "Estación":
+                            color_encoding = alt.Color('nom_est:N', legend=alt.Legend(title="Estaciones"))
+                        else:
+                            color_encoding = alt.Color('month(fecha_mes_año):N', legend=alt.Legend(title="Meses"), scale=alt.Scale(scheme='tableau20'))
                         
                         if chart_type == "Líneas y Puntos":
                             line_chart = base_chart.mark_line(opacity=0.4, color='lightgray').encode(detail='nom_est:N')
@@ -730,7 +733,6 @@ with graficos_tab:
                     df_values = df_monthly_filtered.pivot_table(index='fecha_mes_año', columns='nom_est', values='precipitation').round(0)
                     st.dataframe(df_values)
         
-        # --- NUEVA PESTAÑA: COMPARACIÓN RÁPIDA ---
         with sub_tab_comparacion:
             st.subheader("Comparación de Precipitación entre Estaciones")
             if len(selected_stations) < 2:
@@ -740,8 +742,6 @@ with graficos_tab:
                 st.markdown("##### Precipitación Mensual Promedio")
                 df_monthly_avg = df_monthly_filtered.groupby(['nom_est', 'mes'])['precipitation'].mean().reset_index()
                 
-                # Mapear el número del mes a su nombre para un mejor eje x
-                df_monthly_avg['mes_nombre'] = df_monthly_avg['mes'].map(meses_dict)
                 mes_order = [meses_dict[m] for m in meses_nombres]
                 
                 fig_avg_monthly = px.line(df_monthly_avg, 
@@ -961,13 +961,11 @@ with mapas_avanzados_tab:
                 st.warning(f"Se necesitan al menos 3 estaciones con datos en el año {year_kriging} para generar el mapa Kriging.")
             else:
                 with st.spinner("Generando mapa Kriging..."):
-                    # --- INICIO DE CAMBIOS: Añadir tooltip al mapa Kriging ---
                     data_year_kriging['tooltip'] = data_year_kriging.apply(
                         lambda row: f"<b>{row['nom_est']}</b><br>Municipio: {row['municipio']}<br>Ppt: {row['precipitacion']:.0f} mm",
                         axis=1
                     )
                     lons, lats, vals = data_year_kriging['longitud_geo'].values, data_year_kriging['latitud_geo'].values, data_year_kriging['precipitacion'].values
-                    # --- FIN DE CAMBIOS ---
                     bounds = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
                     lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
                     lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
@@ -976,7 +974,6 @@ with mapas_avanzados_tab:
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
 
                     fig_krig = go.Figure(data=go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
-                    # --- INICIO DE CAMBIOS: Añadir tooltip al mapa Kriging ---
                     fig_krig.add_trace(go.Scatter(
                         x=lons, y=lats, mode='markers', 
                         marker=dict(color='red', size=5, symbol='circle'), 
@@ -984,7 +981,6 @@ with mapas_avanzados_tab:
                         text=data_year_kriging['tooltip'],
                         hoverinfo='text'
                     ))
-                    # --- FIN DE CAMBIOS ---
                     fig_krig.update_layout(height=700, title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}", xaxis_title="Longitud", yaxis_title="Latitud")
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
