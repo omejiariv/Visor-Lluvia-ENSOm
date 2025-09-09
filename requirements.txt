@@ -13,3 +13,4 @@ plotly
 statsmodels
 matplotlib
 statsmodels
+pyhomogeneity
