@@ -345,7 +345,7 @@ if not st.session_state.data_loaded:
         st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
     if st.session_state.gdf_stations is not None:
         st.session_state.data_loaded = True
-        st.experimental_rerun()
+        st.rerun()
     else:
         st.error("Hubo un error al procesar los archivos. Por favor, verifique que los archivos sean correctos y vuelva a intentarlo.")
         st.stop()
