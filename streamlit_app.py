@@ -477,28 +477,28 @@ with st.spinner("Filtrando datos..."):
         selected_celdas
     )
 
-    # 2. Filtrar los datos anuales a partir de las estaciones seleccionadas
-    df_anual_melted = gdf_filtered.melt(
+    # 2. Si no hay estaciones seleccionadas por el usuario, usar las filtradas
+    if not selected_stations:
+        stations_for_analysis = gdf_filtered['nom_est'].unique()
+    else:
+        stations_for_analysis = selected_stations
+        gdf_filtered = gdf_filtered[gdf_filtered['nom_est'].isin(stations_for_analysis)]
+
+    # 3. Filtrar los datos anuales a partir de las estaciones seleccionadas para análisis
+    df_anual_melted = gdf_stations.melt(
         id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo', 'alt_est'],
         value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
         var_name='año', value_name='precipitacion')
+    df_anual_melted = df_anual_melted[df_anual_melted['nom_est'].isin(stations_for_analysis)]
     df_anual_melted.dropna(subset=['precipitacion'], inplace=True)
 
-
-    # 3. Filtrar los datos mensuales a partir de las estaciones seleccionadas
+    # 4. Filtrar los datos mensuales a partir de las estaciones seleccionadas para análisis
     df_monthly_filtered = df_monthly_to_process[
-        (df_monthly_to_process['nom_est'].isin(gdf_filtered['nom_est'].unique())) &
+        (df_monthly_to_process['nom_est'].isin(stations_for_analysis)) &
         (df_monthly_to_process['fecha_mes_año'].dt.year >= year_range[0]) &
         (df_monthly_to_process['fecha_mes_año'].dt.year <= year_range[1]) &
         (df_monthly_to_process['fecha_mes_año'].dt.month.isin(meses_numeros))
     ].copy()
-
-    # 4. Actualizar las opciones de estaciones si se usa el multiselect manual
-    stations_options = sorted(gdf_filtered['nom_est'].unique())
-    if selected_stations:
-        gdf_filtered = gdf_filtered[gdf_filtered['nom_est'].isin(selected_stations)]
-        df_anual_melted = df_anual_melted[df_anual_melted['nom_est'].isin(selected_stations)]
-        df_monthly_filtered = df_monthly_filtered[df_monthly_filtered['nom_est'].isin(selected_stations)]
 
 
 # --- Pestañas Principales ---
@@ -507,15 +507,16 @@ mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab
 
 with mapa_tab:
     st.header("Distribución espacial de las Estaciones de Lluvia (1970 - 2021)")
-    if not selected_stations:
+    if not stations_for_analysis:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         if not df_anual_melted.empty:
             df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().reset_index()
-            gdf_filtered = gdf_filtered.merge(df_mean_precip.rename(columns={'precipitacion': 'precip_media_anual'}), on='nom_est', how='left')
+            gdf_filtered_map = gdf_filtered.merge(df_mean_precip.rename(columns={'precipitacion': 'precip_media_anual'}), on='nom_est', how='left')
         else:
-            gdf_filtered['precip_media_anual'] = np.nan
-        gdf_filtered['precip_media_anual'] = gdf_filtered['precip_media_anual'].fillna(0)
+            gdf_filtered_map = gdf_filtered.copy()
+            gdf_filtered_map['precip_media_anual'] = np.nan
+        gdf_filtered_map['precip_media_anual'] = gdf_filtered_map['precip_media_anual'].fillna(0)
         
         sub_tab_mapa, sub_tab_grafico = st.tabs(["Mapa Interactivo", "Gráfico de Disponibilidad de Datos"])
 
@@ -543,14 +544,14 @@ with mapa_tab:
                 
                 selected_overlays = st.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()))
                 
-                if not gdf_filtered.empty:
+                if not gdf_filtered_map.empty:
                     st.markdown("---")
                     m1, m2 = st.columns([1, 3])
                     with m1:
                         if os.path.exists(logo_gota_path):
                             st.image(logo_gota_path, width=50)
                     with m2:
-                        st.metric("Estaciones en Vista", len(gdf_filtered))
+                        st.metric("Estaciones en Vista", len(gdf_filtered_map))
 
                     st.markdown("---")
                     map_centering = st.radio("Opciones de centrado:", ("Automático", "Vistas Predefinidas"), key="map_centering_radio")
@@ -564,7 +565,7 @@ with mapa_tab:
                         if st.button("Ver Antioquia"):
                             st.session_state.map_view = {"location": [6.24, -75.58], "zoom": 8}
                         if st.button("Ajustar a Selección"):
-                            bounds = gdf_filtered.total_bounds
+                            bounds = gdf_filtered_map.total_bounds
                             center_lat = (bounds[1] + bounds[3]) / 2
                             center_lon = (bounds[0] + bounds[2]) / 2
                             st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
@@ -585,7 +586,7 @@ with mapa_tab:
                     st.info(summary_text)
                 
             with map_col:
-                if not gdf_filtered.empty:
+                if not gdf_filtered_map.empty:
                     base_map_config = base_maps[selected_base_map_name]
                     
                     m = folium.Map(
@@ -596,7 +597,7 @@ with mapa_tab:
                     )
                     
                     if map_centering == "Automático":
-                        bounds = gdf_filtered.total_bounds
+                        bounds = gdf_filtered_map.total_bounds
                         m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
                     # Añadir la capa de municipios
@@ -617,7 +618,7 @@ with mapa_tab:
                     
                     # Añadir la capa de estaciones DE ÚLTIMO para que se vean sobre todas las capas
                     marker_cluster = MarkerCluster(name='Estaciones').add_to(m)
-                    for _, row in gdf_filtered.iterrows():
+                    for _, row in gdf_filtered_map.iterrows():
                         html = f"""
                         <b>Estación:</b> {row['nom_est']}<br>
                         <b>Municipio:</b> {row['municipio']}<br>
@@ -807,7 +808,7 @@ with graficos_tab:
             
         with sub_tab_comparacion:
             st.subheader("Comparación de Precipitación entre Estaciones")
-            if len(selected_stations) < 2:
+            if len(stations_for_analysis) < 2:
                 st.info("Seleccione al menos dos estaciones para comparar.")
             else:
                 # Gráfico de Líneas para Precipitación Mensual Promedio
@@ -823,9 +824,11 @@ with graficos_tab:
 
                 # Gráfico de Cajas para Precipitación Anual
                 st.markdown("##### Distribución de Precipitación Anual")
-                fig_box_annual = px.box(df_anual_melted, x='nom_est', y='precipitacion', color='nom_est',
+                df_anual_filtered_for_box = df_anual_melted[df_anual_melted['nom_est'].isin(stations_for_analysis)]
+                fig_box_annual = px.box(df_anual_filtered_for_box, x='nom_est', y='precipitacion', color='nom_est',
                                          title='Distribución de la Precipitación Anual por Estación',
                                          labels={'nom_est': 'Estación', 'precipitacion': 'Precipitación Anual (mm)'})
+                fig_box_annual.update_layout(height=600)
                 st.plotly_chart(fig_box_annual, use_container_width=True)
 
         with sub_tab_distribucion:
@@ -866,9 +869,9 @@ with graficos_tab:
 
         with sub_tab_altitud:
             st.subheader("Relación entre Altitud y Precipitación")
-            if not df_anual_melted.empty:
+            if not df_anual_melted.empty and not gdf_filtered['alt_est'].isnull().all():
                 df_relacion = df_anual_melted.groupby('nom_est')['precipitacion'].mean().reset_index()
-                df_relacion = df_relacion.merge(gdf_stations[['nom_est', 'alt_est']].drop_duplicates(), on='nom_est')
+                df_relacion = df_relacion.merge(gdf_filtered[['nom_est', 'alt_est']].drop_duplicates(), on='nom_est')
 
                 fig_relacion = px.scatter(df_relacion, x='alt_est', y='precipitacion', color='nom_est',
                                           title='Relación entre Precipitación Media Anual y Altitud',
@@ -876,7 +879,7 @@ with graficos_tab:
                 fig_relacion.update_layout(height=600)
                 st.plotly_chart(fig_relacion, use_container_width=True)
             else:
-                st.info("No hay datos para analizar la relación entre altitud y precipitación.")
+                st.info("No hay datos de altitud o precipitación disponibles para analizar la relación.")
 
 
 with mapas_avanzados_tab:
@@ -918,7 +921,7 @@ with mapas_avanzados_tab:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
     with temporal_tab:
-        if not selected_stations:
+        if not stations_for_analysis:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         else:
             exp_tab, race_tab, anim_tab = st.tabs(["Explorador Interactivo", "Gráfico de Carrera", "Mapa Animado"])
@@ -940,7 +943,7 @@ with mapas_avanzados_tab:
                                 if os.path.exists(logo_gota_path):
                                     st.image(logo_gota_path, width=40)
                             with info_col:
-                                st.metric(f"Estaciones con Datos en {selected_year}", f"{len(df_year_filtered)} de {len(selected_stations)}")
+                                st.metric(f"Estaciones con Datos en {selected_year}", f"{len(df_year_filtered)} de {len(stations_for_analysis)}")
                             if not df_year_filtered.empty:
                                 max_row = df_year_filtered.loc[df_year_filtered['precipitacion'].idxmax()]
                                 min_row = df_year_filtered.loc[df_year_filtered['precipitacion'].idxmin()]
@@ -964,7 +967,7 @@ with mapas_avanzados_tab:
                             )
                             bounds = {}
                             if map_view_option == "Zona de Selección":
-                                bounds_values = gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
+                                bounds_values = gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)].total_bounds
                                 bounds = {'lon': [bounds_values[0]-0.2, bounds_values[2]+0.2], 'lat': [bounds_values[1]-0.2, bounds_values[3]+0.2]}
                             elif map_view_option == "Antioquia":
                                 bounds = {'lon': [-77, -74.5], 'lat': [5.5, 8.5]}
@@ -993,7 +996,7 @@ with mapas_avanzados_tab:
                     fig_racing.update_traces(texttemplate='%{x:.0f}', textposition='outside')
                     fig_racing.update_layout(
                         xaxis_range=[0, df_anual_melted['precipitacion'].max() * 1.15],
-                        height=max(600, len(selected_stations) * 35),
+                        height=max(600, len(stations_for_analysis) * 35),
                         title_font_size=20,
                         font_size=12
                     )
@@ -1008,7 +1011,7 @@ with mapas_avanzados_tab:
                 if not df_anual_melted.empty:
                     all_years = sorted(df_anual_melted['año'].unique())
                     if all_years:
-                        all_selected_stations_info = gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo', 'alt_est']].drop_duplicates()
+                        all_selected_stations_info = gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)][['nom_est', 'latitud_geo', 'longitud_geo', 'alt_est']].drop_duplicates()
                         full_grid = pd.MultiIndex.from_product([all_selected_stations_info['nom_est'], all_years], names=['nom_est', 'año']).to_frame(index=False)
                         full_grid = pd.merge(full_grid, all_selected_stations_info, on='nom_est')
                         df_anim_complete = pd.merge(full_grid, df_anual_melted[['nom_est', 'año', 'precipitacion']], on=['nom_est', 'año'], how='left')
@@ -1023,7 +1026,7 @@ with mapas_avanzados_tab:
     
     with compare_tab:
         st.subheader("Comparación de Mapas Anuales")
-        if not selected_stations:
+        if not stations_for_analysis:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         elif not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             map_col1, map_col2 = st.columns(2)
@@ -1042,13 +1045,13 @@ with mapas_avanzados_tab:
                 if os.path.exists(logo_gota_path):
                     st.image(logo_gota_path, width=30)
             with metric_col1:
-                st.metric(f"Estaciones con datos en {year1}", f"{len(data_year1)} de {len(selected_stations)}")
+                st.metric(f"Estaciones con datos en {year1}", f"{len(data_year1)} de {len(stations_for_analysis)}")
             
             with logo_col2:
                 if os.path.exists(logo_gota_path):
                     st.image(logo_gota_path, width=30)
             with metric_col2:
-                st.metric(f"Estaciones con datos en {year2}", f"{len(data_year2)} de {len(selected_stations)}")
+                st.metric(f"Estaciones con datos en {year2}", f"{len(data_year2)} de {len(stations_for_analysis)}")
 
             min_precip_comp, max_precip_comp = int(df_anual_melted['precipitacion'].min()), int(df_anual_melted['precipitacion'].max())
             color_range_comp = st.slider("Rango de Escala de Color (mm)", min_precip_comp, max_precip_comp, (min_precip_comp, max_precip_comp), key="color_comp")
@@ -1065,7 +1068,7 @@ with mapas_avanzados_tab:
 
     with kriging_tab:
         st.subheader("Interpolación Kriging para un Año Específico")
-        if not selected_stations:
+        if not stations_for_analysis:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         elif not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             min_year, max_year = int(df_anual_melted['año'].min()), int(df_anual_melted['año'].max())
@@ -1077,7 +1080,7 @@ with mapas_avanzados_tab:
                 if os.path.exists(logo_gota_path):
                     st.image(logo_gota_path, width=40)
             with metric_col_k:
-                st.metric(f"Estaciones con datos en {year_kriging}", f"{len(data_year_kriging)} de {len(selected_stations)}")
+                st.metric(f"Estaciones con datos en {year_kriging}", f"{len(data_year_kriging)} de {len(stations_for_analysis)}")
 
             if len(data_year_kriging) < 3:
                 st.warning(f"Se necesitan al menos 3 estaciones con datos en el año {year_kriging} para generar el mapa Kriging.")
@@ -1088,7 +1091,7 @@ with mapas_avanzados_tab:
                         axis=1
                     )
                     lons, lats, vals = data_year_kriging['longitud_geo'].values, data_year_kriging['latitud_geo'].values, data_year_kriging['precipitacion'].values
-                    bounds = gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
+                    bounds = gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)].total_bounds
                     lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
                     lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
                     grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
@@ -1110,7 +1113,7 @@ with mapas_avanzados_tab:
 
 with tabla_estaciones_tab:
     st.header("Información Detallada de las Estaciones")
-    if not selected_stations:
+    if not stations_for_analysis:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     elif not df_anual_melted.empty:
         df_info_table = gdf_filtered[['nom_est', 'alt_est', 'municipio', 'depto_region', 'porc_datos']].copy()
@@ -1123,10 +1126,10 @@ with tabla_estaciones_tab:
 
 with anomalias_tab:
     st.header("Análisis de Anomalías de Precipitación")
-    if not selected_stations:
+    if not stations_for_analysis:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
-        df_long_filtered_stations = df_long[df_long['nom_est'].isin(selected_stations)]
+        df_long_filtered_stations = df_long[df_long['nom_est'].isin(stations_for_analysis)]
         df_climatology = df_long_filtered_stations.groupby(['nom_est', 'mes'])['precipitation'].mean().reset_index().rename(columns={'precipitation': 'precip_promedio_mes'})
         
         df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=['nom_est', 'mes'], how='left')
@@ -1146,7 +1149,7 @@ with anomalias_tab:
             with anom_mapa_tab:
                 st.subheader("Mapa Interactivo de Anomalías Anuales")
                 df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año'])['anomalia'].sum().reset_index()
-                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
+                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)][['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
 
                 years_with_anomalies = sorted(df_anomalias_anual['año'].unique().astype(int))
                 if years_with_anomalies:
@@ -1198,14 +1201,14 @@ with anomalias_tab:
 
 with estadisticas_tab:
     st.header("Estadísticas de Precipitación")
-    if not selected_stations:
+    if not stations_for_analysis:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         matriz_tab, resumen_mensual_tab, sintesis_tab = st.tabs(["Matriz de Disponibilidad", "Resumen Mensual", "Síntesis General"])
 
         with matriz_tab:
             st.subheader("Matriz de Disponibilidad de Datos Anual")
-            original_data_counts = df_long[df_long['nom_est'].isin(selected_stations)]
+            original_data_counts = df_long[df_long['nom_est'].isin(stations_for_analysis)]
             original_data_counts = original_data_counts.groupby(['nom_est', 'año']).size().reset_index(name='count')
             original_data_counts['porc_original'] = (original_data_counts['count'] / 12) * 100
             heatmap_original_df = original_data_counts.pivot(index='nom_est', columns='año', values='porc_original')
@@ -1218,7 +1221,7 @@ with estadisticas_tab:
                 view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Completados"), horizontal=True)
 
                 if view_mode == "Porcentaje de Datos Completados":
-                    completed_data = df_monthly_to_process[(df_monthly_to_process['nom_est'].isin(selected_stations)) & (df_monthly_to_process['origen'] == 'Completado')]
+                    completed_data = df_monthly_to_process[(df_monthly_to_process['nom_est'].isin(stations_for_analysis)) & (df_monthly_to_process['origen'] == 'Completado')]
                     if not completed_data.empty:
                         completed_counts = completed_data.groupby(['nom_est', 'año']).size().reset_index(name='count')
                         completed_counts['porc_completado'] = (completed_counts['count'] / 12) * 100
@@ -1385,7 +1388,7 @@ with enso_tab:
 
 with tendencias_tab:
     st.header("Análisis de Tendencias y Pronósticos")
-    if not selected_stations:
+    if not stations_for_analysis:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         tendencia_tab, pronostico_tab = st.tabs(["Análisis de Tendencia", "Pronóstico SARIMA"])
@@ -1399,7 +1402,7 @@ with tendencias_tab:
             if analysis_type == "Promedio de la selección":
                 df_to_analyze = df_anual_melted.groupby('año')['precipitacion'].mean().reset_index()
             else:
-                station_to_analyze = st.selectbox("Seleccione una estación para analizar:", options=selected_stations)
+                station_to_analyze = st.selectbox("Seleccione una estación para analizar:", options=stations_for_analysis)
                 if station_to_analyze:
                     df_to_analyze = df_anual_melted[df_anual_melted['nom_est'] == station_to_analyze]
             
@@ -1425,7 +1428,7 @@ with tendencias_tab:
             
             station_to_forecast = st.selectbox(
                 "Seleccione una estación para el pronóstico:",
-                options=selected_stations,
+                options=stations_for_analysis,
                 help="El pronóstico se realiza para una única serie de tiempo."
             )
             
@@ -1460,7 +1463,7 @@ with tendencias_tab:
 
 with descargas_tab:
     st.header("Opciones de Descarga")
-    if not selected_stations:
+    if not stations_for_analysis:
         st.warning("Por favor, seleccione al menos una estación para activar las descargas.")
     else:
         @st.cache_data
