@@ -12,3 +12,4 @@ statsmodels
 pyhomogeneity==1.1
 numpy
 shapely
+matplotlib
