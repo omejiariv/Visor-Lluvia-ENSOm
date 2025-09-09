@@ -18,6 +18,7 @@ import locale
 import base64
 from scipy import stats
 import statsmodels.api as sm
+from pyhomogeneity import pettitt_test, mann_kendall # Importación de la librería para Mann-Kendall
 
 # --- Funciones de Carga y Procesamiento ---
 def parse_spanish_dates(date_series):
@@ -379,8 +380,8 @@ def filter_and_process_data(df_precip_anual, df_long, year_range, meses_numeros,
             if r == '0-500': conditions.append((stations_available['alt_est'] >= 0) & (stations_available['alt_est'] <= 500))
             elif r == '500-1000': conditions.append((stations_available['alt_est'] > 500) & (stations_available['alt_est'] <= 1000))
             elif r == '1000-2000': conditions.append((stations_available['alt_est'] > 1000) & (stations_available['alt_est'] <= 2000))
-            elif r == '>3000': conditions.append(stations_available['alt_est'] > 3000)
             elif r == '2000-3000': conditions.append((stations_available['alt_est'] > 2000) & (stations_available['alt_est'] <= 3000))
+            elif r == '>3000': conditions.append(stations_available['alt_est'] > 3000)
         if conditions:
             combined_condition = pd.concat(conditions, axis=1).any(axis=1)
             stations_available = stations_available[combined_condition]
@@ -1313,20 +1314,35 @@ with tendencias_tab:
             
             if df_to_analyze is not None and len(df_to_analyze) > 2:
                 df_to_analyze['año_num'] = pd.to_numeric(df_to_analyze['año'])
+                
+                # Regresión Lineal
                 slope, intercept, r_value, p_value, std_err = stats.linregress(df_to_analyze['año_num'], df_to_analyze['precipitacion'])
                 
+                # Prueba de Mann-Kendall
+                mk_result = mann_kendall(df_to_analyze['precipitacion'].values)
+                z_score = mk_result[0]
+                mk_p_value = mk_result[1]
+
+                # Interpretación de la tendencia y significancia
                 tendencia_texto = "aumentando" if slope > 0 else "disminuyendo"
-                significancia_texto = "**estadísticamente significativa**" if p_value < 0.05 else "no es estadísticamente significativa"
-                st.markdown(f"La tendencia de la precipitación es de **{slope:.2f} mm/año** (es decir, está {tendencia_texto}). Con un valor p de **{p_value:.3f}**, esta tendencia **{significancia_texto}**.")
                 
+                # Usar el p-value de Mann-Kendall para la significancia
+                significancia_texto = "**estadísticamente significativa**" if mk_p_value < 0.05 else "no es estadísticamente significativa"
+                
+                st.markdown(f"La tendencia de la precipitación es de **{slope:.2f} mm/año** (regresión lineal).")
+                st.markdown(f"**Prueba de Mann-Kendall:** El valor p es de **{mk_p_value:.3f}**. Por lo tanto, la tendencia es **{significancia_texto}**.")
+                
+                if mk_p_value >= 0.05:
+                    st.warning("⚠️ **Nota:** La prueba de Mann-Kendall sugiere que la tendencia lineal observada puede ser debida al azar. Es recomendable interpretar este resultado con cautela.")
+
                 df_to_analyze['tendencia'] = slope * df_to_analyze['año_num'] + intercept
 
                 fig_tendencia = px.scatter(df_to_analyze, x='año_num', y='precipitacion', title='Tendencia de la Precipitación Anual')
-                fig_tendencia.add_trace(go.Scatter(x=df_to_analyze['año_num'], y=df_to_analyze['tendencia'], mode='lines', name='Línea de Tendencia', line=dict(color='red')))
+                fig_tendencia.add_trace(go.Scatter(x=df_to_analyze['año_num'], y=df_to_analyze['tendencia'], mode='lines', name='Línea de Tendencia (Reg. Lineal)', line=dict(color='red')))
                 fig_tendencia.update_layout(xaxis_title="Año", yaxis_title="Precipitación Anual (mm)")
                 st.plotly_chart(fig_tendencia, use_container_width=True)
             else:
-                st.warning("No hay suficientes datos en el período seleccionado para calcular una tendencia.")
+                st.warning("No hay suficientes datos en el período seleccionado para calcular una tendencia. Se requieren al menos 3 puntos de datos.")
 
         with pronostico_tab:
             st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
