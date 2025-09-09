@@ -1008,7 +1008,7 @@ with mapas_avanzados_tab:
                 if not df_anual_melted.empty:
                     all_years = sorted(df_anual_melted['año'].unique())
                     if all_years:
-                        all_selected_stations_info = gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates()
+                        all_selected_stations_info = gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo', 'alt_est']].drop_duplicates()
                         full_grid = pd.MultiIndex.from_product([all_selected_stations_info['nom_est'], all_years], names=['nom_est', 'año']).to_frame(index=False)
                         full_grid = pd.merge(full_grid, all_selected_stations_info, on='nom_est')
                         df_anim_complete = pd.merge(full_grid, df_anual_melted[['nom_est', 'año', 'precipitacion']], on=['nom_est', 'año'], how='left')
