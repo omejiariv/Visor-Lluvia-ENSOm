@@ -357,13 +357,18 @@ gdf_municipios = st.session_state.gdf_municipios
 df_long = st.session_state.df_long
 df_enso = st.session_state.df_enso
 
-# --- NUEVA LÓGICA DE FILTRADO OPTIMIZADA ---
+# --- LÓGICA DE FILTRADO OPTIMIZADA ---
 @st.cache_data
-def filter_and_process_data(gdf_stations, df_precip_anual, df_long, year_range, meses_numeros, selected_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
-    """Filtra y prepara todos los dataframes en una sola función para ser cacheados."""
-    
+def filter_and_process_data(df_precip_anual, df_long, year_range, meses_numeros, selected_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
+    """
+    Filtra y prepara todos los dataframes en una sola función para ser cacheados.
+    IMPORTANTE:gdf_stations NO se pasa como parámetro para evitar el error de hash.
+    Se accede a st.session_state.gdf_stations dentro de la función.
+    """
+    gdf_stations_local = st.session_state.gdf_stations.copy()
+
     # Aplicar filtros secuenciales en gdf_stations
-    stations_available = gdf_stations.copy()
+    stations_available = gdf_stations_local.copy()
     if 'porc_datos' in stations_available.columns:
         stations_available['porc_datos'] = pd.to_numeric(stations_available['porc_datos'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         stations_available = stations_available[stations_available['porc_datos'] >= min_data_perc]
@@ -374,8 +379,8 @@ def filter_and_process_data(gdf_stations, df_precip_anual, df_long, year_range, 
             if r == '0-500': conditions.append((stations_available['alt_est'] >= 0) & (stations_available['alt_est'] <= 500))
             elif r == '500-1000': conditions.append((stations_available['alt_est'] > 500) & (stations_available['alt_est'] <= 1000))
             elif r == '1000-2000': conditions.append((stations_available['alt_est'] > 1000) & (stations_available['alt_est'] <= 2000))
-            elif r == '2000-3000': conditions.append((stations_available['alt_est'] > 2000) & (stations_available['alt_est'] <= 3000))
             elif r == '>3000': conditions.append(stations_available['alt_est'] > 3000)
+            elif r == '2000-3000': conditions.append((stations_available['alt_est'] > 2000) & (stations_available['alt_est'] <= 3000))
         if conditions:
             combined_condition = pd.concat(conditions, axis=1).any(axis=1)
             stations_available = stations_available[combined_condition]
@@ -393,14 +398,14 @@ def filter_and_process_data(gdf_stations, df_precip_anual, df_long, year_range, 
     
     # Si hay una selección manual, usarla
     if selected_stations:
-        filtered_gdf_stations = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].copy()
+        filtered_gdf_stations = gdf_stations_local[gdf_stations_local['nom_est'].isin(selected_stations)].copy()
     else:
         filtered_gdf_stations = stations_available.copy()
 
     # Filtrar datos anuales
     df_anual_melted = filtered_gdf_stations.melt(
         id_vars=['nom_est', 'municipio', 'longitud_geo', 'latitud_geo'],
-        value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations.columns],
+        value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in gdf_stations_local.columns],
         var_name='año', value_name='precipitacion')
 
     # Filtrar datos mensuales
@@ -435,7 +440,6 @@ with st.sidebar.expander("**2. Selección de Estaciones y Período**", expanded=
     if min_data_perc > 0:
         stations_master_list = stations_master_list[stations_master_list['porc_datos'] >= min_data_perc]
     
-    # Aplicar filtros adicionales para la lista de selección
     if selected_altitudes:
         conditions = []
         for r in selected_altitudes:
@@ -500,7 +504,6 @@ df_monthly_to_process = st.session_state.df_monthly_processed
 # --- Llama a la función de filtrado optimizada ---
 with st.spinner("Filtrando datos..."):
     filtered_data = filter_and_process_data(
-        gdf_stations,
         df_precip_anual,
         df_monthly_to_process,
         year_range,
@@ -879,7 +882,7 @@ with mapas_avanzados_tab:
                             )
                             bounds = {}
                             if map_view_option == "Zona de Selección":
-                                bounds_values = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
+                                bounds_values = gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
                                 bounds = {'lon': [bounds_values[0]-0.2, bounds_values[2]+0.2], 'lat': [bounds_values[1]-0.2, bounds_values[3]+0.2]}
                             elif map_view_option == "Antioquia":
                                 bounds = {'lon': [-77, -74.5], 'lat': [5.5, 8.5]}
@@ -923,7 +926,7 @@ with mapas_avanzados_tab:
                 if not df_anual_melted.empty:
                     all_years = sorted(df_anual_melted['año'].unique())
                     if all_years:
-                        all_selected_stations_info = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates()
+                        all_selected_stations_info = gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo']].drop_duplicates()
                         full_grid = pd.MultiIndex.from_product([all_selected_stations_info['nom_est'], all_years], names=['nom_est', 'año']).to_frame(index=False)
                         full_grid = pd.merge(full_grid, all_selected_stations_info, on='nom_est')
                         df_anim_complete = pd.merge(full_grid, df_anual_melted[['nom_est', 'año', 'precipitacion']], on=['nom_est', 'año'], how='left')
@@ -1000,7 +1003,7 @@ with mapas_avanzados_tab:
                         axis=1
                     )
                     lons, lats, vals = data_year_kriging['longitud_geo'].values, data_year_kriging['latitud_geo'].values, data_year_kriging['precipitacion'].values
-                    bounds = gdf_stations[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
+                    bounds = gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)].total_bounds
                     lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
                     lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
                     grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
@@ -1025,8 +1028,10 @@ with tabla_estaciones_tab:
     if not selected_stations:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     elif not df_anual_melted.empty:
-        display_cols = [col for col in gdf_filtered.columns if col != 'geometry']
-        df_info_table = gdf_filtered[display_cols]
+        df_info_table = gdf_filtered[['nom_est', 'alt_est', 'municipio', 'depto_region', 'porc_datos']].copy()
+        df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().round(0).reset_index()
+        df_mean_precip.rename(columns={'precipitacion': 'Precipitación media anual (mm)'}, inplace=True)
+        df_info_table = df_info_table.merge(df_mean_precip, on='nom_est', how='left')
         st.dataframe(df_info_table)
     else:
         st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
@@ -1056,7 +1061,7 @@ with anomalias_tab:
             with anom_mapa_tab:
                 st.subheader("Mapa Interactivo de Anomalías Anuales")
                 df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año'])['anomalia'].sum().reset_index()
-                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
+                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations.loc[gdf_stations['nom_est'].isin(selected_stations)][['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
 
                 years_with_anomalies = sorted(df_anomalias_anual['año'].unique().astype(int))
                 if years_with_anomalies:
