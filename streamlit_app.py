@@ -18,7 +18,8 @@ import locale
 import base64
 from scipy import stats
 import statsmodels.api as sm
-from pyhomogeneity import pettitt_test, mann_kendall # Importación de la librería para Mann-Kendall
+from pyhomogeneity.mann_kendall import mann_kendall
+from pyhomogeneity.pettitt_test import pettitt_test
 
 # --- Funciones de Carga y Procesamiento ---
 def parse_spanish_dates(date_series):
