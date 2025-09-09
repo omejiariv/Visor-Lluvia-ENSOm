@@ -6,3 +6,5 @@ locales
 build-essential
 gfortran
 python3-dev
+libspatialindex-dev
+libtool
