@@ -1476,7 +1476,7 @@ with tendencias_tab:
                 tendencias_df = pd.DataFrame(tendencias_data)
                 st.dataframe(tendencias_df, use_container_width=True)
         # --- FIN: NUEVA PESTAÑA PARA LA TABLA DE TENDENCIAS ---
-        
+
         with pronostico_tab:
             st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
              
