@@ -1071,6 +1071,14 @@ with mapas_avanzados_tab:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         elif not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             min_year, max_year = int(df_anual_melted['año'].min()), int(df_anual_melted['año'].max())
+            
+            # --- [NUEVO] Opciones para el mapa de fondo de Kriging ---
+            map_options_kriging = {
+                "Sin Mapa Base": None,
+                "CartoDB Positron": "carto-positron"
+            }
+            selected_kriging_map_style = st.radio("Seleccionar Mapa Base", list(map_options_kriging.keys()), key="kriging_map_style_radio")
+            
             year_kriging = st.slider("Seleccione el año para la interpolación", min_year, max_year, max_year, key="year_kriging")
             data_year_kriging = df_anual_melted[df_anual_melted['año'].astype(int) == year_kriging]
             
@@ -1097,11 +1105,17 @@ with mapas_avanzados_tab:
                     OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
                     
-                    # Crear figura para el mapa Kriging
                     fig_krig = go.Figure()
                     
-                    # Agregar la capa de contornos de la interpolación
-                    fig_krig.add_trace(go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
+                    # Agregar la capa de densidad para la interpolación
+                    fig_krig.add_trace(go.Densitymapbox(
+                        lat=grid_lat, lon=grid_lon, z=z.T.flatten(),
+                        colorscale='YlGnBu',
+                        name='Precipitación Interpolada',
+                        radius=20,
+                        hoverinfo='none',
+                        subplot='mapbox'
+                    ))
                     
                     # Agregar los marcadores de las estaciones originales
                     fig_krig.add_trace(go.Scattermapbox(
@@ -1112,13 +1126,14 @@ with mapas_avanzados_tab:
                         hovertemplate='%{text}<extra></extra>'
                     ))
                     
-                    # Actualizar el layout para el mapa base de carto-positron
+                    # Configurar el layout del mapa
                     fig_krig.update_layout(
                         height=700,
                         title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}",
-                        mapbox_style="carto-positron",
+                        mapbox_style=map_options_kriging[selected_kriging_map_style],
                         mapbox_zoom=5,
-                        mapbox_center={"lat": np.mean(lats), "lon": np.mean(lons)}
+                        mapbox_center={"lat": np.mean(lats), "lon": np.mean(lons)},
+                        showlegend=True
                     )
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
