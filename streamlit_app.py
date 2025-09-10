@@ -19,8 +19,6 @@ import locale
 import base64
 from scipy import stats
 import statsmodels.api as sm
-from prophet import Prophet
-from prophet.plot import plot_plotly
 
 # --- Funciones de Carga y Procesamiento ---
 def parse_spanish_dates(date_series):
@@ -1394,7 +1392,7 @@ with tendencias_tab:
     if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
-        tendencia_tab, pronostico_tab, prophet_tab = st.tabs(["Análisis de Tendencia", "Pronóstico SARIMA", "Pronóstico Prophet"])
+        tendencia_tab, pronostico_tab = st.tabs(["Análisis de Tendencia", "Pronóstico SARIMA"])
 
         with tendencia_tab:
             st.subheader("Tendencia de Precipitación Anual")
@@ -1464,44 +1462,6 @@ with tendencias_tab:
                     except Exception as e:
                         st.error(f"No se pudo generar el pronóstico para '{station_to_forecast}'. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
 
-        with prophet_tab:
-            st.subheader("Pronóstico de Precipitación Mensual (Modelo Prophet)")
-            
-            station_to_forecast_prophet = st.selectbox(
-                "Seleccione una estación para el pronóstico:",
-                options=stations_for_analysis,
-                key="prophet_station_select",
-                help="El pronóstico se realiza para una única serie de tiempo con Prophet."
-            )
-            
-            forecast_horizon_prophet = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="prophet_horizon")
-
-            if st.button("Generar Pronóstico con Prophet", key="run_prophet"):
-                with st.spinner("Entrenando modelo Prophet y generando pronóstico... Esto puede tardar un momento."):
-                    try:
-                        ts_data_prophet = df_monthly_to_process[df_monthly_to_process['nom_est'] == station_to_forecast_prophet][['fecha_mes_año', 'precipitation']].copy()
-                        ts_data_prophet.rename(columns={'fecha_mes_año': 'ds', 'precipitation': 'y'}, inplace=True)
-                        
-                        if len(ts_data_prophet) < 24:
-                            st.warning("Se necesitan al menos 24 puntos de datos para que Prophet funcione correctamente. Por favor, ajuste la selección de años.")
-                        else:
-                            model_prophet = Prophet()
-                            model_prophet.fit(ts_data_prophet)
-                            
-                            future = model_prophet.make_future_dataframe(periods=forecast_horizon_prophet, freq='MS')
-                            forecast_prophet = model_prophet.predict(future)
-
-                            st.success("Pronóstico generado exitosamente.")
-                            
-                            fig_prophet = plot_plotly(model_prophet, forecast_prophet)
-                            fig_prophet.update_layout(title=f"Pronóstico de Precipitación con Prophet para {station_to_forecast_prophet}", yaxis_title="Precipitación (mm)")
-                            st.plotly_chart(fig_prophet, use_container_width=True)
-
-                            st.info("El modelo Prophet descompone la serie de tiempo en componentes de tendencia, estacionalidad y días festivos para generar un pronóstico robusto. El área sombreada representa el intervalo de confianza.")
-                    except Exception as e:
-                        st.error(f"Ocurrió un error al generar el pronóstico con Prophet. Esto puede deberse a que la serie de datos es demasiado corta o inestable. Error: {e}")
-
-
 with descargas_tab:
     st.header("Opciones de Descarga")
     if len(stations_for_analysis) == 0:
@@ -1521,7 +1481,6 @@ with descargas_tab:
 
         if analysis_mode == "Completar series (interpolación)":
             st.markdown("**Datos de Precipitación Mensual (Series Completadas y Filtradas)**")
-            csv_completado = convert_df_to_csv(df_monthly_filtered)
-            st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
+            st.download_button("Descargar CSV con Series Completadas", csv_mensual, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
         else:
             st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
