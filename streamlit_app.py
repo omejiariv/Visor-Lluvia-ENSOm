@@ -966,7 +966,7 @@ with mapas_avanzados_tab:
                                     hover_name='nom_est', title=f'Precipitación Anual por Estación - Año {selected_year}',
                                     hover_data={'municipio': True, 'precipitacion': ':.0f'},
                                     color_continuous_scale=px.colors.sequential.YlGnBu, range_color=[min_precip_range, max_precip_range],
-                                    mapbox_style='carto-positron', zoom=st.session_state.map_view["zoom"]
+                                    mapbox_style='carto-positron', zoom=5
                                 )
                                 fig_interactive_map.update_layout(height=700)
                                 st.plotly_chart(fig_interactive_map, use_container_width=True)
@@ -1096,8 +1096,14 @@ with mapas_avanzados_tab:
                     grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
                     OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
-
-                    fig_krig = go.Figure(data=go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
+                    
+                    # Crear figura para el mapa Kriging
+                    fig_krig = go.Figure()
+                    
+                    # Agregar la capa base de Mapbox
+                    fig_krig.add_trace(go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
+                    
+                    # Agregar los marcadores de las estaciones originales
                     fig_krig.add_trace(go.Scatter(
                         x=lons, y=lats, mode='markers', 
                         marker=dict(color='red', size=5, symbol='circle'), 
@@ -1105,7 +1111,17 @@ with mapas_avanzados_tab:
                         text=data_year_kriging['tooltip'],
                         hoverinfo='text'
                     ))
-                    fig_krig.update_layout(height=700, title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}", xaxis_title="Longitud", yaxis_title="Latitud")
+                    
+                    # Actualizar el layout para el mapa base de carto-positron
+                    fig_krig.update_layout(
+                        height=700,
+                        title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}",
+                        xaxis_title="Longitud",
+                        yaxis_title="Latitud",
+                        mapbox_style="carto-positron",
+                        mapbox_zoom=5,
+                        mapbox_center={"lat": np.mean(lats), "lon": np.mean(lons)}
+                    )
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
             st.warning("No hay datos para realizar la interpolación.")
@@ -1157,6 +1173,7 @@ with anomalias_tab:
 
                     max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
 
+                    # --- [CORRECCIÓN] Se usa scatter_mapbox para el mapa base ---
                     fig_anom_map = px.scatter_mapbox(
                         df_map_anom, lat='latitud_geo', lon='longitud_geo',
                         color='anomalia',
@@ -1170,6 +1187,7 @@ with anomalias_tab:
                     )
                     fig_anom_map.update_layout(height=700)
                     st.plotly_chart(fig_anom_map, use_container_width=True)
+                    # --- [FIN CORRECCIÓN] ---
 
             with anom_fase_tab:
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
