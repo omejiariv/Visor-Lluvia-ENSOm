@@ -98,7 +98,8 @@ def complete_series(_df):
         df_resampled = df_station.resample('MS').asfreq()
         df_resampled['precipitation'] = original_data['precipitation']
         df_resampled['origen'] = original_data['origen']
-        df_resampled['anomalia_oni'] = df_station['anomalia_oni']
+        if 'anomalia_oni' in df_station.columns:
+            df_resampled['anomalia_oni'] = df_station['anomalia_oni']
         df_resampled['origen'] = df_resampled['origen'].fillna('Completado')
         df_resampled['precipitation'] = df_resampled['precipitation'].interpolate(method='time')
 
@@ -264,23 +265,22 @@ def create_anomaly_chart(df_plot):
     ))
 
     # Añadir sombreado para fases ENSO
-    y_min, y_max = df_plot['anomalia'].min(), df_plot['anomalia'].max()
-    
-    df_plot_enso = df_plot.dropna(subset=['anomalia_oni'])
-    
-    nino_periods = df_plot_enso[df_plot_enso['anomalia_oni'] >= 0.5]
-    for _, row in nino_periods.iterrows():
-        fig.add_vrect(x0=row['fecha_mes_año'] - pd.DateOffset(days=15), x1=row['fecha_mes_año'] + pd.DateOffset(days=15), 
-                      fillcolor="red", opacity=0.15, layer="below", line_width=0)
+    if 'anomalia_oni' in df_plot.columns:
+        df_plot_enso = df_plot.dropna(subset=['anomalia_oni'])
+        
+        nino_periods = df_plot_enso[df_plot_enso['anomalia_oni'] >= 0.5]
+        for _, row in nino_periods.iterrows():
+            fig.add_vrect(x0=row['fecha_mes_año'] - pd.DateOffset(days=15), x1=row['fecha_mes_año'] + pd.DateOffset(days=15), 
+                          fillcolor="red", opacity=0.15, layer="below", line_width=0)
 
-    nina_periods = df_plot_enso[df_plot_enso['anomalia_oni'] <= -0.5]
-    for _, row in nina_periods.iterrows():
-        fig.add_vrect(x0=row['fecha_mes_año'] - pd.DateOffset(days=15), x1=row['fecha_mes_año'] + pd.DateOffset(days=15), 
-                      fillcolor="blue", opacity=0.15, layer="below", line_width=0)
+        nina_periods = df_plot_enso[df_plot_enso['anomalia_oni'] <= -0.5]
+        for _, row in nina_periods.iterrows():
+            fig.add_vrect(x0=row['fecha_mes_año'] - pd.DateOffset(days=15), x1=row['fecha_mes_año'] + pd.DateOffset(days=15), 
+                          fillcolor="blue", opacity=0.15, layer="below", line_width=0)
 
-    # Añadir elementos de leyenda para el sombreado
-    fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(255, 0, 0, 0.3)'), name='Fase El Niño'))
-    fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(0, 0, 255, 0.3)'), name='Fase La Niña'))
+        # Añadir elementos de leyenda para el sombreado
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(255, 0, 0, 0.3)'), name='Fase El Niño'))
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(0, 0, 255, 0.3)'), name='Fase La Niña'))
     
     fig.update_layout(
         height=600,
@@ -1251,16 +1251,19 @@ with anomalias_tab:
                     st.plotly_chart(fig_anom_map, use_container_width=True)
 
             with anom_fase_tab:
-                df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
-                conditions = [df_anomalias_enso['anomalia_oni'] >= 0.5, df_anomalias_enso['anomalia_oni'] <= -0.5]
-                phases = ['El Niño', 'La Niña']
-                df_anomalias_enso['enso_fase'] = np.select(conditions, phases, default='Neutral')
-                
-                fig_box = px.box(df_anomalias_enso, x='enso_fase', y='anomalia', color='enso_fase',
-                                 title="Distribución de Anomalías de Precipitación por Fase ENSO",
-                                 labels={'anomalia': 'Anomalía de Precipitación (mm)', 'enso_fase': 'Fase ENSO'},
-                                 points='all')
-                st.plotly_chart(fig_box, use_container_width=True)
+                if 'anomalia_oni' in df_anomalias.columns:
+                    df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
+                    conditions = [df_anomalias_enso['anomalia_oni'] >= 0.5, df_anomalias_enso['anomalia_oni'] <= -0.5]
+                    phases = ['El Niño', 'La Niña']
+                    df_anomalias_enso['enso_fase'] = np.select(conditions, phases, default='Neutral')
+                    
+                    fig_box = px.box(df_anomalias_enso, x='enso_fase', y='anomalia', color='enso_fase',
+                                     title="Distribución de Anomalías de Precipitación por Fase ENSO",
+                                     labels={'anomalia': 'Anomalía de Precipitación (mm)', 'enso_fase': 'Fase ENSO'},
+                                     points='all')
+                    st.plotly_chart(fig_box, use_container_width=True)
+                else:
+                    st.warning("La columna 'anomalia_oni' no está disponible para este análisis.")
 
             with anom_extremos_tab:
                 st.subheader("Eventos Mensuales Extremos (Basado en Anomalías)")
@@ -1374,20 +1377,19 @@ with correlacion_tab:
     st.header("Correlación entre Precipitación y ENSO")
     st.markdown("Esta sección cuantifica la relación lineal entre la precipitación mensual y la anomalía ONI utilizando el coeficiente de correlación de Pearson.")
 
-    # --- Defensive check ---
-    if 'anomalia_oni' not in df_enso.columns:
-        st.warning("No se puede realizar el análisis de correlación porque la columna 'anomalia_oni' no fue encontrada en el archivo de datos cargado.")
+    # --- Defensive check: ensure the necessary columns exist in the processed monthly data ---
+    if 'anomalia_oni' not in df_monthly_filtered.columns:
+        st.warning("No se puede realizar el análisis de correlación porque la columna 'anomalia_oni' no fue encontrada en el archivo de datos cargado o para la selección actual.")
     elif len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para realizar el análisis de correlación.")
     else:
-        # Fusionar los dataframes
-        df_corr_analysis = pd.merge(df_monthly_filtered, df_enso[['fecha_mes_año', 'anomalia_oni']], on='fecha_mes_año', how='inner')
+        # The necessary columns are already in df_monthly_filtered.
+        # We just need to drop rows where either value is missing.
+        df_corr_analysis = df_monthly_filtered[['fecha_mes_año', 'nom_est', 'precipitation', 'anomalia_oni']].dropna(subset=['precipitation', 'anomalia_oni'])
         
         if df_corr_analysis.empty:
             st.warning("No hay datos coincidentes entre la precipitación y el ENSO para la selección actual.")
         else:
-            df_corr_analysis.dropna(subset=['precipitation', 'anomalia_oni'], inplace=True)
-            
             # Permitir al usuario elegir si analiza por estación o el promedio
             analysis_level = st.radio("Nivel de Análisis de Correlación", ["Promedio de la selección", "Por Estación Individual"], key="corr_level")
 
@@ -1395,7 +1397,7 @@ with correlacion_tab:
             title_text = ""
 
             if analysis_level == "Por Estación Individual":
-                station_to_corr = st.selectbox("Seleccione Estación", options=stations_for_analysis, key="corr_station")
+                station_to_corr = st.selectbox("Seleccione Estación", options=sorted(df_corr_analysis['nom_est'].unique()), key="corr_station")
                 if station_to_corr:
                     df_plot_corr = df_corr_analysis[df_corr_analysis['nom_est'] == station_to_corr]
                     title_text = f"Correlación para la estación: {station_to_corr}"
@@ -1408,29 +1410,33 @@ with correlacion_tab:
 
             # Calcular y mostrar resultados
             if len(df_plot_corr) > 2:
-                corr, p_value = stats.pearsonr(df_plot_corr['anomalia_oni'], df_plot_corr['precipitation'])
+                # Ensure the columns exist before trying to access them
+                if 'anomalia_oni' in df_plot_corr.columns and 'precipitation' in df_plot_corr.columns:
+                    corr, p_value = stats.pearsonr(df_plot_corr['anomalia_oni'], df_plot_corr['precipitation'])
 
-                st.subheader(title_text)
+                    st.subheader(title_text)
 
-                col1, col2 = st.columns(2)
-                col1.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
-                col2.metric("Significancia (valor p)", f"{p_value:.4f}")
+                    col1, col2 = st.columns(2)
+                    col1.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
+                    col2.metric("Significancia (valor p)", f"{p_value:.4f}")
 
-                if p_value < 0.05:
-                    st.success("La correlación es estadísticamente significativa, lo que sugiere una relación lineal entre las variables.")
+                    if p_value < 0.05:
+                        st.success("La correlación es estadísticamente significativa, lo que sugiere una relación lineal entre las variables.")
+                    else:
+                        st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
+
+                    # Gráfico de dispersión
+                    fig_corr = px.scatter(
+                        df_plot_corr,
+                        x='anomalia_oni',
+                        y='precipitation',
+                        trendline="ols",
+                        title="Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
+                        labels={'anomalia_oni': 'Anomalía ONI (°C)', 'precipitation': 'Precipitación Mensual (mm)'}
+                    )
+                    st.plotly_chart(fig_corr, use_container_width=True)
                 else:
-                    st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
-
-                # Gráfico de dispersión
-                fig_corr = px.scatter(
-                    df_plot_corr,
-                    x='anomalia_oni',
-                    y='precipitation',
-                    trendline="ols",
-                    title="Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
-                    labels={'anomalia_oni': 'Anomalía ONI (°C)', 'precipitation': 'Precipitación Mensual (mm)'}
-                )
-                st.plotly_chart(fig_corr, use_container_width=True)
+                    st.warning("Las columnas necesarias para el gráfico no están disponibles.")
             else:
                 st.warning("No hay suficientes datos superpuestos para calcular la correlación para la selección actual.")
     
@@ -1468,67 +1474,71 @@ with enso_tab:
         if df_enso.empty or gdf_stations.empty:
             st.warning("No hay datos disponibles para generar esta animación.")
         else:
-            controls_col, map_col = st.columns([1, 3])
-            enso_anim_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
-            enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
-            conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
-            phases = ['El Niño', 'La Niña']
-            enso_anim_data['fase'] = np.select(conditions, phases, default='Neutral')
-            enso_anim_data_filtered = enso_anim_data[(enso_anim_data['fecha_mes_año'].dt.year >= year_range[0]) & (enso_anim_data['fecha_mes_año'].dt.year <= year_range[1])]
-            
-            with controls_col:
-                st.markdown("##### Estadísticas ENSO")
-                logo_col, info_col = st.columns([1, 4])
-                with logo_col:
-                    if os.path.exists(logo_gota_path):
-                        st.image(logo_gota_path, width=40)
-                with info_col:
-                    st.metric("Total Meses Analizados", len(enso_anim_data_filtered))
+            if 'anomalia_oni' in df_enso.columns:
+                controls_col, map_col = st.columns([1, 3])
+                enso_anim_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
+                enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
+                conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
+                phases = ['El Niño', 'La Niña']
+                enso_anim_data['fase'] = np.select(conditions, phases, default='Neutral')
+                enso_anim_data_filtered = enso_anim_data[(enso_anim_data['fecha_mes_año'].dt.year >= year_range[0]) & (enso_anim_data['fecha_mes_año'].dt.year <= year_range[1])]
                 
-                phase_counts = enso_anim_data_filtered['fase'].value_counts()
-                nino_months = phase_counts.get('El Niño', 0)
-                nina_months = phase_counts.get('La Niña', 0)
+                with controls_col:
+                    st.markdown("##### Estadísticas ENSO")
+                    logo_col, info_col = st.columns([1, 4])
+                    with logo_col:
+                        if os.path.exists(logo_gota_path):
+                            st.image(logo_gota_path, width=40)
+                    with info_col:
+                        st.metric("Total Meses Analizados", len(enso_anim_data_filtered))
+                    
+                    phase_counts = enso_anim_data_filtered['fase'].value_counts()
+                    nino_months = phase_counts.get('El Niño', 0)
+                    nina_months = phase_counts.get('La Niña', 0)
 
-                enso_events_df = enso_anim_data_filtered[enso_anim_data_filtered['fase'] != 'Neutral']
-                if not enso_events_df.empty:
-                    try:
-                        locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
-                    except locale.Error:
-                        locale.setlocale(locale.LC_TIME, '')
-                    enso_events_df.loc[:, 'mes_nombre'] = enso_events_df['fecha_mes_año'].dt.strftime('%B').str.capitalize()
-                    most_frequent_month = enso_events_df['mes_nombre'].mode()[0]
-                else:
-                    most_frequent_month = "N/A"
+                    enso_events_df = enso_anim_data_filtered[enso_anim_data_filtered['fase'] != 'Neutral']
+                    if not enso_events_df.empty:
+                        try:
+                            locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+                        except locale.Error:
+                            locale.setlocale(locale.LC_TIME, '')
+                        enso_events_df.loc[:, 'mes_nombre'] = enso_events_df['fecha_mes_año'].dt.strftime('%B').str.capitalize()
+                        most_frequent_month = enso_events_df['mes_nombre'].mode()[0]
+                    else:
+                        most_frequent_month = "N/A"
 
-                st.info(f"""
-                **Meses en Fase 'El Niño':** {nino_months}
-                **Meses en Fase 'La Niña':** {nina_months}
-                 **Mes más frecuente para eventos:** {most_frequent_month}
-                """)
+                    st.info(f"""
+                    **Meses en Fase 'El Niño':** {nino_months}
+                    **Meses en Fase 'La Niña':** {nina_months}
+                     **Mes más frecuente para eventos:** {most_frequent_month}
+                    """)
 
-            with map_col:
-                stations_subset = gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']]
-                enso_anim_data_filtered.loc[:, 'fecha_str'] = enso_anim_data_filtered['fecha_mes_año'].dt.strftime('%Y-%m')
-                enso_anim_data_filtered.loc[:, 'key'] = 1
-                stations_subset['key'] = 1
-                animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
+                with map_col:
+                    stations_subset = gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']]
+                    enso_anim_data_filtered.loc[:, 'fecha_str'] = enso_anim_data_filtered['fecha_mes_año'].dt.strftime('%Y-%m')
+                    enso_anim_data_filtered.loc[:, 'key'] = 1
+                    stations_subset['key'] = 1
+                    animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
 
-                fig_enso_anim = px.scatter_geo(
-                    animation_df, lat='latitud_geo', lon='longitud_geo',
-                    color='fase', animation_frame='fecha_str',
-                    hover_name='nom_est',
-                    color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
-                    category_orders={"fase": ["El Niño", "La Niña", "Neutral"]},
-                    projection='natural earth'
-                )
-                fig_enso_anim.update_geos(fitbounds="locations", visible=True)
-                fig_enso_anim.update_layout(
-                    height=700,
-                    title="Fase ENSO por Mes en las Estaciones Seleccionadas",
-                    sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))],
-                    legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant')
-                )
-                st.plotly_chart(fig_enso_anim, use_container_width=True)
+                    fig_enso_anim = px.scatter_geo(
+                        animation_df, lat='latitud_geo', lon='longitud_geo',
+                        color='fase', animation_frame='fecha_str',
+                        hover_name='nom_est',
+                        color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
+                        category_orders={"fase": ["El Niño", "La Niña", "Neutral"]},
+                        projection='natural earth'
+                    )
+                    fig_enso_anim.update_geos(fitbounds="locations", visible=True)
+                    fig_enso_anim.update_layout(
+                        height=700,
+                        title="Fase ENSO por Mes en las Estaciones Seleccionadas",
+                        sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))],
+                        legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant')
+                    )
+                    st.plotly_chart(fig_enso_anim, use_container_width=True)
+            else:
+                st.warning("La columna 'anomalia_oni' es necesaria para esta animación y no se encontró en los datos.")
+
 
 with tendencias_tab:
     st.header("Análisis de Tendencias y Pronósticos")
@@ -1720,3 +1730,4 @@ with descargas_tab:
             st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
         else:
             st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
+
