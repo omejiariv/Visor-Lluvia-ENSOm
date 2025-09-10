@@ -362,6 +362,7 @@ gdf_municipios = st.session_state.gdf_municipios
 
 
 # --- LÓGICA DE FILTRADO OPTIMIZADA Y DINÁMICA ---
+# La función de filtro ahora no está cacheadas para evitar UnhashableParamError
 def apply_filters_to_stations(df, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
     """Aplica los filtros geográficos y de datos para obtener la lista de estaciones disponibles."""
     stations_filtered = df.copy()
@@ -957,20 +958,25 @@ with mapas_avanzados_tab:
                             else:
                                 st.warning(f"No hay datos de precipitación para el año {selected_year}.")
                         with map_col:
-                            if not df_year_filtered.empty:
-                                min_precip_range, max_precip_range = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
-                                fig_interactive_map = px.scatter_mapbox(
-                                    df_year_filtered, lat='latitud_geo', lon='longitud_geo',
-                                    color='precipitacion', size='precipitacion',
-                                    hover_name='nom_est', title=f'Precipitación Anual por Estación - Año {selected_year}',
-                                    hover_data={'municipio': True, 'precipitacion': ':.0f'},
-                                    color_continuous_scale=px.colors.sequential.YlGnBu, range_color=[min_precip_range, max_precip_range],
-                                    mapbox_style='carto-positron', zoom=5
-                                )
-                                fig_interactive_map.update_layout(height=700)
-                                st.plotly_chart(fig_interactive_map, use_container_width=True)
-                            else:
-                                st.warning(f"No hay datos para el año {selected_year} para generar el mapa.")
+                            min_precip_range, max_precip_range = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
+                            fig_interactive_map = px.scatter_geo(
+                                df_year_filtered, lat='latitud_geo', lon='longitud_geo',
+                                color='precipitacion', size='precipitacion',
+                                hover_name='nom_est', title=f'Precipitación Anual por Estación - Año {selected_year}',
+                                hover_data={'municipio': True, 'precipitacion': ':.0f'},
+                                color_continuous_scale=px.colors.sequential.YlGnBu, range_color=[min_precip_range, max_precip_range]
+                            )
+                            bounds = {}
+                            if map_view_option == "Zona de Selección":
+                                bounds_values = gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)].total_bounds
+                                bounds = {'lon': [bounds_values[0]-0.2, bounds_values[2]+0.2], 'lat': [bounds_values[1]-0.2, bounds_values[3]+0.2]}
+                            elif map_view_option == "Antioquia":
+                                bounds = {'lon': [-77, -74.5], 'lat': [5.5, 8.5]}
+                            elif map_view_option == "Colombia":
+                                bounds = {'lon': [-79, -67], 'lat': [-4.5, 12.5]}
+                            fig_interactive_map.update_geos(lataxis_range=bounds.get('lat'), lonaxis_range=bounds.get('lon'), visible=True, showcoastlines=True, coastlinewidth=0.5, showland=True, landcolor="rgb(243, 243, 243)", showocean=True, oceancolor="rgb(220, 235, 255)", showcountries=True, countrywidth=0.5)
+                            fig_interactive_map.update_layout(height=700)
+                            st.plotly_chart(fig_interactive_map, use_container_width=True)
 
             with race_tab:
                 st.subheader("Ranking Anual de Precipitación por Estación")
@@ -1012,13 +1018,10 @@ with mapas_avanzados_tab:
                         df_anim_complete = pd.merge(full_grid, df_anual_melted[['nom_est', 'año', 'precipitacion']], on=['nom_est', 'año'], how='left')
                         df_anim_complete['texto_tooltip'] = df_anim_complete.apply(lambda row: f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> {row['precipitacion']:.0f} mm" if pd.notna(row['precipitacion']) else f"<b>Estación:</b> {row['nom_est']}<br><b>Precipitación:</b> Sin datos", axis=1)
                         df_anim_complete['precipitacion_plot'] = df_anim_complete['precipitacion'].fillna(0)
-                        
-                        min_lat, max_lat = df_anim_complete['latitud_geo'].min(), df_anim_complete['latitud_geo'].max()
-                        min_lon, max_lon = df_anim_complete['longitud_geo'].min(), df_anim_complete['longitud_geo'].max()
-                        center_lat, center_lon = (min_lat + max_lat) / 2, (min_lon + max_lon) / 2
-                        
-                        fig_mapa_animado = px.scatter_mapbox(df_anim_complete, lat='latitud_geo', lon='longitud_geo', color='precipitacion_plot', size='precipitacion_plot', hover_name='nom_est', hover_data={'latitud_geo': False, 'longitud_geo': False, 'precipitacion_plot': False, 'texto_tooltip': True}, animation_frame='año', mapbox_style='carto-positron', zoom=5, center={"lat": center_lat, "lon": center_lon}, title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu, range_color=[df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()])
+                        min_precip_anim, max_precip_anim = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
+                        fig_mapa_animado = px.scatter_geo(df_anim_complete, lat='latitud_geo', lon='longitud_geo', color='precipitacion_plot', size='precipitacion_plot', hover_name='nom_est', hover_data={'latitud_geo': False, 'longitud_geo': False, 'precipitacion_plot': False, 'texto_tooltip': True}, animation_frame='año', projection='natural earth', title='Precipitación Anual por Estación', color_continuous_scale=px.colors.sequential.YlGnBu, range_color=[min_precip_anim, max_precip_anim])
                         fig_mapa_animado.update_traces(hovertemplate='%{customdata[0]}')
+                        fig_mapa_animado.update_geos(fitbounds="locations", visible=True, showcoastlines=True, coastlinewidth=0.5, showland=True, landcolor="rgb(243, 243, 243)", showocean=True, oceancolor="rgb(220, 235, 255)", showcountries=True, countrywidth=0.5)
                         fig_mapa_animado.update_layout(height=700, sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Año: </b>', visible=True))])
                         st.plotly_chart(fig_mapa_animado, use_container_width=True)
     
@@ -1054,12 +1057,12 @@ with mapas_avanzados_tab:
             min_precip_comp, max_precip_comp = int(df_anual_melted['precipitacion'].min()), int(df_anual_melted['precipitacion'].max())
             color_range_comp = st.slider("Rango de Escala de Color (mm)", min_precip_comp, max_precip_comp, (min_precip_comp, max_precip_comp), key="color_comp")
 
-            fig1 = px.scatter_mapbox(data_year1, lat='latitud_geo', lon='longitud_geo', color='precipitacion', size='precipitacion', hover_name='nom_est', hover_data={'municipio': True, 'precipitacion': ':.0f'}, color_continuous_scale='YlGnBu', range_color=color_range_comp, mapbox_style='carto-positron', title=f"Precipitación en {year1}")
-            fig1.update_layout(height=700)
+            fig1 = px.scatter_geo(data_year1, lat='latitud_geo', lon='longitud_geo', color='precipitacion', size='precipitacion', hover_name='nom_est', hover_data={'municipio': True, 'precipitacion': ':.0f'}, color_continuous_scale='YlGnBu', range_color=color_range_comp, projection='natural earth', title=f"Precipitación en {year1}")
+            fig1.update_geos(fitbounds="locations", visible=True)
             map_col1.plotly_chart(fig1, use_container_width=True)
             
-            fig2 = px.scatter_mapbox(data_year2, lat='latitud_geo', lon='longitud_geo', color='precipitacion', size='precipitacion', hover_name='nom_est', hover_data={'municipio': True, 'precipitacion': ':.0f'}, color_continuous_scale='YlGnBu', range_color=color_range_comp, mapbox_style='carto-positron', title=f"Precipitación en {year2}")
-            fig2.update_layout(height=700)
+            fig2 = px.scatter_geo(data_year2, lat='latitud_geo', lon='longitud_geo', color='precipitacion', size='precipitacion', hover_name='nom_est', hover_data={'municipio': True, 'precipitacion': ':.0f'}, color_continuous_scale='YlGnBu', range_color=color_range_comp, projection='natural earth', title=f"Precipitación en {year2}")
+            fig2.update_geos(fitbounds="locations", visible=True)
             map_col2.plotly_chart(fig2, use_container_width=True)
         else:
             st.warning("No hay años disponibles para la comparación.")
@@ -1070,14 +1073,6 @@ with mapas_avanzados_tab:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         elif not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             min_year, max_year = int(df_anual_melted['año'].min()), int(df_anual_melted['año'].max())
-            
-            # Opciones para el mapa de fondo de Kriging
-            map_options_kriging = {
-                "Sin Mapa Base": None,
-                "CartoDB Positron": "carto-positron"
-            }
-            selected_kriging_map_style = st.radio("Seleccionar Mapa Base", list(map_options_kriging.keys()), key="kriging_map_style_radio")
-            
             year_kriging = st.slider("Seleccione el año para la interpolación", min_year, max_year, max_year, key="year_kriging")
             data_year_kriging = df_anual_melted[df_anual_melted['año'].astype(int) == year_kriging]
             
@@ -1103,34 +1098,16 @@ with mapas_avanzados_tab:
                     grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
                     OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
-                    
-                    fig_krig = go.Figure()
-                    
-                    fig_krig.add_trace(go.Contourmapbox(
-                        z=z.T,
-                        x=grid_lon,
-                        y=grid_lat,
-                        colorscale='YlGnBu',
-                        name='Precipitación Interpolada',
-                        contours_showlines=False
-                    ))
-                    
-                    fig_krig.add_trace(go.Scattermapbox(
-                        lat=lats, lon=lons,
-                        mode='markers',
-                        marker=dict(size=10, color='red'),
+
+                    fig_krig = go.Figure(data=go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
+                    fig_krig.add_trace(go.Scatter(
+                        x=lons, y=lats, mode='markers', 
+                        marker=dict(color='red', size=5, symbol='circle'), 
                         name='Estaciones',
                         text=data_year_kriging['tooltip'],
-                        hovertemplate='%{text}<extra></extra>'
+                        hoverinfo='text'
                     ))
-                    
-                    fig_krig.update_layout(
-                        height=700,
-                        title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}",
-                        mapbox_style=map_options_kriging[selected_kriging_map_style],
-                        mapbox_zoom=5,
-                        mapbox_center={"lat": np.mean(lats), "lon": np.mean(lons)}
-                    )
+                    fig_krig.update_layout(height=700, title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}", xaxis_title="Longitud", yaxis_title="Latitud")
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
             st.warning("No hay datos para realizar la interpolación.")
@@ -1162,13 +1139,39 @@ with anomalias_tab:
         if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
             st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
         else:
-            anom_graf_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
+            anom_graf_tab, anom_mapa_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Mapa de Anomalías Anuales", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
 
             with anom_graf_tab:
                 avg_monthly_anom = df_anomalias.groupby(['fecha_mes_año', 'mes'])['anomalia'].mean().reset_index()
                 df_plot = pd.merge(avg_monthly_anom, df_enso[['fecha_mes_año', 'anomalia_oni']], on='fecha_mes_año', how='left')
                 fig = create_anomaly_chart(df_plot)
                 st.plotly_chart(fig, use_container_width=True)
+
+            with anom_mapa_tab:
+                st.subheader("Mapa Interactivo de Anomalías Anuales")
+                df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año'])['anomalia'].sum().reset_index()
+                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)][['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
+
+                years_with_anomalies = sorted(df_anomalias_anual['año'].unique().astype(int))
+                if years_with_anomalies:
+                    year_to_map = st.slider("Seleccione un año para visualizar en el mapa:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
+                    df_map_anom = df_anomalias_anual[df_anomalias_anual['año'] == str(year_to_map)]
+
+                    max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
+
+                    fig_anom_map = px.scatter_geo(
+                        df_map_anom,
+                        lat='latitud_geo', lon='longitud_geo',
+                        color='anomalia',
+                        size=df_map_anom['anomalia'].abs(),
+                        hover_name='nom_est',
+                        hover_data={'anomalia': ':.0f'},
+                        color_continuous_scale='RdBu',
+                        range_color=[-max_abs_anom, max_abs_anom],
+                        title=f"Anomalía de Precipitación Anual para el año {year_to_map}"
+                    )
+                    fig_anom_map.update_geos(fitbounds="locations", visible=True)
+                    st.plotly_chart(fig_anom_map, use_container_width=True)
 
             with anom_fase_tab:
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
@@ -1369,16 +1372,21 @@ with enso_tab:
                 stations_subset['key'] = 1
                 animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
 
-                fig_enso_anim = px.scatter_mapbox(
+                fig_enso_anim = px.scatter_geo(
                     animation_df, lat='latitud_geo', lon='longitud_geo',
                     color='fase', animation_frame='fecha_str',
                     hover_name='nom_est',
                     color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
                     category_orders={"fase": ["El Niño", "La Niña", "Neutral"]},
-                    mapbox_style='carto-positron',
-                    title="Fase ENSO por Mes en las Estaciones Seleccionadas"
+                    projection='natural earth'
                 )
-                fig_enso_anim.update_layout(height=700, sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))], legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant'))
+                fig_enso_anim.update_geos(fitbounds="locations", visible=True)
+                fig_enso_anim.update_layout(
+                    height=700,
+                    title="Fase ENSO por Mes en las Estaciones Seleccionadas",
+                    sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))],
+                    legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant')
+                )
                 st.plotly_chart(fig_enso_anim, use_container_width=True)
 
 with tendencias_tab:
