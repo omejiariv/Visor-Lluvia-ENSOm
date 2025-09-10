@@ -362,7 +362,6 @@ gdf_municipios = st.session_state.gdf_municipios
 
 
 # --- LÓGICA DE FILTRADO OPTIMIZADA Y DINÁMICA ---
-# La función de filtro ahora no está cacheadas para evitar UnhashableParamError
 def apply_filters_to_stations(df, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas):
     """Aplica los filtros geográficos y de datos para obtener la lista de estaciones disponibles."""
     stations_filtered = df.copy()
@@ -1072,7 +1071,7 @@ with mapas_avanzados_tab:
         elif not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
             min_year, max_year = int(df_anual_melted['año'].min()), int(df_anual_melted['año'].max())
             
-            # --- [NUEVO] Opciones para el mapa de fondo de Kriging ---
+            # Opciones para el mapa de fondo de Kriging
             map_options_kriging = {
                 "Sin Mapa Base": None,
                 "CartoDB Positron": "carto-positron"
@@ -1107,32 +1106,30 @@ with mapas_avanzados_tab:
                     
                     fig_krig = go.Figure()
                     
-                    # Agregar la capa de densidad para la interpolación
-                    fig_krig.add_trace(go.Densitymapbox(
-                        lat=grid_lat, lon=grid_lon, z=z.T.flatten(),
+                    fig_krig.add_trace(go.Contourmapbox(
+                        z=z.T,
+                        x=grid_lon,
+                        y=grid_lat,
                         colorscale='YlGnBu',
                         name='Precipitación Interpolada',
-                        radius=20,
-                        hoverinfo='none',
+                        contours_showlines=False
                     ))
                     
-                    # Agregar los marcadores de las estaciones originales
                     fig_krig.add_trace(go.Scattermapbox(
-                        lat=lats, lon=lons, mode='markers',
-                        marker=dict(color='red', size=5, symbol='circle'),
+                        lat=lats, lon=lons,
+                        mode='markers',
+                        marker=dict(size=10, color='red'),
                         name='Estaciones',
                         text=data_year_kriging['tooltip'],
                         hovertemplate='%{text}<extra></extra>'
                     ))
                     
-                    # Actualizar el layout para el mapa base de carto-positron
                     fig_krig.update_layout(
                         height=700,
                         title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}",
                         mapbox_style=map_options_kriging[selected_kriging_map_style],
                         mapbox_zoom=5,
-                        mapbox_center={"lat": np.mean(lats), "lon": np.mean(lons)},
-                        showlegend=True
+                        mapbox_center={"lat": np.mean(lats), "lon": np.mean(lons)}
                     )
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
@@ -1165,46 +1162,13 @@ with anomalias_tab:
         if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
             st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
         else:
-            anom_graf_tab, anom_mapa_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Mapa de Anomalías Anuales", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
+            anom_graf_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
 
             with anom_graf_tab:
                 avg_monthly_anom = df_anomalias.groupby(['fecha_mes_año', 'mes'])['anomalia'].mean().reset_index()
                 df_plot = pd.merge(avg_monthly_anom, df_enso[['fecha_mes_año', 'anomalia_oni']], on='fecha_mes_año', how='left')
                 fig = create_anomaly_chart(df_plot)
                 st.plotly_chart(fig, use_container_width=True)
-
-            with anom_mapa_tab:
-                st.subheader("Mapa Interactivo de Anomalías Anuales")
-                df_anomalias_anual = df_anomalias.groupby(['nom_est', 'año'])['anomalia'].sum().reset_index()
-                df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)][['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
-
-                years_with_anomalies = sorted(df_anomalias_anual['año'].unique().astype(int))
-                if years_with_anomalies and not df_anomalias_anual.empty:
-                    year_to_map = st.slider("Seleccione un año para visualizar en el mapa:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
-                    df_map_anom = df_anomalias_anual[df_anomalias_anual['año'] == str(year_to_map)]
-
-                    if not df_map_anom.empty:
-                        max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
-
-                        # --- [CORRECCIÓN] Se usa scatter_mapbox para el mapa base y se centra en los datos ---
-                        fig_anom_map = px.scatter_mapbox(
-                            df_map_anom, lat='latitud_geo', lon='longitud_geo',
-                            color='anomalia',
-                            size=df_map_anom['anomalia'].abs(),
-                            hover_name='nom_est',
-                            hover_data={'anomalia': ':.0f'},
-                            color_continuous_scale='RdBu',
-                            range_color=[-max_abs_anom, max_abs_anom],
-                            mapbox_style='carto-positron',
-                            title=f"Anomalía de Precipitación Anual para el año {year_to_map}"
-                        )
-                        fig_anom_map.update_layout(height=700)
-                        st.plotly_chart(fig_anom_map, use_container_width=True)
-                        # --- [FIN CORRECCIÓN] ---
-                    else:
-                        st.warning(f"No hay datos de anomalías para el año {year_to_map} en la selección actual.")
-                else:
-                    st.warning("No hay años con datos de anomalías para la selección actual.")
 
             with anom_fase_tab:
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
