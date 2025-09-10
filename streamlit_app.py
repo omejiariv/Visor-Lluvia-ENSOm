@@ -1100,7 +1100,7 @@ with mapas_avanzados_tab:
                     # Crear figura para el mapa Kriging
                     fig_krig = go.Figure()
                     
-                    # Agregar la capa base de Mapbox
+                    # Agregar la capa de contornos de la interpolación
                     fig_krig.add_trace(go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
                     
                     # Agregar los marcadores de las estaciones originales
@@ -1165,27 +1165,32 @@ with anomalias_tab:
                 df_anomalias_anual = pd.merge(df_anomalias_anual, gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)][['nom_est', 'latitud_geo', 'longitud_geo']], on='nom_est')
 
                 years_with_anomalies = sorted(df_anomalias_anual['año'].unique().astype(int))
-                if years_with_anomalies:
+                if years_with_anomalies and not df_anomalias_anual.empty:
                     year_to_map = st.slider("Seleccione un año para visualizar en el mapa:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
                     df_map_anom = df_anomalias_anual[df_anomalias_anual['año'] == str(year_to_map)]
 
-                    max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
+                    if not df_map_anom.empty:
+                        max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
 
-                    # --- [CORRECCIÓN] Se usa scatter_mapbox para el mapa base y se centra en los datos ---
-                    fig_anom_map = px.scatter_mapbox(
-                        df_map_anom, lat='latitud_geo', lon='longitud_geo',
-                        color='anomalia',
-                        size=df_map_anom['anomalia'].abs(),
-                        hover_name='nom_est',
-                        hover_data={'anomalia': ':.0f'},
-                        color_continuous_scale='RdBu',
-                        range_color=[-max_abs_anom, max_abs_anom],
-                        mapbox_style='carto-positron',
-                        title=f"Anomalía de Precipitación Anual para el año {year_to_map}"
-                    )
-                    fig_anom_map.update_layout(height=700)
-                    st.plotly_chart(fig_anom_map, use_container_width=True)
-                    # --- [FIN CORRECCIÓN] ---
+                        # --- [CORRECCIÓN] Se usa scatter_mapbox para el mapa base y se centra en los datos ---
+                        fig_anom_map = px.scatter_mapbox(
+                            df_map_anom, lat='latitud_geo', lon='longitud_geo',
+                            color='anomalia',
+                            size=df_map_anom['anomalia'].abs(),
+                            hover_name='nom_est',
+                            hover_data={'anomalia': ':.0f'},
+                            color_continuous_scale='RdBu',
+                            range_color=[-max_abs_anom, max_abs_anom],
+                            mapbox_style='carto-positron',
+                            title=f"Anomalía de Precipitación Anual para el año {year_to_map}"
+                        )
+                        fig_anom_map.update_layout(height=700)
+                        st.plotly_chart(fig_anom_map, use_container_width=True)
+                        # --- [FIN CORRECCIÓN] ---
+                    else:
+                        st.warning(f"No hay datos de anomalías para el año {year_to_map} en la selección actual.")
+                else:
+                    st.warning("No hay años con datos de anomalías para la selección actual.")
 
             with anom_fase_tab:
                 df_anomalias_enso = df_anomalias.dropna(subset=['anomalia_oni']).copy()
@@ -1386,21 +1391,16 @@ with enso_tab:
                 stations_subset['key'] = 1
                 animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
 
-                fig_enso_anim = px.scatter_geo(
+                fig_enso_anim = px.scatter_mapbox(
                     animation_df, lat='latitud_geo', lon='longitud_geo',
                     color='fase', animation_frame='fecha_str',
                     hover_name='nom_est',
                     color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
                     category_orders={"fase": ["El Niño", "La Niña", "Neutral"]},
-                    projection='natural earth'
+                    mapbox_style='carto-positron',
+                    title="Fase ENSO por Mes en las Estaciones Seleccionadas"
                 )
-                fig_enso_anim.update_geos(fitbounds="locations", visible=True)
-                fig_enso_anim.update_layout(
-                    height=700,
-                    title="Fase ENSO por Mes en las Estaciones Seleccionadas",
-                    sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))],
-                    legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant')
-                )
+                fig_enso_anim.update_layout(height=700, sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))], legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant'))
                 st.plotly_chart(fig_enso_anim, use_container_width=True)
 
 with tendencias_tab:
