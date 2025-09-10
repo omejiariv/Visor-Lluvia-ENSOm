@@ -1130,7 +1130,7 @@ with tabla_estaciones_tab:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     elif not df_anual_melted.empty:
         df_info_table = gdf_filtered[['nom_est', 'alt_est', 'municipio', 'depto_region', 'porc_datos']].copy()
-        df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().round(0).reset_index()
+        df_mean_precip = df_anual_melted.groupby('nom_est')['precipitacion'].mean().reset_index()
         df_mean_precip.rename(columns={'precipitacion': 'Precipitación media anual (mm)'}, inplace=True)
         df_info_table = df_info_table.merge(df_mean_precip, on='nom_est', how='left')
         st.dataframe(df_info_table)
