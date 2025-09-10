@@ -24,7 +24,6 @@ import statsmodels.api as sm
 from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
-import pmdarima as pm
 
 # ---
 # Constantes y Configuración Centralizada
@@ -185,7 +184,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         df_precip_anual[Config.ALTITUDE_COL] = pd.to_numeric(df_precip_anual[Config.ALTITUDE_COL].astype(str).str.replace(',', '.'), errors='coerce')
     df_precip_anual.dropna(subset=[lon_col, lat_col], inplace=True)
     gdf_temp = gpd.GeoDataFrame(df_precip_anual,
-                                geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]), 
+                                geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]),
                                 crs="EPSG:9377")
     gdf_stations = gdf_temp.to_crs("EPSG:4326")
     gdf_stations[Config.LONGITUDE_COL] = gdf_stations.geometry.x
@@ -292,11 +291,11 @@ def create_anomaly_chart(df_plot):
         df_plot_enso = df_plot.dropna(subset=[Config.ENSO_ONI_COL])
         nino_periods = df_plot_enso[df_plot_enso[Config.ENSO_ONI_COL] >= 0.5]
         for _, row in nino_periods.iterrows():
-            fig.add_vrect(x0=row[Config.DATE_COL] - pd.DateOffset(days=15), x1=row[Config.DATE_COL] + pd.DateOffset(days=15), 
+            fig.add_vrect(x0=row[Config.DATE_COL] - pd.DateOffset(days=15), x1=row[Config.DATE_COL] + pd.DateOffset(days=15),
                          fillcolor="red", opacity=0.15, layer="below", line_width=0)
         nina_periods = df_plot_enso[df_plot_enso[Config.ENSO_ONI_COL] <= -0.5]
         for _, row in nina_periods.iterrows():
-            fig.add_vrect(x0=row[Config.DATE_COL] - pd.DateOffset(days=15), x1=row[Config.DATE_COL] + pd.DateOffset(days=15), 
+            fig.add_vrect(x0=row[Config.DATE_COL] - pd.DateOffset(days=15), x1=row[Config.DATE_COL] + pd.DateOffset(days=15),
                          fillcolor="blue", opacity=0.15, layer="below", line_width=0)
         fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(255, 0, 0, 0.3)'), name='Fase El Niño'))
         fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(0, 0, 255, 0.3)'), name='Fase La Niña'))
@@ -339,7 +338,7 @@ def display_spatial_distribution_tab(gdf_filtered, df_anual_melted, stations_for
     if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
-    
+
     if not df_anual_melted.empty:
         df_mean_precip = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().reset_index()
         gdf_filtered_map = gdf_filtered.merge(df_mean_precip.rename(columns={Config.PRECIPITATION_COL: 'precip_media_anual'}), on=Config.STATION_NAME_COL, how='left')
@@ -347,7 +346,7 @@ def display_spatial_distribution_tab(gdf_filtered, df_anual_melted, stations_for
         gdf_filtered_map = gdf_filtered.copy()
         gdf_filtered_map['precip_media_anual'] = np.nan
     gdf_filtered_map['precip_media_anual'] = gdf_filtered_map['precip_media_anual'].fillna(0)
-    
+
     sub_tab_mapa, sub_tab_grafico = st.tabs(["Mapa Interactivo", "Gráfico de Disponibilidad de Datos"])
 
     with sub_tab_mapa:
@@ -467,9 +466,9 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
     if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
-    
+
     sub_tab_anual, sub_tab_mensual, sub_tab_comparacion, sub_tab_distribucion, sub_tab_acumulada, sub_tab_altitud = st.tabs(["Análisis Anual", "Análisis Mensual", "Comparación Rápida", "Distribución", "Acumulada", "Relación Altitud"])
-    
+
     with sub_tab_anual:
         anual_graf_tab, anual_analisis_tab = st.tabs(["Gráfico de Serie Anual", "Análisis Multianual"])
         with anual_graf_tab:
@@ -609,7 +608,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
 def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Mapas Avanzados")
     gif_tab, temporal_tab, compare_tab, kriging_tab, coropletico_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Comparación de Mapas", "Interpolación Kriging", "Mapa Coroplético"])
-    
+
     with gif_tab:
         st.subheader("Distribución Espacio-Temporal de la Lluvia en Antioquia")
         if os.path.exists(Config.GIF_PATH):
@@ -664,7 +663,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             st.info(f"""
                             **Ppt. Máxima ({selected_year}):**
                             {max_row[Config.STATION_NAME_COL]} ({max_row[Config.PRECIPITATION_COL]:.0f} mm)
-                            
+
                             **Ppt. Mínima ({selected_year}):**
                             {min_row[Config.STATION_NAME_COL]} ({min_row[Config.PRECIPITATION_COL]:.0f} mm)
                             """)
@@ -776,7 +775,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
             create_compare_map(data_year2, year2, map_col2)
         else:
             st.warning("No hay años disponibles para la comparación.")
-    
+
     with kriging_tab:
         st.subheader("Interpolación Kriging para un Año Específico")
         if len(stations_for_analysis) == 0:
@@ -808,8 +807,8 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
                     fig_krig = go.Figure(data=go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
                     fig_krig.add_trace(go.Scatter(
-                        x=lons, y=lats, mode='markers', 
-                        marker=dict(color='red', size=5, symbol='circle'), 
+                        x=lons, y=lats, mode='markers',
+                        marker=dict(color='red', size=5, symbol='circle'),
                         name='Estaciones', text=data_year_kriging['tooltip'], hoverinfo='text'
                     ))
                     fig_krig.update_layout(height=700, title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}", xaxis_title="Longitud", yaxis_title="Latitud")
@@ -871,7 +870,7 @@ def display_anomalies_tab(df_long, df_monthly_filtered, df_enso, stations_for_an
     if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
-    
+
     df_long_filtered_stations = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
     df_climatology = df_long_filtered_stations.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().reset_index().rename(columns={Config.PRECIPITATION_COL: 'precip_promedio_mes'})
     df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=[Config.STATION_NAME_COL, Config.MONTH_COL], how='left')
@@ -882,7 +881,7 @@ def display_anomalies_tab(df_long, df_monthly_filtered, df_enso, stations_for_an
         return
 
     anom_graf_tab, anom_mapa_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Mapa de Anomalías Anuales", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
-    
+
     with anom_graf_tab:
         avg_monthly_anom = df_anomalias.groupby([Config.DATE_COL, Config.MONTH_COL])['anomalia'].mean().reset_index()
         df_plot = pd.merge(avg_monthly_anom, df_enso[[Config.DATE_COL, Config.ENSO_ONI_COL]], on=Config.DATE_COL, how='left')
@@ -907,7 +906,7 @@ def display_anomalies_tab(df_long, df_monthly_filtered, df_enso, stations_for_an
             )
             fig_anom_map.update_geos(fitbounds="locations", visible=True)
             st.plotly_chart(fig_anom_map, use_container_width=True)
-    
+
     with anom_fase_tab:
         if Config.ENSO_ONI_COL in df_anomalias.columns:
             df_anomalias_enso = df_anomalias.dropna(subset=[Config.ENSO_ONI_COL]).copy()
@@ -975,7 +974,7 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
             st.dataframe(styled_df, use_container_width=True)
         else:
             st.info("No hay datos para mostrar en la matriz con la selección actual.")
-    
+
     with resumen_mensual_tab:
         st.subheader("Resumen de Estadísticas Mensuales por Estación")
         summary_data = []
@@ -1122,7 +1121,7 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
                     st.metric(f"Fase ENSO en {selected_date.strftime('%Y-%m')}", current_phase, f"Anomalía ONI: {current_oni:.2f}°C")
                 else:
                     st.warning("No hay datos de ENSO para el período seleccionado.")
-            
+
         with map_col:
             if available_dates:
                 m_enso = folium.Map(location=[4.57, -74.29], zoom_start=5, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
@@ -1209,17 +1208,9 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
 
     with pronostico_sarima_tab:
         st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
-        station_to_forecast = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, help="El pronóstico se realiza para una única serie de tiempo.")
+        st.info("Esta sección solo permite generar pronósticos con el modelo SARIMA predeterminado (p=1, d=1, q=1)x(P=1, D=1, Q=1, m=12). La funcionalidad de auto_arima y parámetros avanzados fue deshabilitada para evitar errores de instalación.")
+        station_to_forecast = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="sarima_station_select")
         forecast_horizon = st.slider("Meses a pronosticar:", 12, 36, 12, step=12)
-        with st.expander("Configuración Avanzada de SARIMA"):
-            p_val = st.number_input("Parámetro p (AR):", min_value=0, max_value=5, value=1)
-            d_val = st.number_input("Parámetro d (Diferenciación):", min_value=0, max_value=2, value=1)
-            q_val = st.number_input("Parámetro q (MA):", min_value=0, max_value=5, value=1)
-            P_val = st.number_input("Parámetro P (Estacional AR):", min_value=0, max_value=5, value=1)
-            D_val = st.number_input("Parámetro D (Estacional Diferenciación):", min_value=0, max_value=2, value=1)
-            Q_val = st.number_input("Parámetro Q (Estacional MA):", min_value=0, max_value=5, value=1)
-            m_val = st.number_input("Parámetro m (Período Estacional):", min_value=1, max_value=12, value=12)
-            auto_arima_check = st.checkbox("Buscar parámetros automáticamente (auto_arima)")
 
         if st.button("Generar Pronóstico SARIMA"):
             with st.spinner("Entrenando modelo y generando pronóstico..."):
@@ -1227,19 +1218,13 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
                     ts_data = ts_data.set_index(Config.DATE_COL).sort_index()
                     ts_data = ts_data[Config.PRECIPITATION_COL].asfreq('MS')
-                    if auto_arima_check:
-                        auto_model = pm.auto_arima(ts_data, seasonal=True, m=m_val, stepwise=True, suppress_warnings=True, trace=False)
-                        order = auto_model.order
-                        seasonal_order = auto_model.seasonal_order
-                        st.info(f"Parámetros óptimos encontrados: SARIMA{order}x{seasonal_order}{m_val}")
-                    else:
-                        order = (p_val, d_val, q_val)
-                        seasonal_order = (P_val, D_val, Q_val, m_val)
-                    model = sm.tsa.statespace.SARIMAX(ts_data, order=order, seasonal_order=seasonal_order, enforce_stationarity=False, enforce_invertibility=False)
+
+                    model = sm.tsa.statespace.SARIMAX(ts_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), enforce_stationarity=False, enforce_invertibility=False)
                     results = model.fit(disp=False)
                     forecast = results.get_forecast(steps=forecast_horizon)
                     forecast_mean = forecast.predicted_mean
                     forecast_ci = forecast.conf_int()
+
                     fig_pronostico = go.Figure()
                     fig_pronostico.add_trace(go.Scatter(x=ts_data.index, y=ts_data, mode='lines', name='Datos Históricos'))
                     fig_pronostico.add_trace(go.Scatter(x=forecast_mean.index, y=forecast_mean, mode='lines', name='Pronóstico', line=dict(color='red', dash='dash')))
@@ -1348,12 +1333,12 @@ def main():
                 st.stop()
     if st.session_state.gdf_stations is None:
         st.stop()
-        
+
     # Inicialización de la sesión
     if 'analysis_mode' not in st.session_state: st.session_state.analysis_mode = "Usar datos originales"
     if 'df_monthly_processed' not in st.session_state: st.session_state.df_monthly_processed = st.session_state.df_long.copy()
     if 'select_all_stations_state' not in st.session_state: st.session_state.select_all_stations_state = False
-    
+
     with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
         min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, 0, key='min_data_perc_slider')
         altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
@@ -1409,19 +1394,19 @@ def main():
             if municipios: stations_filtered = stations_filtered[stations_filtered[Config.MUNICIPALITY_COL].isin(municipios)]
             if celdas: stations_filtered = stations_filtered[stations_filtered[Config.CELL_COL].isin(celdas)]
             return stations_filtered
-        
+
         stations_master_list = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
         stations_options = sorted(stations_master_list[Config.STATION_NAME_COL].unique())
         if st.checkbox("Seleccionar/Deseleccionar todas las estaciones", value=st.session_state.select_all_stations_state, key='select_all_checkbox'):
             selected_stations = stations_options
         else:
             selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=stations_options if st.session_state.select_all_stations_state else [], key='station_multiselect')
-        
+
         if set(selected_stations) == set(stations_options) and not st.session_state.select_all_stations_state:
             st.session_state.select_all_stations_state = True
         elif set(selected_stations) != set(stations_options) and st.session_state.select_all_stations_state:
             st.session_state.select_all_stations_state = False
-        
+
         if selected_stations:
             years_with_data_in_selection = sorted([int(col) for col in st.session_state.gdf_stations.loc[st.session_state.gdf_stations[Config.STATION_NAME_COL].isin(selected_stations)].columns if str(col).isdigit()])
         else:
@@ -1429,7 +1414,7 @@ def main():
         if not years_with_data_in_selection:
             st.error("No se encontraron años disponibles para la selección actual.")
             st.stop()
-            
+
         year_range = st.slider("Seleccionar Rango de Años", min(years_with_data_in_selection), max(years_with_data_in_selection), (min(years_with_data_in_selection), max(years_with_data_in_selection)))
         meses_dict = {'Enero': 1, 'Febrero': 2, 'Marzo': 3, 'Abril': 4, 'Mayo': 5, 'Junio': 6, 'Julio': 7, 'Agosto': 8, 'Septiembre': 9, 'Octubre': 10, 'Noviembre': 11, 'Diciembre': 12}
         meses_nombres = st.multiselect("Seleccionar Meses", list(meses_dict.keys()), default=list(meses_dict.keys()))
@@ -1440,13 +1425,13 @@ def main():
 
     # Lógica de filtrado de datos principal
     st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
-    
+
     if not selected_stations:
         stations_for_analysis = st.session_state.gdf_filtered[Config.STATION_NAME_COL].unique()
     else:
         stations_for_analysis = selected_stations
         st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-    
+
     st.session_state.df_anual_melted = st.session_state.gdf_stations.melt(
         id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
         value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
@@ -1460,14 +1445,14 @@ def main():
             st.session_state.df_monthly_processed = complete_series(st.session_state.df_long)
         else:
             st.session_state.df_monthly_processed = st.session_state.df_long.copy()
-            
+
     st.session_state.df_monthly_filtered = st.session_state.df_monthly_processed[
         (st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
         (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year >= year_range[0]) &
         (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year <= year_range[1]) &
         (st.session_state.df_monthly_processed[Config.DATE_COL].dt.month.isin(meses_numeros))
     ].copy()
-    
+
     st.session_state.year_range = year_range
     st.session_state.meses_numeros = meses_numeros
 
