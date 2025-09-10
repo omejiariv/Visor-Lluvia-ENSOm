@@ -512,9 +512,9 @@ with st.spinner("Filtrando datos..."):
 
 
 # --- Pestañas Principales ---
-tab_names = ["🏠 Bienvenida", "Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
+tab_names = ["🏠 Bienvenida", "Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis de Correlación", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
 (bienvenida_tab, mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, 
- anomalias_tab, estadisticas_tab, enso_tab, tendencias_tab, descargas_tab) = st.tabs(tab_names)
+ anomalias_tab, estadisticas_tab, correlacion_tab, enso_tab, tendencias_tab, descargas_tab) = st.tabs(tab_names)
 
 with bienvenida_tab:
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
@@ -752,11 +752,6 @@ with mapa_tab:
             else:
                 st.warning("No hay estaciones seleccionadas para mostrar el gráfico.")
 
-# ... (El resto de las pestañas permanecen iguales, se omiten aquí por brevedad)
-# ... (Pegue aquí el resto del código desde `with graficos_tab:` hasta el final, sin cambios)
-# ...
-# VAMOS A PEGAR EL RESTO DEL CÓDIGO AQUÍ. POR FAVOR, ASEGÚRESE DE COPIARLO DEL ARCHIVO ORIGINAL.
-# ...
 with graficos_tab:
     st.header("Visualizaciones de Precipitación")
     if len(stations_for_analysis) == 0:
@@ -921,7 +916,7 @@ with graficos_tab:
 
 with mapas_avanzados_tab:
     st.header("Mapas Avanzados")
-    gif_tab, temporal_tab, compare_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Comparación de Mapas", "Interpolación Kriging"])
+    gif_tab, temporal_tab, compare_tab, kriging_tab, coropletico_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Comparación de Mapas", "Interpolación Kriging", "Mapa Coroplético"])
 
     with gif_tab:
         st.subheader("Distribución Espacio-Temporal de la Lluvia en Antioquia")
@@ -1148,6 +1143,49 @@ with mapas_avanzados_tab:
         else:
             st.warning("No hay datos para realizar la interpolación.")
 
+    with coropletico_tab:
+        st.subheader("Mapa Coroplético de Precipitación Anual Promedio")
+        st.caption(f"Mostrando el promedio para el período {year_range[0]} - {year_range[1]}")
+
+        if gdf_municipios is not None and not df_anual_melted.empty:
+            # Agregar datos por municipio
+            df_anual_municipio = df_anual_melted.groupby('municipio')['precipitacion'].mean().reset_index()
+
+            # Identificar la columna de municipios en el shapefile. Puede tener varios nombres.
+            municipio_col_options = ['mcnpio', 'municipio', 'nombre_mpio', 'mpio_cnmbr']
+            municipio_col_shp = next((col for col in municipio_col_options if col in gdf_municipios.columns), None)
+
+            if municipio_col_shp:
+                # Normalizar nombres para la fusión (quitar espacios, a minúsculas)
+                gdf_municipios_copy = gdf_municipios.copy()
+                gdf_municipios_copy[municipio_col_shp] = gdf_municipios_copy[municipio_col_shp].str.strip().str.lower()
+                df_anual_municipio['municipio'] = df_anual_municipio['municipio'].str.strip().str.lower()
+                
+                # Fusionar con el GeoDataFrame de municipios
+                gdf_municipios_data = gdf_municipios_copy.merge(df_anual_municipio, left_on=municipio_col_shp, right_on='municipio', how='left')
+                
+                # Crear el mapa con Plotly Express
+                fig_choro = px.choropleth_mapbox(
+                    gdf_municipios_data,
+                    geojson=gdf_municipios_data.geometry,
+                    locations=gdf_municipios_data.index,
+                    color="precipitacion",
+                    mapbox_style="carto-positron",
+                    zoom=6,
+                    center={"lat": gdf_municipios_data.dissolve().centroid.y.iloc[0], "lon": gdf_municipios_data.dissolve().centroid.x.iloc[0]},
+                    opacity=0.6,
+                    labels={'precipitacion': 'Ppt. Media Anual (mm)'},
+                    hover_name=municipio_col_shp,
+                    hover_data={'precipitacion': ':.0f'}
+                )
+                fig_choro.update_layout(height=700, margin={"r":0,"t":40,"l":0,"b":0})
+                st.plotly_chart(fig_choro, use_container_width=True)
+
+            else:
+                st.error("No se pudo encontrar una columna de municipios compatible en el shapefile (ej: 'municipio', 'mcnpio'). Por favor, verifique el archivo .zip.")
+        else:
+            st.warning("No hay datos de municipios o de precipitación para generar el mapa.")
+
 with tabla_estaciones_tab:
     st.header("Información Detallada de las Estaciones")
     if len(stations_for_analysis) == 0:
@@ -1328,6 +1366,63 @@ with estadisticas_tab:
                         f"{max_monthly_row['precipitation']:.0f} mm",
                         f"{max_monthly_row['nom_est']} ({max_monthly_row['nom_mes']} {max_monthly_row['fecha_mes_año'].year})"
                     )
+
+with correlacion_tab:
+    st.header("Correlación entre Precipitación y ENSO")
+    st.markdown("Esta sección cuantifica la relación lineal entre la precipitación mensual y la anomalía ONI utilizando el coeficiente de correlación de Pearson.")
+
+    if len(stations_for_analysis) > 0:
+        # Fusionar los dataframes
+        df_corr_analysis = pd.merge(df_monthly_filtered, df_enso[['fecha_mes_año', 'anomalia_oni']], on='fecha_mes_año', how='inner')
+        df_corr_analysis.dropna(subset=['precipitation', 'anomalia_oni'], inplace=True)
+
+        # Permitir al usuario elegir si analiza por estación o el promedio
+        analysis_level = st.radio("Nivel de Análisis de Correlación", ["Promedio de la selección", "Por Estación Individual"], key="corr_level")
+
+        df_plot_corr = pd.DataFrame()
+        title_text = ""
+
+        if analysis_level == "Por Estación Individual":
+            station_to_corr = st.selectbox("Seleccione Estación", options=stations_for_analysis, key="corr_station")
+            if station_to_corr:
+                df_plot_corr = df_corr_analysis[df_corr_analysis['nom_est'] == station_to_corr]
+                title_text = f"Correlación para la estación: {station_to_corr}"
+        else:
+            df_plot_corr = df_corr_analysis.groupby('fecha_mes_año').agg(
+                precipitation=('precipitation', 'mean'),
+                anomalia_oni=('anomalia_oni', 'first')
+            ).reset_index()
+            title_text = "Correlación para el promedio de las estaciones seleccionadas"
+
+        # Calcular y mostrar resultados
+        if len(df_plot_corr) > 2:
+            corr, p_value = stats.pearsonr(df_plot_corr['anomalia_oni'], df_plot_corr['precipitation'])
+
+            st.subheader(title_text)
+
+            col1, col2 = st.columns(2)
+            col1.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
+            col2.metric("Significancia (valor p)", f"{p_value:.4f}")
+
+            if p_value < 0.05:
+                st.success("La correlación es estadísticamente significativa, lo que sugiere una relación lineal entre las variables.")
+            else:
+                st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
+
+            # Gráfico de dispersión
+            fig_corr = px.scatter(
+                df_plot_corr,
+                x='anomalia_oni',
+                y='precipitation',
+                trendline="ols",
+                title="Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
+                labels={'anomalia_oni': 'Anomalía ONI (°C)', 'precipitation': 'Precipitación Mensual (mm)'}
+            )
+            st.plotly_chart(fig_corr, use_container_width=True)
+        else:
+            st.warning("No hay suficientes datos superpuestos para calcular la correlación para la selección actual.")
+    else:
+        st.warning("Seleccione al menos una estación para realizar el análisis de correlación.")
 
 with enso_tab:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
@@ -1615,3 +1710,4 @@ with descargas_tab:
             st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
         else:
             st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
+
