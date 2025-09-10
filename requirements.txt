@@ -9,3 +9,6 @@ scipy
 statsmodels
 prophet
 streamlit-folium
+numpy
+branca
+openpyxl
