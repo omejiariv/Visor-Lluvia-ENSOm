@@ -1127,7 +1127,7 @@ with enso_tab:
 
 with tendencias_tab:
     st.header("Análisis de Tendencias y Pronósticos")
-        if len(stations_for_analysis) == 0:
+    if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
     else:
         tendencia_individual_tab, tendencia_tabla_tab, pronostico_tab, prophet_tab = st.tabs(["Análisis Individual / Promedio", "Tabla Comparativa de Tendencias", "Pronóstico SARIMA", "Pronóstico Prophet"])
