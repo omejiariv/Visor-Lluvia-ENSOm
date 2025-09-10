@@ -1104,20 +1104,18 @@ with mapas_avanzados_tab:
                     fig_krig.add_trace(go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
                     
                     # Agregar los marcadores de las estaciones originales
-                    fig_krig.add_trace(go.Scatter(
-                        x=lons, y=lats, mode='markers', 
-                        marker=dict(color='red', size=5, symbol='circle'), 
+                    fig_krig.add_trace(go.Scattermapbox(
+                        lat=lats, lon=lons, mode='markers',
+                        marker=dict(color='red', size=5, symbol='circle'),
                         name='Estaciones',
                         text=data_year_kriging['tooltip'],
-                        hoverinfo='text'
+                        hovertemplate='%{text}<extra></extra>'
                     ))
                     
                     # Actualizar el layout para el mapa base de carto-positron
                     fig_krig.update_layout(
                         height=700,
                         title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}",
-                        xaxis_title="Longitud",
-                        yaxis_title="Latitud",
                         mapbox_style="carto-positron",
                         mapbox_zoom=5,
                         mapbox_center={"lat": np.mean(lats), "lon": np.mean(lons)}
@@ -1173,7 +1171,7 @@ with anomalias_tab:
 
                     max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
 
-                    # --- [CORRECCIÓN] Se usa scatter_mapbox para el mapa base ---
+                    # --- [CORRECCIÓN] Se usa scatter_mapbox para el mapa base y se centra en los datos ---
                     fig_anom_map = px.scatter_mapbox(
                         df_map_anom, lat='latitud_geo', lon='longitud_geo',
                         color='anomalia',
