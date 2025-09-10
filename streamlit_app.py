@@ -23,9 +23,6 @@ from scipy import stats
 import statsmodels.api as sm
 from prophet import Prophet
 from prophet.plot import plot_plotly
-
-# La librería 'branca' se utiliza en folium y no requiere ser importada explícitamente en la mayoría de los casos,
-# pero se mantiene para claridad.
 import branca.colormap as cm
 
 # ---
@@ -797,7 +794,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     folium.raster_layers.WmsTileLayer(url=layer_config["url"], layers=layer_config["layers"], fmt='image/png', transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]).add_to(m)
                 folium.LayerControl().add_to(m)
                 with col:
-                    folium_static(m, height=600, width="100%", key=f"map_{year}")
+                    folium_static(m, height=600, width="100%")
 
             create_compare_map(data_year1, year1, map_col1)
             create_compare_map(data_year2, year2, map_col2)
@@ -1246,7 +1243,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
                     ts_data = ts_data.set_index(Config.DATE_COL).sort_index()
                     ts_data = ts_data[Config.PRECIPITATION_COL].asfreq('MS')
-                    
+
                     if len(ts_data) < 24:
                         st.warning("Se necesitan al menos 24 puntos de datos para el pronóstico SARIMA. Por favor, ajuste la selección de años.")
                     else:
@@ -1329,7 +1326,7 @@ def main():
     button[data-baseweb="tab"] { font-size: 16px; font-weight: bold; color: #333; }
     </style>
     """, unsafe_allow_html=True)
-    
+
     # Inicialización del estado de la sesión
     Config.initialize_session_state()
 
@@ -1451,13 +1448,13 @@ def main():
 
     # --- Lógica de filtrado de datos principal ---
     st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
-    
+
     if not selected_stations:
         stations_for_analysis = st.session_state.gdf_filtered[Config.STATION_NAME_COL].unique()
     else:
         stations_for_analysis = selected_stations
         st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-        
+
     st.session_state.df_anual_melted = st.session_state.gdf_stations.melt(
         id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
         value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
