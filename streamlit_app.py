@@ -1423,22 +1423,17 @@ def main():
     with st.sidebar.expander("**3. Opciones de Análisis Avanzado**", expanded=False):
         analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"))
 
-    # Lógica de filtrado de datos principal
-    st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
-
-    if not selected_stations:
-        stations_for_analysis = st.session_state.gdf_filtered[Config.STATION_NAME_COL].unique()
-    else:
-        stations_for_analysis = selected_stations
-        st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-
+    # --- Lógica de filtrado de datos principal ---
+#...
+    # La corrección se aplica en esta sección
     st.session_state.df_anual_melted = st.session_state.gdf_stations.melt(
         id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
         value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
-        var_name=Config.YEAR_COL, value_name='precipitacion')
+        var_name=Config.YEAR_COL,
+        value_name=Config.PRECIPITATION_COL # <-- ¡Aquí está la corrección!
+    )
     st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-    st.session_state.df_anual_melted.dropna(subset=['precipitacion'], inplace=True)
-
+    st.session_state.df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
     if st.session_state.analysis_mode != analysis_mode:
         st.session_state.analysis_mode = analysis_mode
         if analysis_mode == "Completar series (interpolación)":
