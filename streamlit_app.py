@@ -5,7 +5,7 @@ import altair as alt
 import folium
 from folium.plugins import MarkerCluster, MiniMap
 from folium.raster_layers import WmsTileLayer
-from streamlit_folium import folium_static
+from streamlit_folium import folium_static, st_folium
 import plotly.express as px
 import plotly.graph_objects as go
 import geopandas as gpd
@@ -21,6 +21,7 @@ from scipy import stats
 import statsmodels.api as sm
 from prophet import Prophet
 from prophet.plot import plot_plotly
+import branca.colormap as cm
 
 # --- Funciones de Carga y Procesamiento ---
 def parse_spanish_dates(date_series):
@@ -290,6 +291,29 @@ def create_anomaly_chart(df_plot):
         showlegend=True
     )
     return fig
+
+# --- Funciones de UI reutilizables ---
+def get_map_options():
+    return {
+        "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": '&copy; <a href="https://carto.com/attributions">CartoDB</a>', "overlay": False},
+        "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
+        "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)', "overlay": False},
+        "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
+        "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021", "overlay": True},
+        "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM", "overlay": True},
+        "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC", "overlay": True},
+    }
+
+def display_map_controls(container_object, key_prefix):
+    map_options = get_map_options()
+    base_maps = {k: v for k, v in map_options.items() if not v.get("overlay")}
+    overlays = {k: v for k, v in map_options.items() if v.get("overlay")}
+    
+    selected_base_map_name = container_object.selectbox("Seleccionar Mapa Base", list(base_maps.keys()), key=f"{key_prefix}_base_map")
+    selected_overlays = container_object.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()), key=f"{key_prefix}_overlays")
+    
+    return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
+
 
 # --- Configuración de la página y CSS ---
 st.set_page_config(layout="wide", page_title="Sistema de información de las lluvias y el Clima en el norte de la región Andina")
@@ -561,24 +585,7 @@ with mapa_tab:
             
             with controls_col:
                 st.subheader("Controles del Mapa")
-                
-                # --- Opciones de Mapas Base WMS/WMTS ---
-                map_options = {
-                    "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": '&copy; <a href="https://carto.com/attributions">CartoDB</a>', "overlay": False},
-                    "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
-                    "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)', "overlay": False},
-                    "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
-                    "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021", "overlay": True},
-                    "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM", "overlay": True},
-                    "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC", "overlay": True},
-                }
-                
-                base_maps = {k: v for k, v in map_options.items() if not v.get("overlay")}
-                overlays = {k: v for k, v in map_options.items() if v.get("overlay")}
-                
-                selected_base_map_name = st.selectbox("Seleccionar Mapa Base", list(base_maps.keys()))
-                
-                selected_overlays = st.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()))
+                selected_base_map_config, selected_overlays_config = display_map_controls(st, "dist_esp")
                 
                 if not gdf_filtered_map.empty:
                     st.markdown("---")
@@ -623,13 +630,11 @@ with mapa_tab:
             
             with map_col:
                 if not gdf_filtered_map.empty:
-                    base_map_config = base_maps[selected_base_map_name]
-                    
                     m = folium.Map(
                         location=st.session_state.map_view["location"],
                         zoom_start=st.session_state.map_view["zoom"],
-                        tiles=base_map_config.get("tiles", "OpenStreetMap"),
-                        attr=base_map_config.get("attr", None)
+                        tiles=selected_base_map_config.get("tiles", "OpenStreetMap"),
+                        attr=selected_base_map_config.get("attr", None)
                     )
                     
                     if map_centering == "Automático":
@@ -640,8 +645,7 @@ with mapa_tab:
                     folium.GeoJson(gdf_municipios.to_json(), name='Municipios').add_to(m)
 
                     # Añadir las capas WMS seleccionadas
-                    for layer_name in selected_overlays:
-                        layer_config = overlays[layer_name]
+                    for layer_config in selected_overlays_config:
                         folium.raster_layers.WmsTileLayer(
                             url=layer_config["url"],
                             layers=layer_config["layers"],
@@ -649,7 +653,7 @@ with mapa_tab:
                             transparent=layer_config.get("transparent", False),
                             overlay=True,
                             control=True,
-                            name=layer_name
+                            name=layer_config["attr"] 
                         ).add_to(m)
                     
                     # Añadir la capa de estaciones DE ÚLTIMO para que se vean sobre todas las capas
@@ -667,14 +671,11 @@ with mapa_tab:
                             tooltip=html
                         ).add_to(marker_cluster)
 
-                    # Añadir el control de capas para poder ver y ocultar las capas
                     folium.LayerControl().add_to(m)
-                    
-                    # Añadir Minimapa
                     minimap = MiniMap(toggle_display=True)
                     m.add_child(minimap)
                     
-                    folium_static(m, height=700)
+                    st_folium(m, height=700, width="100%")
                 else:
                     st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
 
@@ -970,7 +971,7 @@ with mapas_avanzados_tab:
                         controls_col, map_col = st.columns([1, 3])
                         with controls_col:
                             st.markdown("##### Opciones de Visualización")
-                            map_view_option = st.radio("Seleccionar vista geográfica:", ["Zona de Selección", "Antioquia", "Colombia"], horizontal=True, key="map_view_interactive")
+                            selected_base_map_config, selected_overlays_config = display_map_controls(st, "temporal")
                             st.markdown(f"#### Resumen del Año: {selected_year}")
                             df_year_filtered = df_anual_melted[df_anual_melted['año'] == str(selected_year)].dropna(subset=['precipitacion'])
                             logo_col, info_col = st.columns([1, 4])
@@ -992,25 +993,34 @@ with mapas_avanzados_tab:
                             else:
                                 st.warning(f"No hay datos de precipitación para el año {selected_year}.")
                         with map_col:
-                            min_precip_range, max_precip_range = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
-                            fig_interactive_map = px.scatter_geo(
-                                df_year_filtered, lat='latitud_geo', lon='longitud_geo',
-                                color='precipitacion', size='precipitacion',
-                                hover_name='nom_est', title=f'Precipitación Anual por Estación - Año {selected_year}',
-                                hover_data={'municipio': True, 'precipitacion': ':.0f'},
-                                color_continuous_scale=px.colors.sequential.YlGnBu, range_color=[min_precip_range, max_precip_range]
-                            )
-                            bounds = {}
-                            if map_view_option == "Zona de Selección":
-                                bounds_values = gdf_stations.loc[gdf_stations['nom_est'].isin(stations_for_analysis)].total_bounds
-                                bounds = {'lon': [bounds_values[0]-0.2, bounds_values[2]+0.2], 'lat': [bounds_values[1]-0.2, bounds_values[3]+0.2]}
-                            elif map_view_option == "Antioquia":
-                                bounds = {'lon': [-77, -74.5], 'lat': [5.5, 8.5]}
-                            elif map_view_option == "Colombia":
-                                bounds = {'lon': [-79, -67], 'lat': [-4.5, 12.5]}
-                            fig_interactive_map.update_geos(lataxis_range=bounds.get('lat'), lonaxis_range=bounds.get('lon'), visible=True, showcoastlines=True, coastlinewidth=0.5, showland=True, landcolor="rgb(243, 243, 243)", showocean=True, oceancolor="rgb(220, 235, 255)", showcountries=True, countrywidth=0.5)
-                            fig_interactive_map.update_layout(height=700)
-                            st.plotly_chart(fig_interactive_map, use_container_width=True)
+                            m_temporal = folium.Map(location=[6.24, -75.58], zoom_start=7, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
+                            
+                            if not df_year_filtered.empty:
+                                min_val, max_val = df_anual_melted['precipitacion'].min(), df_anual_melted['precipitacion'].max()
+                                colormap = cm.linear.YlGnBu_09.scale(vmin=min_val, vmax=max_val)
+
+                                for _, row in df_year_filtered.iterrows():
+                                    folium.CircleMarker(
+                                        location=[row['latitud_geo'], row['longitud_geo']],
+                                        radius=5,
+                                        color=colormap(row['precipitacion']),
+                                        fill=True,
+                                        fill_color=colormap(row['precipitacion']),
+                                        fill_opacity=0.8,
+                                        tooltip=f"{row['nom_est']}: {row['precipitacion']:.0f} mm"
+                                    ).add_to(m_temporal)
+                                
+                                bounds = gdf_stations.loc[gdf_stations['nom_est'].isin(df_year_filtered['nom_est'])].total_bounds
+                                m_temporal.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+
+                            for layer_config in selected_overlays_config:
+                                folium.raster_layers.WmsTileLayer(
+                                    url=layer_config["url"], layers=layer_config["layers"], fmt='image/png',
+                                    transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]
+                                ).add_to(m_temporal)
+                            
+                            folium.LayerControl().add_to(m_temporal)
+                            st_folium(m_temporal, height=700, width="100%")
 
             with race_tab:
                 st.subheader("Ranking Anual de Precipitación por Estación")
@@ -1064,40 +1074,44 @@ with mapas_avanzados_tab:
         if len(stations_for_analysis) < 1:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         elif not df_anual_melted.empty and len(df_anual_melted['año'].unique()) > 0:
-            map_col1, map_col2 = st.columns(2)
-            min_year, max_year = int(df_anual_melted['año'].min()), int(df_anual_melted['año'].max())
-
-            year1 = map_col1.slider("Seleccione el año para el Mapa 1", min_year, max_year, max_year)
-            year2 = map_col2.slider("Seleccione el año para el Mapa 2", min_year, max_year, max_year - 1 if max_year > min_year else max_year)
             
+            control_col, map_col1, map_col2 = st.columns([1, 2, 2])
+            
+            with control_col:
+                st.markdown("##### Controles de Mapa")
+                selected_base_map_config, selected_overlays_config = display_map_controls(st, "compare")
+                min_year, max_year = int(df_anual_melted['año'].min()), int(df_anual_melted['año'].max())
+                year1 = st.slider("Seleccione el año para el Mapa 1", min_year, max_year, max_year, key="compare_year1")
+                year2 = st.slider("Seleccione el año para el Mapa 2", min_year, max_year, max_year - 1 if max_year > min_year else max_year, key="compare_year2")
+                min_precip_comp, max_precip_comp = int(df_anual_melted['precipitacion'].min()), int(df_anual_melted['precipitacion'].max())
+                color_range_comp = st.slider("Rango de Escala de Color (mm)", min_precip_comp, max_precip_comp, (min_precip_comp, max_precip_comp), key="color_comp")
+
             data_year1 = df_anual_melted[df_anual_melted['año'].astype(int) == year1]
             data_year2 = df_anual_melted[df_anual_melted['año'].astype(int) == year2]
-            
-            logo_col1, metric_col1 = map_col1.columns([1,4])
-            logo_col2, metric_col2 = map_col2.columns([1,4])
-            
-            with logo_col1:
-                if os.path.exists(logo_gota_path):
-                    st.image(logo_gota_path, width=30)
-            with metric_col1:
-                st.metric(f"Estaciones con datos en {year1}", f"{len(data_year1)} de {len(stations_for_analysis)}")
-            
-            with logo_col2:
-                if os.path.exists(logo_gota_path):
-                    st.image(logo_gota_path, width=30)
-            with metric_col2:
-                st.metric(f"Estaciones con datos en {year2}", f"{len(data_year2)} de {len(stations_for_analysis)}")
 
-            min_precip_comp, max_precip_comp = int(df_anual_melted['precipitacion'].min()), int(df_anual_melted['precipitacion'].max())
-            color_range_comp = st.slider("Rango de Escala de Color (mm)", min_precip_comp, max_precip_comp, (min_precip_comp, max_precip_comp), key="color_comp")
+            colormap = cm.linear.YlGnBu_09.scale(vmin=color_range_comp[0], vmax=color_range_comp[1])
 
-            fig1 = px.scatter_geo(data_year1, lat='latitud_geo', lon='longitud_geo', color='precipitacion', size='precipitacion', hover_name='nom_est', hover_data={'municipio': True, 'precipitacion': ':.0f'}, color_continuous_scale='YlGnBu', range_color=color_range_comp, projection='natural earth', title=f"Precipitación en {year1}")
-            fig1.update_geos(fitbounds="locations", visible=True)
-            map_col1.plotly_chart(fig1, use_container_width=True)
+            def create_compare_map(data, year, col):
+                col.markdown(f"**Precipitación en {year}**")
+                m = folium.Map(location=[6.24, -75.58], zoom_start=6, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
+                if not data.empty:
+                    for _, row in data.iterrows():
+                        folium.CircleMarker(
+                            location=[row['latitud_geo'], row['longitud_geo']], radius=5, color=colormap(row['precipitacion']),
+                            fill=True, fill_color=colormap(row['precipitacion']), fill_opacity=0.8,
+                            tooltip=f"{row['nom_est']}: {row['precipitacion']:.0f} mm"
+                        ).add_to(m)
+                    bounds = gdf_stations.loc[gdf_stations['nom_est'].isin(data['nom_est'])].total_bounds
+                    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+                for layer_config in selected_overlays_config:
+                    folium.raster_layers.WmsTileLayer(url=layer_config["url"], layers=layer_config["layers"], fmt='image/png', transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]).add_to(m)
+                folium.LayerControl().add_to(m)
+                with col:
+                    st_folium(m, height=600, width="100%", key=f"map_{year}")
+
+            create_compare_map(data_year1, year1, map_col1)
+            create_compare_map(data_year2, year2, map_col2)
             
-            fig2 = px.scatter_geo(data_year2, lat='latitud_geo', lon='longitud_geo', color='precipitacion', size='precipitacion', hover_name='nom_est', hover_data={'municipio': True, 'precipitacion': ':.0f'}, color_continuous_scale='YlGnBu', range_color=color_range_comp, projection='natural earth', title=f"Precipitación en {year2}")
-            fig2.update_geos(fitbounds="locations", visible=True)
-            map_col2.plotly_chart(fig2, use_container_width=True)
         else:
             st.warning("No hay años disponibles para la comparación.")
 
@@ -1149,45 +1163,53 @@ with mapas_avanzados_tab:
     with coropletico_tab:
         st.subheader("Mapa Coroplético de Precipitación Anual Promedio")
         st.caption(f"Mostrando el promedio para el período {year_range[0]} - {year_range[1]}")
+        
+        controls_col, map_col = st.columns([1, 4])
 
-        if gdf_municipios is not None and not df_anual_melted.empty:
-            # Agregar datos por municipio
-            df_anual_municipio = df_anual_melted.groupby('municipio')['precipitacion'].mean().reset_index()
+        with controls_col:
+            st.markdown("##### Controles de Mapa")
+            selected_base_map_config, selected_overlays_config = display_map_controls(st, "choro")
 
-            # Identificar la columna de municipios en el shapefile. Puede tener varios nombres.
-            municipio_col_options = ['mcnpio', 'municipio', 'nombre_mpio', 'mpio_cnmbr']
-            municipio_col_shp = next((col for col in municipio_col_options if col in gdf_municipios.columns), None)
+        with map_col:
+            if gdf_municipios is not None and not df_anual_melted.empty:
+                df_anual_municipio = df_anual_melted.groupby('municipio')['precipitacion'].mean().reset_index()
+                municipio_col_options = ['mcnpio', 'municipio', 'nombre_mpio', 'mpio_cnmbr']
+                municipio_col_shp = next((col for col in municipio_col_options if col in gdf_municipios.columns), None)
 
-            if municipio_col_shp:
-                # Normalizar nombres para la fusión (quitar espacios, a minúsculas)
-                gdf_municipios_copy = gdf_municipios.copy()
-                gdf_municipios_copy[municipio_col_shp] = gdf_municipios_copy[municipio_col_shp].str.strip().str.lower()
-                df_anual_municipio['municipio'] = df_anual_municipio['municipio'].str.strip().str.lower()
-                
-                # Fusionar con el GeoDataFrame de municipios
-                gdf_municipios_data = gdf_municipios_copy.merge(df_anual_municipio, left_on=municipio_col_shp, right_on='municipio', how='left')
-                
-                # Crear el mapa con Plotly Express
-                fig_choro = px.choropleth_mapbox(
-                    gdf_municipios_data,
-                    geojson=gdf_municipios_data.geometry,
-                    locations=gdf_municipios_data.index,
-                    color="precipitacion",
-                    mapbox_style="carto-positron",
-                    zoom=6,
-                    center={"lat": gdf_municipios_data.dissolve().centroid.y.iloc[0], "lon": gdf_municipios_data.dissolve().centroid.x.iloc[0]},
-                    opacity=0.6,
-                    labels={'precipitacion': 'Ppt. Media Anual (mm)'},
-                    hover_name=municipio_col_shp,
-                    hover_data={'precipitacion': ':.0f'}
-                )
-                fig_choro.update_layout(height=700, margin={"r":0,"t":40,"l":0,"b":0})
-                st.plotly_chart(fig_choro, use_container_width=True)
+                if municipio_col_shp:
+                    gdf_municipios_copy = gdf_municipios.copy()
+                    gdf_municipios_copy[municipio_col_shp] = gdf_municipios_copy[municipio_col_shp].str.strip().str.lower()
+                    df_anual_municipio['municipio'] = df_anual_municipio['municipio'].str.strip().str.lower()
+                    
+                    gdf_municipios_data = gdf_municipios_copy.merge(df_anual_municipio, left_on=municipio_col_shp, right_on='municipio', how='left')
+                    
+                    center_lat = gdf_municipios_data.dissolve().centroid.y.iloc[0]
+                    center_lon = gdf_municipios_data.dissolve().centroid.x.iloc[0]
+                    
+                    m_choro = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
 
+                    folium.Choropleth(
+                        geo_data=gdf_municipios_data.to_json(),
+                        name='Precipitación Media Anual',
+                        data=gdf_municipios_data,
+                        columns=[municipio_col_shp, 'precipitacion'],
+                        key_on=f'feature.properties.{municipio_col_shp}',
+                        fill_color='YlGnBu',
+                        fill_opacity=0.7,
+                        line_opacity=0.2,
+                        legend_name='Precipitación Media Anual (mm)',
+                        nan_fill_color='white'
+                    ).add_to(m_choro)
+
+                    for layer_config in selected_overlays_config:
+                        folium.raster_layers.WmsTileLayer(url=layer_config["url"], layers=layer_config["layers"], fmt='image/png', transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]).add_to(m_choro)
+                    
+                    folium.LayerControl().add_to(m_choro)
+                    st_folium(m_choro, height=700, width="100%")
+                else:
+                    st.error("No se pudo encontrar una columna de municipios compatible en el shapefile (ej: 'municipio', 'mcnpio'). Por favor, verifique el archivo .zip.")
             else:
-                st.error("No se pudo encontrar una columna de municipios compatible en el shapefile (ej: 'municipio', 'mcnpio'). Por favor, verifique el archivo .zip.")
-        else:
-            st.warning("No hay datos de municipios o de precipitación para generar el mapa.")
+                st.warning("No hay datos de municipios o de precipitación para generar el mapa.")
 
 with tabla_estaciones_tab:
     st.header("Información Detallada de las Estaciones")
@@ -1377,20 +1399,16 @@ with correlacion_tab:
     st.header("Correlación entre Precipitación y ENSO")
     st.markdown("Esta sección cuantifica la relación lineal entre la precipitación mensual y la anomalía ONI utilizando el coeficiente de correlación de Pearson.")
 
-    # --- Defensive check: ensure the necessary columns exist in the processed monthly data ---
     if 'anomalia_oni' not in df_monthly_filtered.columns:
         st.warning("No se puede realizar el análisis de correlación porque la columna 'anomalia_oni' no fue encontrada en el archivo de datos cargado o para la selección actual.")
     elif len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para realizar el análisis de correlación.")
     else:
-        # The necessary columns are already in df_monthly_filtered.
-        # We just need to drop rows where either value is missing.
         df_corr_analysis = df_monthly_filtered[['fecha_mes_año', 'nom_est', 'precipitation', 'anomalia_oni']].dropna(subset=['precipitation', 'anomalia_oni'])
         
         if df_corr_analysis.empty:
             st.warning("No hay datos coincidentes entre la precipitación y el ENSO para la selección actual.")
         else:
-            # Permitir al usuario elegir si analiza por estación o el promedio
             analysis_level = st.radio("Nivel de Análisis de Correlación", ["Promedio de la selección", "Por Estación Individual"], key="corr_level")
 
             df_plot_corr = pd.DataFrame()
@@ -1408,9 +1426,7 @@ with correlacion_tab:
                 ).reset_index()
                 title_text = "Correlación para el promedio de las estaciones seleccionadas"
 
-            # Calcular y mostrar resultados
             if len(df_plot_corr) > 2:
-                # Ensure the columns exist before trying to access them
                 if 'anomalia_oni' in df_plot_corr.columns and 'precipitation' in df_plot_corr.columns:
                     corr, p_value = stats.pearsonr(df_plot_corr['anomalia_oni'], df_plot_corr['precipitation'])
 
@@ -1425,7 +1441,6 @@ with correlacion_tab:
                     else:
                         st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
 
-                    # Gráfico de dispersión
                     fig_corr = px.scatter(
                         df_plot_corr,
                         x='anomalia_oni',
@@ -1442,7 +1457,7 @@ with correlacion_tab:
     
 with enso_tab:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
-    enso_series_tab, enso_anim_tab = st.tabs(["Series de Tiempo ENSO", "Mapa Animado ENSO"])
+    enso_series_tab, enso_anim_tab = st.tabs(["Series de Tiempo ENSO", "Mapa Interactivo ENSO"])
 
     with enso_series_tab:
         if df_enso.empty:
@@ -1470,75 +1485,59 @@ with enso_tab:
                             st.warning(f"No hay datos disponibles para '{var_code}' en el período seleccionado.")
 
     with enso_anim_tab:
-        st.subheader("Evolución Mensual del Fenómeno ENSO")
+        st.subheader("Explorador Mensual del Fenómeno ENSO")
         if df_enso.empty or gdf_stations.empty:
-            st.warning("No hay datos disponibles para generar esta animación.")
+            st.warning("No hay datos disponibles para generar esta visualización.")
+        elif 'anomalia_oni' not in df_enso.columns:
+            st.warning("La columna 'anomalia_oni' es necesaria para esta visualización y no se encontró.")
         else:
-            if 'anomalia_oni' in df_enso.columns:
-                controls_col, map_col = st.columns([1, 3])
-                enso_anim_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
-                enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
-                conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
-                phases = ['El Niño', 'La Niña']
-                enso_anim_data['fase'] = np.select(conditions, phases, default='Neutral')
-                enso_anim_data_filtered = enso_anim_data[(enso_anim_data['fecha_mes_año'].dt.year >= year_range[0]) & (enso_anim_data['fecha_mes_año'].dt.year <= year_range[1])]
-                
-                with controls_col:
-                    st.markdown("##### Estadísticas ENSO")
-                    logo_col, info_col = st.columns([1, 4])
-                    with logo_col:
-                        if os.path.exists(logo_gota_path):
-                            st.image(logo_gota_path, width=40)
-                    with info_col:
-                        st.metric("Total Meses Analizados", len(enso_anim_data_filtered))
+            controls_col, map_col = st.columns([1, 3])
+            enso_anim_data = df_enso[['fecha_mes_año', 'anomalia_oni']].copy()
+            enso_anim_data.dropna(subset=['anomalia_oni'], inplace=True)
+            conditions = [enso_anim_data['anomalia_oni'] >= 0.5, enso_anim_data['anomalia_oni'] <= -0.5]
+            phases = ['El Niño', 'La Niña']
+            enso_anim_data['fase'] = np.select(conditions, phases, default='Neutral')
+            enso_anim_data_filtered = enso_anim_data[(enso_anim_data['fecha_mes_año'].dt.year >= year_range[0]) & (enso_anim_data['fecha_mes_año'].dt.year <= year_range[1])]
+            
+            with controls_col:
+                st.markdown("##### Controles de Mapa")
+                selected_base_map_config, selected_overlays_config = display_map_controls(st, "enso_anim")
+
+                st.markdown("##### Selección de Fecha")
+                available_dates = sorted(enso_anim_data_filtered['fecha_mes_año'].unique())
+                if available_dates:
+                    selected_date = st.select_slider("Seleccione una fecha (Año-Mes)", options=available_dates, format_func=lambda date: date.strftime('%Y-%m'))
                     
-                    phase_counts = enso_anim_data_filtered['fase'].value_counts()
-                    nino_months = phase_counts.get('El Niño', 0)
-                    nina_months = phase_counts.get('La Niña', 0)
+                    phase_info = enso_anim_data_filtered[enso_anim_data_filtered['fecha_mes_año'] == selected_date]
+                    if not phase_info.empty:
+                        current_phase = phase_info['fase'].iloc[0]
+                        current_oni = phase_info['anomalia_oni'].iloc[0]
+                        st.metric(f"Fase ENSO en {selected_date.strftime('%Y-%m')}", current_phase, f"Anomalía ONI: {current_oni:.2f}°C")
+                else:
+                    st.warning("No hay datos de ENSO para el período seleccionado.")
 
-                    enso_events_df = enso_anim_data_filtered[enso_anim_data_filtered['fase'] != 'Neutral']
-                    if not enso_events_df.empty:
-                        try:
-                            locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
-                        except locale.Error:
-                            locale.setlocale(locale.LC_TIME, '')
-                        enso_events_df.loc[:, 'mes_nombre'] = enso_events_df['fecha_mes_año'].dt.strftime('%B').str.capitalize()
-                        most_frequent_month = enso_events_df['mes_nombre'].mode()[0]
-                    else:
-                        most_frequent_month = "N/A"
+            with map_col:
+                if available_dates:
+                    m_enso = folium.Map(location=[4.57, -74.29], zoom_start=5, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
+                    
+                    phase_color_map = {'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'grey'}
+                    marker_color = phase_color_map.get(current_phase, 'black')
 
-                    st.info(f"""
-                    **Meses en Fase 'El Niño':** {nino_months}
-                    **Meses en Fase 'La Niña':** {nina_months}
-                     **Mes más frecuente para eventos:** {most_frequent_month}
-                    """)
+                    for _, station in gdf_filtered.iterrows():
+                        folium.Marker(
+                            location=[station['latitud_geo'], station['longitud_geo']],
+                            tooltip=f"{station['nom_est']}<br>Fase: {current_phase}",
+                            icon=folium.Icon(color=marker_color, icon='cloud')
+                        ).add_to(m_enso)
+                    
+                    bounds = gdf_filtered.total_bounds
+                    m_enso.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-                with map_col:
-                    stations_subset = gdf_stations[['nom_est', 'latitud_geo', 'longitud_geo']]
-                    enso_anim_data_filtered.loc[:, 'fecha_str'] = enso_anim_data_filtered['fecha_mes_año'].dt.strftime('%Y-%m')
-                    enso_anim_data_filtered.loc[:, 'key'] = 1
-                    stations_subset['key'] = 1
-                    animation_df = pd.merge(stations_subset, enso_anim_data_filtered, on='key').drop('key', axis=1)
-
-                    fig_enso_anim = px.scatter_geo(
-                        animation_df, lat='latitud_geo', lon='longitud_geo',
-                        color='fase', animation_frame='fecha_str',
-                        hover_name='nom_est',
-                        color_discrete_map={'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'lightgrey'},
-                        category_orders={"fase": ["El Niño", "La Niña", "Neutral"]},
-                        projection='natural earth'
-                    )
-                    fig_enso_anim.update_geos(fitbounds="locations", visible=True)
-                    fig_enso_anim.update_layout(
-                        height=700,
-                        title="Fase ENSO por Mes en las Estaciones Seleccionadas",
-                        sliders=[dict(currentvalue=dict(font=dict(size=24, color="#707070"), prefix='<b>Fecha: </b>', visible=True))],
-                        legend=dict(font=dict(size=16), title_font_size=18, itemsizing='constant')
-                    )
-                    st.plotly_chart(fig_enso_anim, use_container_width=True)
-            else:
-                st.warning("La columna 'anomalia_oni' es necesaria para esta animación y no se encontró en los datos.")
-
+                    for layer_config in selected_overlays_config:
+                        folium.raster_layers.WmsTileLayer(url=layer_config["url"], layers=layer_config["layers"], fmt='image/png', transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]).add_to(m_enso)
+                    
+                    folium.LayerControl().add_to(m_enso)
+                    st_folium(m_enso, height=700, width="100%")
 
 with tendencias_tab:
     st.header("Análisis de Tendencias y Pronósticos")
