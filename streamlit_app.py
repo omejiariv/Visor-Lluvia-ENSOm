@@ -174,15 +174,18 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     df_long.dropna(subset=['nom_est'], inplace=True)
 
     enso_cols = ['id', 'fecha_mes_año', 'anomalia_oni', 'temp_sst', 'temp_media']
-    df_enso = df_precip_mensual[enso_cols].drop_duplicates().copy()
-    for col in ['anomalia_oni', 'temp_sst', 'temp_media']:
-        if col in df_enso.columns:
-            df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
+    # FIX: Only select ENSO columns that actually exist in the uploaded file
+    existing_enso_cols = [col for col in enso_cols if col in df_precip_mensual.columns]
+    df_enso = df_precip_mensual[existing_enso_cols].drop_duplicates().copy()
+
+    # FIX: Only process numeric conversion for columns that exist in df_enso
+    for col in [c for c in ['anomalia_oni', 'temp_sst', 'temp_media'] if c in df_enso.columns]:
+        df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
     
-    df_enso['fecha_mes_año'] = parse_spanish_dates(df_enso['fecha_mes_año'])
-    df_enso['fecha_mes_año'] = pd.to_datetime(df_enso['fecha_mes_año'], format='%b-%y', errors='coerce')
-    
-    df_enso.dropna(subset=['fecha_mes_año'], inplace=True)
+    if 'fecha_mes_año' in df_enso.columns:
+        df_enso['fecha_mes_año'] = parse_spanish_dates(df_enso['fecha_mes_año'])
+        df_enso['fecha_mes_año'] = pd.to_datetime(df_enso['fecha_mes_año'], format='%b-%y', errors='coerce')
+        df_enso.dropna(subset=['fecha_mes_año'], inplace=True)
 
     return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
 
@@ -1371,59 +1374,66 @@ with correlacion_tab:
     st.header("Correlación entre Precipitación y ENSO")
     st.markdown("Esta sección cuantifica la relación lineal entre la precipitación mensual y la anomalía ONI utilizando el coeficiente de correlación de Pearson.")
 
-    if len(stations_for_analysis) > 0:
+    # --- Defensive check ---
+    if 'anomalia_oni' not in df_enso.columns:
+        st.warning("No se puede realizar el análisis de correlación porque la columna 'anomalia_oni' no fue encontrada en el archivo de datos cargado.")
+    elif len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para realizar el análisis de correlación.")
+    else:
         # Fusionar los dataframes
         df_corr_analysis = pd.merge(df_monthly_filtered, df_enso[['fecha_mes_año', 'anomalia_oni']], on='fecha_mes_año', how='inner')
-        df_corr_analysis.dropna(subset=['precipitation', 'anomalia_oni'], inplace=True)
-
-        # Permitir al usuario elegir si analiza por estación o el promedio
-        analysis_level = st.radio("Nivel de Análisis de Correlación", ["Promedio de la selección", "Por Estación Individual"], key="corr_level")
-
-        df_plot_corr = pd.DataFrame()
-        title_text = ""
-
-        if analysis_level == "Por Estación Individual":
-            station_to_corr = st.selectbox("Seleccione Estación", options=stations_for_analysis, key="corr_station")
-            if station_to_corr:
-                df_plot_corr = df_corr_analysis[df_corr_analysis['nom_est'] == station_to_corr]
-                title_text = f"Correlación para la estación: {station_to_corr}"
+        
+        if df_corr_analysis.empty:
+            st.warning("No hay datos coincidentes entre la precipitación y el ENSO para la selección actual.")
         else:
-            df_plot_corr = df_corr_analysis.groupby('fecha_mes_año').agg(
-                precipitation=('precipitation', 'mean'),
-                anomalia_oni=('anomalia_oni', 'first')
-            ).reset_index()
-            title_text = "Correlación para el promedio de las estaciones seleccionadas"
+            df_corr_analysis.dropna(subset=['precipitation', 'anomalia_oni'], inplace=True)
+            
+            # Permitir al usuario elegir si analiza por estación o el promedio
+            analysis_level = st.radio("Nivel de Análisis de Correlación", ["Promedio de la selección", "Por Estación Individual"], key="corr_level")
 
-        # Calcular y mostrar resultados
-        if len(df_plot_corr) > 2:
-            corr, p_value = stats.pearsonr(df_plot_corr['anomalia_oni'], df_plot_corr['precipitation'])
+            df_plot_corr = pd.DataFrame()
+            title_text = ""
 
-            st.subheader(title_text)
-
-            col1, col2 = st.columns(2)
-            col1.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
-            col2.metric("Significancia (valor p)", f"{p_value:.4f}")
-
-            if p_value < 0.05:
-                st.success("La correlación es estadísticamente significativa, lo que sugiere una relación lineal entre las variables.")
+            if analysis_level == "Por Estación Individual":
+                station_to_corr = st.selectbox("Seleccione Estación", options=stations_for_analysis, key="corr_station")
+                if station_to_corr:
+                    df_plot_corr = df_corr_analysis[df_corr_analysis['nom_est'] == station_to_corr]
+                    title_text = f"Correlación para la estación: {station_to_corr}"
             else:
-                st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
+                df_plot_corr = df_corr_analysis.groupby('fecha_mes_año').agg(
+                    precipitation=('precipitation', 'mean'),
+                    anomalia_oni=('anomalia_oni', 'first')
+                ).reset_index()
+                title_text = "Correlación para el promedio de las estaciones seleccionadas"
 
-            # Gráfico de dispersión
-            fig_corr = px.scatter(
-                df_plot_corr,
-                x='anomalia_oni',
-                y='precipitation',
-                trendline="ols",
-                title="Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
-                labels={'anomalia_oni': 'Anomalía ONI (°C)', 'precipitation': 'Precipitación Mensual (mm)'}
-            )
-            st.plotly_chart(fig_corr, use_container_width=True)
-        else:
-            st.warning("No hay suficientes datos superpuestos para calcular la correlación para la selección actual.")
-    else:
-        st.warning("Seleccione al menos una estación para realizar el análisis de correlación.")
+            # Calcular y mostrar resultados
+            if len(df_plot_corr) > 2:
+                corr, p_value = stats.pearsonr(df_plot_corr['anomalia_oni'], df_plot_corr['precipitation'])
 
+                st.subheader(title_text)
+
+                col1, col2 = st.columns(2)
+                col1.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
+                col2.metric("Significancia (valor p)", f"{p_value:.4f}")
+
+                if p_value < 0.05:
+                    st.success("La correlación es estadísticamente significativa, lo que sugiere una relación lineal entre las variables.")
+                else:
+                    st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
+
+                # Gráfico de dispersión
+                fig_corr = px.scatter(
+                    df_plot_corr,
+                    x='anomalia_oni',
+                    y='precipitation',
+                    trendline="ols",
+                    title="Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
+                    labels={'anomalia_oni': 'Anomalía ONI (°C)', 'precipitation': 'Precipitación Mensual (mm)'}
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
+            else:
+                st.warning("No hay suficientes datos superpuestos para calcular la correlación para la selección actual.")
+    
 with enso_tab:
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
     enso_series_tab, enso_anim_tab = st.tabs(["Series de Tiempo ENSO", "Mapa Animado ENSO"])
@@ -1710,4 +1720,3 @@ with descargas_tab:
             st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
         else:
             st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
-
