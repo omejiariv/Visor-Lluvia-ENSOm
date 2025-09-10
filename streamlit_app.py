@@ -23,6 +23,9 @@ from scipy import stats
 import statsmodels.api as sm
 from prophet import Prophet
 from prophet.plot import plot_plotly
+
+# La librería 'branca' se utiliza en folium y no requiere ser importada explícitamente en la mayoría de los casos,
+# pero se mantiene para claridad.
 import branca.colormap as cm
 
 # ---
@@ -72,6 +75,31 @@ class Config:
     
     ¡Esperamos que esta herramienta le sea de gran utilidad para sus análisis climáticos!
     """
+    
+    # Se añade un bloque para inicializar la sesión de Streamlit de manera segura
+    @staticmethod
+    def initialize_session_state():
+        if 'data_loaded' not in st.session_state:
+            st.session_state.data_loaded = False
+        if 'analysis_mode' not in st.session_state:
+            st.session_state.analysis_mode = "Usar datos originales"
+        if 'select_all_stations_state' not in st.session_state:
+            st.session_state.select_all_stations_state = False
+        if 'df_monthly_processed' not in st.session_state:
+             # Se inicializa aquí para evitar errores si no se carga el archivo
+            st.session_state.df_monthly_processed = pd.DataFrame()
+        if 'gdf_stations' not in st.session_state:
+            st.session_state.gdf_stations = None
+            st.session_state.df_precip_anual = None
+            st.session_state.gdf_municipios = None
+            st.session_state.df_long = None
+            st.session_state.df_enso = None
+        if 'min_data_perc_slider' not in st.session_state: st.session_state.min_data_perc_slider = 0
+        if 'altitude_multiselect' not in st.session_state: st.session_state.altitude_multiselect = []
+        if 'regions_multiselect' not in st.session_state: st.session_state.regions_multiselect = []
+        if 'municipios_multiselect' not in st.session_state: st.session_state.municipios_multiselect = []
+        if 'celdas_multiselect' not in st.session_state: st.session_state.celdas_multiselect = []
+        if 'station_multiselect' not in st.session_state: st.session_state.station_multiselect = []
 
 # ---
 # Funciones de Carga y Preprocesamiento
@@ -1218,21 +1246,24 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
                     ts_data = ts_data.set_index(Config.DATE_COL).sort_index()
                     ts_data = ts_data[Config.PRECIPITATION_COL].asfreq('MS')
+                    
+                    if len(ts_data) < 24:
+                        st.warning("Se necesitan al menos 24 puntos de datos para el pronóstico SARIMA. Por favor, ajuste la selección de años.")
+                    else:
+                        model = sm.tsa.statespace.SARIMAX(ts_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), enforce_stationarity=False, enforce_invertibility=False)
+                        results = model.fit(disp=False)
+                        forecast = results.get_forecast(steps=forecast_horizon)
+                        forecast_mean = forecast.predicted_mean
+                        forecast_ci = forecast.conf_int()
 
-                    model = sm.tsa.statespace.SARIMAX(ts_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), enforce_stationarity=False, enforce_invertibility=False)
-                    results = model.fit(disp=False)
-                    forecast = results.get_forecast(steps=forecast_horizon)
-                    forecast_mean = forecast.predicted_mean
-                    forecast_ci = forecast.conf_int()
-
-                    fig_pronostico = go.Figure()
-                    fig_pronostico.add_trace(go.Scatter(x=ts_data.index, y=ts_data, mode='lines', name='Datos Históricos'))
-                    fig_pronostico.add_trace(go.Scatter(x=forecast_mean.index, y=forecast_mean, mode='lines', name='Pronóstico', line=dict(color='red', dash='dash')))
-                    fig_pronostico.add_trace(go.Scatter(x=forecast_ci.index, y=forecast_ci.iloc[:, 0], fill=None, mode='lines', line=dict(color='rgba(255,0,0,0.2)'), showlegend=False))
-                    fig_pronostico.add_trace(go.Scatter(x=forecast_ci.index, y=forecast_ci.iloc[:, 1], fill='tonexty', mode='lines', line=dict(color='rgba(255,0,0,0.2)'), name='Intervalo de Confianza'))
-                    fig_pronostico.update_layout(title=f"Pronóstico de Precipitación para {station_to_forecast}", xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
-                    st.plotly_chart(fig_pronostico, use_container_width=True)
-                    st.info("Este pronóstico se basa en modelos estadísticos (SARIMA) que identifican patrones históricos y estacionales en los datos. Los resultados son probabilísticos y deben ser interpretados según el grado de incertidumbre.")
+                        fig_pronostico = go.Figure()
+                        fig_pronostico.add_trace(go.Scatter(x=ts_data.index, y=ts_data, mode='lines', name='Datos Históricos'))
+                        fig_pronostico.add_trace(go.Scatter(x=forecast_mean.index, y=forecast_mean, mode='lines', name='Pronóstico', line=dict(color='red', dash='dash')))
+                        fig_pronostico.add_trace(go.Scatter(x=forecast_ci.index, y=forecast_ci.iloc[:, 0], fill=None, mode='lines', line=dict(color='rgba(255,0,0,0.2)'), showlegend=False))
+                        fig_pronostico.add_trace(go.Scatter(x=forecast_ci.index, y=forecast_ci.iloc[:, 1], fill='tonexty', mode='lines', line=dict(color='rgba(255,0,0,0.2)'), name='Intervalo de Confianza'))
+                        fig_pronostico.update_layout(title=f"Pronóstico de Precipitación para {station_to_forecast}", xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
+                        st.plotly_chart(fig_pronostico, use_container_width=True)
+                        st.info("Este pronóstico se basa en modelos estadísticos (SARIMA) que identifican patrones históricos y estacionales en los datos. Los resultados son probabilísticos y deben ser interpretados según el grado de incertidumbre.")
                 except Exception as e:
                     st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
 
@@ -1298,6 +1329,9 @@ def main():
     button[data-baseweb="tab"] { font-size: 16px; font-weight: bold; color: #333; }
     </style>
     """, unsafe_allow_html=True)
+    
+    # Inicialización del estado de la sesión
+    Config.initialize_session_state()
 
     title_col1, title_col2 = st.columns([0.07, 0.93])
     with title_col1:
@@ -1305,9 +1339,6 @@ def main():
     with title_col2:
         st.markdown(f'<h1 style="font-size:28px; margin-top:1rem;">{Config.APP_TITLE}</h1>', unsafe_allow_html=True)
     st.sidebar.header("Panel de Control")
-
-    if 'data_loaded' not in st.session_state:
-        st.session_state.data_loaded = False
 
     with st.sidebar.expander("**Cargar Archivos**", expanded=True):
         uploaded_file_mapa = st.file_uploader("1. Cargar archivo de estaciones (mapaCVENSO.csv)", type="csv")
@@ -1334,12 +1365,26 @@ def main():
     if st.session_state.gdf_stations is None:
         st.stop()
 
-    # Inicialización de la sesión
-    if 'analysis_mode' not in st.session_state: st.session_state.analysis_mode = "Usar datos originales"
-    if 'df_monthly_processed' not in st.session_state: st.session_state.df_monthly_processed = st.session_state.df_long.copy()
-    if 'select_all_stations_state' not in st.session_state: st.session_state.select_all_stations_state = False
-
     with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
+        def apply_filters_to_stations(df, min_perc, altitudes, regions, municipios, celdas):
+            stations_filtered = df.copy()
+            if Config.PERCENTAGE_COL in stations_filtered.columns:
+                stations_filtered[Config.PERCENTAGE_COL] = pd.to_numeric(stations_filtered[Config.PERCENTAGE_COL].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+                stations_filtered = stations_filtered[stations_filtered[Config.PERCENTAGE_COL] >= min_perc]
+            if altitudes:
+                conditions = []
+                for r in altitudes:
+                    if r == '0-500': conditions.append((stations_filtered[Config.ALTITUDE_COL] >= 0) & (stations_filtered[Config.ALTITUDE_COL] <= 500))
+                    elif r == '500-1000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 500) & (stations_filtered[Config.ALTITUDE_COL] <= 1000))
+                    elif r == '1000-2000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 1000) & (stations_filtered[Config.ALTITUDE_COL] <= 2000))
+                    elif r == '2000-3000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 2000) & (stations_filtered[Config.ALTITUDE_COL] <= 3000))
+                    elif r == '>3000': conditions.append(stations_filtered[Config.ALTITUDE_COL] > 3000)
+                if conditions: stations_filtered = stations_filtered[pd.concat(conditions, axis=1).any(axis=1)]
+            if regions: stations_filtered = stations_filtered[stations_filtered[Config.REGION_COL].isin(regions)]
+            if municipios: stations_filtered = stations_filtered[stations_filtered[Config.MUNICIPALITY_COL].isin(municipios)]
+            if celdas: stations_filtered = stations_filtered[stations_filtered[Config.CELL_COL].isin(celdas)]
+            return stations_filtered
+
         min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, 0, key='min_data_perc_slider')
         altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
         selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges, key='altitude_multiselect')
@@ -1376,25 +1421,6 @@ def main():
             st.rerun()
 
     with st.sidebar.expander("**2. Selección de Estaciones y Período**", expanded=True):
-        def apply_filters_to_stations(df, min_perc, altitudes, regions, municipios, celdas):
-            stations_filtered = df.copy()
-            if Config.PERCENTAGE_COL in stations_filtered.columns:
-                stations_filtered[Config.PERCENTAGE_COL] = pd.to_numeric(stations_filtered[Config.PERCENTAGE_COL].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-                stations_filtered = stations_filtered[stations_filtered[Config.PERCENTAGE_COL] >= min_perc]
-            if altitudes:
-                conditions = []
-                for r in altitudes:
-                    if r == '0-500': conditions.append((stations_filtered[Config.ALTITUDE_COL] >= 0) & (stations_filtered[Config.ALTITUDE_COL] <= 500))
-                    elif r == '500-1000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 500) & (stations_filtered[Config.ALTITUDE_COL] <= 1000))
-                    elif r == '1000-2000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 1000) & (stations_filtered[Config.ALTITUDE_COL] <= 2000))
-                    elif r == '2000-3000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 2000) & (stations_filtered[Config.ALTITUDE_COL] <= 3000))
-                    elif r == '>3000': conditions.append(stations_filtered[Config.ALTITUDE_COL] > 3000)
-                if conditions: stations_filtered = stations_filtered[pd.concat(conditions, axis=1).any(axis=1)]
-            if regions: stations_filtered = stations_filtered[stations_filtered[Config.REGION_COL].isin(regions)]
-            if municipios: stations_filtered = stations_filtered[stations_filtered[Config.MUNICIPALITY_COL].isin(municipios)]
-            if celdas: stations_filtered = stations_filtered[stations_filtered[Config.CELL_COL].isin(celdas)]
-            return stations_filtered
-
         stations_master_list = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
         stations_options = sorted(stations_master_list[Config.STATION_NAME_COL].unique())
         if st.checkbox("Seleccionar/Deseleccionar todas las estaciones", value=st.session_state.select_all_stations_state, key='select_all_checkbox'):
@@ -1424,16 +1450,23 @@ def main():
         analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"))
 
     # --- Lógica de filtrado de datos principal ---
-#...
-    # La corrección se aplica en esta sección
+    st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
+    
+    if not selected_stations:
+        stations_for_analysis = st.session_state.gdf_filtered[Config.STATION_NAME_COL].unique()
+    else:
+        stations_for_analysis = selected_stations
+        st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        
     st.session_state.df_anual_melted = st.session_state.gdf_stations.melt(
         id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
         value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
         var_name=Config.YEAR_COL,
-        value_name=Config.PRECIPITATION_COL # <-- ¡Aquí está la corrección!
+        value_name=Config.PRECIPITATION_COL
     )
     st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
     st.session_state.df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+
     if st.session_state.analysis_mode != analysis_mode:
         st.session_state.analysis_mode = analysis_mode
         if analysis_mode == "Completar series (interpolación)":
