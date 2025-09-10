@@ -1432,13 +1432,12 @@ with tendencias_tab:
             station_to_forecast = st.selectbox(
                 "Seleccione una estación para el pronóstico:",
                 options=stations_for_analysis,
-                key="sarima_station_select",
                 help="El pronóstico se realiza para una única serie de tiempo."
             )
             
-            forecast_horizon = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="sarima_horizon")
+            forecast_horizon = st.slider("Meses a pronosticar:", 12, 36, 12, step=12)
 
-            if st.button("Generar Pronóstico SARIMA", key="run_sarima"):
+            if st.button("Generar Pronóstico"):
                 with st.spinner("Entrenando modelo y generando pronóstico... Esto puede tardar un momento."):
                     try:
                         ts_data = df_monthly_to_process[df_monthly_to_process['nom_est'] == station_to_forecast][['fecha_mes_año', 'precipitation']].copy()
