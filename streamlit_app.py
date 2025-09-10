@@ -505,9 +505,7 @@ with st.spinner("Filtrando datos..."):
  
 # --- Pestañas Principales ---
 tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
-mapa_tab, graficos_tab, mapas_avanzados_tab,
-tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab,
-tendencias_tab, descargas_tab = st.tabs(tab_names)
+mapa_tab, graficos_tab, mapas_avanzados_tab, tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab, tendencias_tab, descargas_tab = st.tabs(tab_names)
  
 with mapa_tab:
     st.header("Distribución espacial de las Estaciones de Lluvia (1970 - 2021)")
@@ -1138,9 +1136,9 @@ with anomalias_tab:
         df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=['nom_est', 'mes'], how='left')
         df_anomalias['anomalia'] = df_anomalias['precipitation'] - df_anomalias['precip_promedio_mes']
  
-    if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
+        if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
             st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
-    else:
+        else:
             anom_graf_tab, anom_mapa_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Mapa de Anomalías Anuales", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
  
             with anom_graf_tab:
@@ -1446,8 +1444,11 @@ with tendencias_tab:
                 st.warning("Por favor, seleccione al menos una estación para ver los resultados.")
             else:
                 tendencias_data = []
+                # Filtra de antemano el DataFrame para solo incluir estaciones seleccionadas
+                df_anual_filtered = df_anual_melted[df_anual_melted['nom_est'].isin(stations_for_analysis)]
+                
                 for station_name in stations_for_analysis:
-                    df_station = df_anual_melted[df_anual_melted['nom_est'] == station_name].copy()
+                    df_station = df_anual_filtered[df_anual_filtered['nom_est'] == station_name].copy()
                     
                     # Aplicar el filtro de precipitación > 0
                     df_station = df_station[df_station['precipitacion'] > 0].copy()
@@ -1475,7 +1476,7 @@ with tendencias_tab:
                 tendencias_df = pd.DataFrame(tendencias_data)
                 st.dataframe(tendencias_df, use_container_width=True)
         # --- FIN: NUEVA PESTAÑA PARA LA TABLA DE TENDENCIAS ---
-
+        
         with pronostico_tab:
             st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
              
