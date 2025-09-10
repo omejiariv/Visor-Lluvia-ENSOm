@@ -73,7 +73,6 @@ class Config:
     ¡Esperamos que esta herramienta le sea de gran utilidad para sus análisis climáticos!
     """
     
-    # Se añade un bloque para inicializar la sesión de Streamlit de manera segura
     @staticmethod
     def initialize_session_state():
         if 'data_loaded' not in st.session_state:
@@ -83,7 +82,6 @@ class Config:
         if 'select_all_stations_state' not in st.session_state:
             st.session_state.select_all_stations_state = False
         if 'df_monthly_processed' not in st.session_state:
-             # Se inicializa aquí para evitar errores si no se carga el archivo
             st.session_state.df_monthly_processed = pd.DataFrame()
         if 'gdf_stations' not in st.session_state:
             st.session_state.gdf_stations = None
@@ -97,6 +95,8 @@ class Config:
         if 'municipios_multiselect' not in st.session_state: st.session_state.municipios_multiselect = []
         if 'celdas_multiselect' not in st.session_state: st.session_state.celdas_multiselect = []
         if 'station_multiselect' not in st.session_state: st.session_state.station_multiselect = []
+        if 'exclude_na' not in st.session_state:
+            st.session_state.exclude_na = False
 
 # ---
 # Funciones de Carga y Preprocesamiento
@@ -346,7 +346,11 @@ def display_map_controls(container_object, key_prefix):
     base_maps = {k: v for k, v in map_options.items() if not v.get("overlay")}
     overlays = {k: v for k, v in map_options.items() if v.get("overlay")}
     selected_base_map_name = container_object.selectbox("Seleccionar Mapa Base", list(base_maps.keys()), key=f"{key_prefix}_base_map")
-    selected_overlays = container_object.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()), key=f"{key_prefix}_overlays")
+    
+    # Se establece "Mapa de Colombia (WMS IDEAM)" como capa predeterminada
+    default_overlays = ["Mapa de Colombia (WMS IDEAM)"]
+    selected_overlays = container_object.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()), default=default_overlays, key=f"{key_prefix}_overlays")
+    
     return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
 
 # ---
@@ -632,6 +636,8 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
 
 def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Mapas Avanzados")
+    
+    # Se eliminó "Mapa de Anomalías Anuales"
     gif_tab, temporal_tab, compare_tab, kriging_tab, coropletico_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Comparación de Mapas", "Interpolación Kriging", "Mapa Coroplético"])
 
     with gif_tab:
@@ -905,32 +911,13 @@ def display_anomalies_tab(df_long, df_monthly_filtered, df_enso, stations_for_an
         st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
         return
 
-    anom_graf_tab, anom_mapa_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Mapa de Anomalías Anuales", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
+    anom_graf_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
 
     with anom_graf_tab:
         avg_monthly_anom = df_anomalias.groupby([Config.DATE_COL, Config.MONTH_COL])['anomalia'].mean().reset_index()
         df_plot = pd.merge(avg_monthly_anom, df_enso[[Config.DATE_COL, Config.ENSO_ONI_COL]], on=Config.DATE_COL, how='left')
         fig = create_anomaly_chart(df_plot)
         st.plotly_chart(fig, use_container_width=True)
-
-    with anom_mapa_tab:
-        st.subheader("Mapa Interactivo de Anomalías Anuales")
-        df_anomalias_anual = df_anomalias.groupby([Config.STATION_NAME_COL, Config.YEAR_COL])['anomalia'].sum().reset_index()
-        df_anomalias_anual = pd.merge(df_anomalias_anual, st.session_state.gdf_stations.loc[st.session_state.gdf_stations[Config.STATION_NAME_COL].isin(stations_for_analysis)][[Config.STATION_NAME_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL]], on=Config.STATION_NAME_COL)
-        years_with_anomalies = sorted(df_anomalias_anual[Config.YEAR_COL].unique().astype(int))
-        if years_with_anomalies:
-            year_to_map = st.slider("Seleccione un año para visualizar en el mapa:", min_value=min(years_with_anomalies), max_value=max(years_with_anomalies), value=max(years_with_anomalies))
-            df_map_anom = df_anomalias_anual[df_anomalias_anual[Config.YEAR_COL] == str(year_to_map)]
-            max_abs_anom = df_anomalias_anual['anomalia'].abs().max()
-            fig_anom_map = px.scatter_geo(
-                df_map_anom, lat=Config.LATITUDE_COL, lon=Config.LONGITUDE_COL,
-                color='anomalia', size=df_map_anom['anomalia'].abs(), hover_name=Config.STATION_NAME_COL,
-                hover_data={'anomalia': ':.0f'}, color_continuous_scale='RdBu',
-                range_color=[-max_abs_anom, max_abs_anom],
-                title=f"Anomalía de Precipitación Anual para el año {year_to_map}"
-            )
-            fig_anom_map.update_geos(fitbounds="locations", visible=True)
-            st.plotly_chart(fig_anom_map, use_container_width=True)
 
     with anom_fase_tab:
         if Config.ENSO_ONI_COL in df_anomalias.columns:
@@ -1445,6 +1432,8 @@ def main():
 
     with st.sidebar.expander("**3. Opciones de Análisis Avanzado**", expanded=False):
         analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"))
+        st.session_state.exclude_na = st.checkbox("Excluir datos nulos (NaN) de los análisis", value=False)
+
 
     # --- Lógica de filtrado de datos principal ---
     st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
@@ -1462,7 +1451,9 @@ def main():
         value_name=Config.PRECIPITATION_COL
     )
     st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-    st.session_state.df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+    
+    if st.session_state.exclude_na:
+        st.session_state.df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
 
     if st.session_state.analysis_mode != analysis_mode:
         st.session_state.analysis_mode = analysis_mode
@@ -1470,6 +1461,13 @@ def main():
             st.session_state.df_monthly_processed = complete_series(st.session_state.df_long)
         else:
             st.session_state.df_monthly_processed = st.session_state.df_long.copy()
+            if st.session_state.exclude_na:
+                st.session_state.df_monthly_processed.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+    else:
+        # Se asegura que la opción de excluir nulos se aplique también a la serie ya procesada
+        if st.session_state.exclude_na:
+            st.session_state.df_monthly_processed.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+
 
     st.session_state.df_monthly_filtered = st.session_state.df_monthly_processed[
         (st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
