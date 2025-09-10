@@ -12,4 +12,3 @@ streamlit-folium
 numpy
 branca
 openpyxl
-pmdarima
