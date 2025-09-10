@@ -504,11 +504,7 @@ with st.spinner("Filtrando datos..."):
  
  
 # --- Pestañas Principales ---
-tab_names = ["Distribución Espacial",
-"Gráficos", "Mapas Avanzados", "Tabla de
-Estaciones", "Análisis de Anomalías", "Estadísticas",
-"Análisis ENSO", "Tendencias y Pronósticos",
-"Descargas"]
+tab_names = ["Distribución Espacial", "Gráficos", "Mapas Avanzados", "Tabla de Estaciones", "Análisis de Anomalías", "Estadísticas", "Análisis ENSO", "Tendencias y Pronósticos", "Descargas"]
 mapa_tab, graficos_tab, mapas_avanzados_tab,
 tabla_estaciones_tab, anomalias_tab, estadisticas_tab, enso_tab,
 tendencias_tab, descargas_tab = st.tabs(tab_names)
