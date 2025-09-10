@@ -26,7 +26,7 @@ from prophet.plot import plot_plotly
 def parse_spanish_dates(date_series):
     """Convierte abreviaturas de meses en español a inglés."""
     months_es_to_en = {
-        'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec'
+        'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec', 'sep': 'Sep', 'oct': 'Oct', 'nov': 'Nov', 'jul': 'Jul', 'jun': 'Jun', 'may': 'May', 'mar': 'Mar', 'feb': 'Feb'
     }
     for es, en in months_es_to_en.items():
         date_series = date_series.str.replace(es, en, regex=False, case=False)
@@ -1406,14 +1406,14 @@ with tendencias_tab:
             df_to_analyze = None
             if analysis_type == "Promedio de la selección":
                 df_to_analyze = df_anual_melted[df_anual_melted['nom_est'].isin(stations_for_analysis)].copy()
-                # Filtrar valores > 0 antes de promediar para un análisis más robusto
+                # Filtra valores > 0 antes de promediar para un análisis más robusto
                 df_to_analyze = df_to_analyze[df_to_analyze['precipitacion'] > 0]
                 df_to_analyze = df_to_analyze.groupby('año')['precipitacion'].mean().reset_index()
             else:
                 station_to_analyze = st.selectbox("Seleccione una estación para analizar:", options=stations_for_analysis, key="single_station_trend")
                 if station_to_analyze:
                     df_to_analyze = df_anual_melted[df_anual_melted['nom_est'] == station_to_analyze].copy()
-                    # Filtrar valores > 0 para el análisis de la estación individual
+                    # Filtra valores > 0 para el análisis de la estación individual
                     df_to_analyze = df_to_analyze[df_to_analyze['precipitacion'] > 0]
              
             if df_to_analyze is not None and len(df_to_analyze) > 2:
