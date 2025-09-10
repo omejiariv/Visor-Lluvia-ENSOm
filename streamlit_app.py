@@ -1109,7 +1109,7 @@ with mapas_avanzados_tab:
                     ))
                     fig_krig.update_layout(height=700, title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}", xaxis_title="Longitud", yaxis_title="Latitud")
                     st.plotly_chart(fig_krig, use_container_width=True)
-                else:
+            else:
                     st.warning("No hay datos para realizar la interpolación.")
  
 with tabla_estaciones_tab:
