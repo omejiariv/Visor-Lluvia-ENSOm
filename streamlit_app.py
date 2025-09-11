@@ -160,7 +160,7 @@ def load_shapefile(file_path):
             gdf.columns = gdf.columns.str.strip().str.lower()
             if gdf.crs is None:
                gdf.set_crs("EPSG:9377", inplace=True)
-            return gdf.to_crs("EPSG:4326')
+            return gdf.to_crs("EPSG:4326")
     except Exception as e:
         st.error(f"Error al procesar el shapefile: {e}")
         return None
