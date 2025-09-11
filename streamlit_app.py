@@ -159,7 +159,6 @@ def load_shapefile(file_path):
             gdf.columns = gdf.columns.str.strip().str.lower()
             if gdf.crs is None:
                gdf.set_crs("EPSG:9377", inplace=True)
-            # Línea corregida: se cambia ' por "
             return gdf.to_crs("EPSG:4326")
     except Exception as e:
         st.error(f"Error al procesar el shapefile: {e}")
@@ -1086,7 +1085,7 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                 )
 
 def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
-    st.header("Correlación entre Precipitación y ENSO")
+    st.header("Análisis de Correlación entre Precipitación y ENSO")
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
 
@@ -1604,20 +1603,19 @@ def main():
         else:
             st.session_state.df_monthly_processed = st.session_state.df_long.copy()
 
-    df_monthly_processed_filtered = st.session_state.df_monthly_processed.copy()
-    
-    # Aplica los filtros de nulos y ceros en un solo paso para evitar inconsistencias
-    if st.session_state.exclude_na:
-        df_monthly_processed_filtered = df_monthly_processed_filtered.dropna(subset=[Config.PRECIPITATION_COL])
-    if st.session_state.exclude_zeros:
-        df_monthly_processed_filtered = df_monthly_processed_filtered[df_monthly_processed_filtered[Config.PRECIPITATION_COL] > 0]
-
-    st.session_state.df_monthly_filtered = df_monthly_processed_filtered[
-        (df_monthly_processed_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
-        (df_monthly_processed_filtered[Config.DATE_COL].dt.year >= year_range[0]) &
-        (df_monthly_processed_filtered[Config.DATE_COL].dt.year <= year_range[1]) &
-        (df_monthly_processed_filtered[Config.DATE_COL].dt.month.isin(meses_numeros))
+    df_monthly_to_filter = st.session_state.df_monthly_processed[
+        (st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+        (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year >= year_range[0]) &
+        (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year <= year_range[1]) &
+        (st.session_state.df_monthly_processed[Config.DATE_COL].dt.month.isin(meses_numeros))
     ].copy()
+
+    if st.session_state.exclude_na:
+        df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+    if st.session_state.exclude_zeros:
+        df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
+
+    st.session_state.df_monthly_filtered = df_monthly_to_filter
 
     st.session_state.year_range = year_range
     st.session_state.meses_numeros = meses_numeros
