@@ -1606,17 +1606,23 @@ def main():
         if st.session_state.analysis_mode == "Completar series (interpolación)":
             df_monthly_to_filter = complete_series(df_monthly_to_filter)
         
+        # Filtros de exclusión aplicados de manera segura
         if st.session_state.exclude_na:
             df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
         if st.session_state.exclude_zeros:
             df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
         
-        st.session_state.df_monthly_filtered = df_monthly_to_filter[
-            (df_monthly_to_filter[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
-            (df_monthly_to_filter[Config.DATE_COL].dt.year >= year_range[0]) &
-            (df_monthly_to_filter[Config.DATE_COL].dt.year <= year_range[1]) &
-            (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
-        ].copy()
+        # Se asegura que la columna exista antes de aplicar el filtro de estaciones
+        if Config.STATION_NAME_COL in df_monthly_to_filter.columns:
+            st.session_state.df_monthly_filtered = df_monthly_to_filter[
+                (df_monthly_to_filter[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+                (df_monthly_to_filter[Config.DATE_COL].dt.year >= year_range[0]) &
+                (df_monthly_to_filter[Config.DATE_COL].dt.year <= year_range[1]) &
+                (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
+            ].copy()
+        else:
+            st.session_state.df_monthly_filtered = pd.DataFrame(columns=df_monthly_to_filter.columns)
+            st.warning("La columna 'nom_est' no se encontró en los datos mensuales. Por favor, verifique el archivo.")
     else:
         st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
 
