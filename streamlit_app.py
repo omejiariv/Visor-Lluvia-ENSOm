@@ -197,7 +197,7 @@ def complete_series(_df):
 
 @st.cache_data
 def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
-    """Preprocesa todos los archivos de entrada."""
+    """Procesa todos los archivos de entrada."""
     df_precip_anual = load_data(uploaded_file_mapa)
     df_precip_mensual_raw = load_data(uploaded_file_precip)
     gdf_municipios = load_shapefile(uploaded_zip_shapefile)
@@ -715,8 +715,8 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             os.remove(raster_path)
                             
                             gdf_municipios['promedio_precipitacion'] = pd.Series([s['mean'] for s in stats_municipales])
-                            # Renombrar la columna con el nombre estándar para Folium
-                            gdf_municipios.rename(columns={'municipio_col_del_shp': Config.MPIO_SHP_COL}, inplace=True)
+                            # Renombrar la columna de municipios del shp para que sea consistente
+                            gdf_municipios.rename(columns={'nombre_mpio': Config.MPIO_SHP_COL}, inplace=True)
                             st.session_state.gdf_municipal_stats = gdf_municipios
                             st.success("¡Promedios por municipio calculados con éxito! Ahora puede ver el Mapa Coroplético.")
                             st.rerun()
@@ -749,7 +749,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                 m_choro = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
                 folium.Choropleth(
                     geo_data=gdf_municipios_data.to_json(), name='Precipitación Media Anual',
-                    data=pd.DataFrame(gdf_municipios_data), columns=[Config.MPIO_SHP_COL, 'promedio_precipitacion'],
+                    data=gdf_municipios_data, columns=[Config.MPIO_SHP_COL, 'promedio_precipitacion'],
                     key_on=f'feature.properties.{Config.MPIO_SHP_COL}', fill_color='YlGnBu', fill_opacity=0.7,
                     line_opacity=0.2, legend_name='Precipitación Media Anual (mm)', nan_fill_color='white'
                 ).add_to(m_choro)
