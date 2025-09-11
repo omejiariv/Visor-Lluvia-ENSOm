@@ -884,6 +884,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             
                             os.remove(raster_path)
                             
+                            # Aseguramos que la columna de nombres de municipio se mantenga
                             gdf_municipios['promedio_precipitacion'] = pd.Series([s['mean'] for s in stats_municipales])
                             st.session_state.gdf_municipal_stats = gdf_municipios
                             st.success("¡Promedios por municipio calculados con éxito! Ahora puede ver el Mapa Coroplético.")
@@ -1516,9 +1517,10 @@ def main():
                 if r == '0-500': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] >= 0) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 500))
                 elif r == '500-1000': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] > 500) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 1000))
                 elif r == '1000-2000': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] > 1000) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 2000))
+                elif r == '2000-3000': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] > 2000) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 3000))
                 elif r == '>3000': conditions.append(filtered_stations_temp[Config.ALTITUDE_COL] > 3000)
-            if conditions: filtered_stations_temp = stations_filtered[pd.concat(conditions, axis=1).any(axis=1)]
-        if selected_regions: filtered_stations_temp = filtered_stations_temp[stations_filtered[Config.REGION_COL].isin(selected_regions)]
+            if conditions: filtered_stations_temp = filtered_stations_temp[pd.concat(conditions, axis=1).any(axis=1)]
+        if selected_regions: filtered_stations_temp = filtered_stations_temp[filtered_stations_temp[Config.REGION_COL].isin(selected_regions)]
         municipios_list = sorted(filtered_stations_temp[Config.MUNICIPALITY_COL].dropna().unique())
         selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list, default=st.session_state.get('municipios_multiselect', []), key='municipios_multiselect')
         if selected_municipios: filtered_stations_temp = filtered_stations_temp[filtered_stations_temp[Config.MUNICIPALITY_COL].isin(selected_municipios)]
@@ -1621,10 +1623,11 @@ def main():
                 (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
             ].copy()
         else:
-            st.session_state.df_monthly_filtered = pd.DataFrame(columns=st.session_state.df_long.columns)
+            st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
     else:
         st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
-        
+
+
     st.session_state.year_range = year_range
     st.session_state.meses_numeros = meses_numeros
 
