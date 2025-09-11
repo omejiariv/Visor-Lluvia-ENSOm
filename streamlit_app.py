@@ -1373,7 +1373,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
             """)
         
         station_to_forecast_prophet = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="prophet_station_select", help="El pronóstico se realiza para una única serie de tiempo con Prophet.")
-        forecast_horizon_prophet = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="prophet_horizon")
+        forecast_horizon_prophet = st.slider("Meses a pronosticar:", 12, 36, 12, step=12)
         
         # Generación automática del pronóstico sin necesidad de botón
         if len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet]) < 24:
@@ -1583,19 +1583,17 @@ def main():
         stations_for_analysis = selected_stations
         st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
 
-    st.session_state.df_anual_melted = st.session_state.gdf_stations.melt(
-        id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
-        value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
-        var_name=Config.YEAR_COL,
-        value_name=Config.PRECIPITATION_COL
-    )
-    st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-    
+    # Se corrige la lógica de filtrado aquí. Se asegura que la operación se realice en un solo paso
+    if not st.session_state.df_long.empty:
+        df_monthly_to_filter = st.session_state.df_long.copy()
+    else:
+        df_monthly_to_filter = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
+
     if st.session_state.exclude_na:
-        st.session_state.df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+        df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
     if st.session_state.exclude_zeros:
-        st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.PRECIPITATION_COL] > 0]
-    
+        df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
+
     if st.session_state.analysis_mode != analysis_mode:
         st.session_state.analysis_mode = analysis_mode
         if analysis_mode == "Completar series (interpolación)":
@@ -1603,19 +1601,23 @@ def main():
         else:
             st.session_state.df_monthly_processed = st.session_state.df_long.copy()
 
-    df_monthly_to_filter = st.session_state.df_monthly_processed[
-        (st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
-        (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year >= year_range[0]) &
-        (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year <= year_range[1]) &
-        (st.session_state.df_monthly_processed[Config.DATE_COL].dt.month.isin(meses_numeros))
-    ].copy()
+    df_monthly_processed_filtered = st.session_state.df_monthly_processed.copy()
 
     if st.session_state.exclude_na:
-        df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+        df_monthly_processed_filtered = df_monthly_processed_filtered.dropna(subset=[Config.PRECIPITATION_COL])
     if st.session_state.exclude_zeros:
-        df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
-
-    st.session_state.df_monthly_filtered = df_monthly_to_filter
+        df_monthly_processed_filtered = df_monthly_processed_filtered[df_monthly_processed_filtered[Config.PRECIPITATION_COL] > 0]
+    
+    # Se corrige el KeyError aquí. La variable se filtra correctamente en un solo paso.
+    if not df_monthly_processed_filtered.empty:
+        st.session_state.df_monthly_filtered = df_monthly_processed_filtered[
+            (df_monthly_processed_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+            (df_monthly_processed_filtered[Config.DATE_COL].dt.year >= year_range[0]) &
+            (df_monthly_processed_filtered[Config.DATE_COL].dt.year <= year_range[1]) &
+            (df_monthly_processed_filtered[Config.DATE_COL].dt.month.isin(meses_numeros))
+        ].copy()
+    else:
+        st.session_state.df_monthly_filtered = pd.DataFrame(columns=df_monthly_processed_filtered.columns)
 
     st.session_state.year_range = year_range
     st.session_state.meses_numeros = meses_numeros
