@@ -875,7 +875,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             
                             gdf_municipios = st.session_state.gdf_municipios.copy().to_crs('EPSG:4326')
                             
-                            # Se asegura de que la columna nombre_mpio exista en el gdf_municipios_data
                             stats_municipales = zonal_stats(
                                 vectors=gdf_municipios,
                                 raster=raster_path,
@@ -913,12 +912,15 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                 gdf_municipios_data = st.session_state.gdf_municipal_stats.copy()
                 gdf_municipios_data = gdf_municipios_data.dropna(subset=['promedio_precipitacion'])
                 
+                # Se crea un DataFrame de Pandas para la columna 'data' del choropleth
+                data_for_choropleth = pd.DataFrame(gdf_municipios_data)
+
                 center_lat = gdf_municipios_data.dissolve().centroid.y.iloc[0]
                 center_lon = gdf_municipios_data.dissolve().centroid.x.iloc[0]
                 m_choro = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
                 folium.Choropleth(
                     geo_data=gdf_municipios_data.to_json(), name='Precipitación Media Anual',
-                    data=gdf_municipios_data, columns=[Config.MPIO_SHP_COL, 'promedio_precipitacion'],
+                    data=data_for_choropleth, columns=[Config.MPIO_SHP_COL, 'promedio_precipitacion'],
                     key_on=f'feature.properties.{Config.MPIO_SHP_COL}', fill_color='YlGnBu', fill_opacity=0.7,
                     line_opacity=0.2, legend_name='Precipitación Media Anual (mm)', nan_fill_color='white'
                 ).add_to(m_choro)
@@ -1319,10 +1321,9 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         station_to_forecast = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="sarima_station_select")
         forecast_horizon = st.slider("Meses a pronosticar:", 12, 36, 12, step=12)
 
-        # Generación automática del pronóstico sin necesidad de botón
-        if len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast]) < 24:
+        if not df_monthly_to_process.empty and len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast]) < 24:
             st.warning("Se necesitan al menos 24 puntos de datos para el pronóstico SARIMA. Por favor, ajuste la selección de años.")
-        else:
+        elif not df_monthly_to_process.empty:
             with st.spinner(f"Entrenando modelo y generando pronóstico para {station_to_forecast}..."):
                 try:
                     ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
@@ -1359,9 +1360,10 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         mime='text/csv',
                         key='download-sarima'
                     )
-
                 except Exception as e:
                     st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
+        else:
+            st.info("Por favor, cargue datos para generar un pronóstico.")
 
     with pronostico_prophet_tab:
         st.subheader("Pronóstico de Precipitación Mensual (Modelo Prophet)")
@@ -1375,11 +1377,10 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         
         station_to_forecast_prophet = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="prophet_station_select", help="El pronóstico se realiza para una única serie de tiempo con Prophet.")
         forecast_horizon_prophet = st.slider("Meses a pronosticar:", 12, 36, 12, step=12)
-        
-        # Generación automática del pronóstico sin necesidad de botón
-        if len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet]) < 24:
+
+        if not df_monthly_to_process.empty and len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet]) < 24:
             st.warning("Se necesitan al menos 24 puntos de datos para que Prophet funcione correctamente. Por favor, ajuste la selección de años.")
-        else:
+        elif not df_monthly_to_process.empty:
             with st.spinner(f"Entrenando modelo Prophet y generando pronóstico para {station_to_forecast_prophet}..."):
                 try:
                     ts_data_prophet = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
@@ -1406,6 +1407,8 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
 
                 except Exception as e:
                     st.error(f"Ocurrió un error al generar el pronóstico con Prophet. Esto puede deberse a que la serie de datos es demasiado corta o inestable. Error: {e}")
+        else:
+            st.info("Por favor, cargue datos para generar un pronóstico.")
 
 def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis):
     st.header("Opciones de Descarga")
@@ -1513,10 +1516,9 @@ def main():
                 if r == '0-500': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] >= 0) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 500))
                 elif r == '500-1000': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] > 500) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 1000))
                 elif r == '1000-2000': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] > 1000) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 2000))
-                elif r == '2000-3000': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] > 2000) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 3000))
                 elif r == '>3000': conditions.append(filtered_stations_temp[Config.ALTITUDE_COL] > 3000)
-            if conditions: filtered_stations_temp = filtered_stations_temp[pd.concat(conditions, axis=1).any(axis=1)]
-        if selected_regions: filtered_stations_temp = filtered_stations_temp[filtered_stations_temp[Config.REGION_COL].isin(selected_regions)]
+            if conditions: filtered_stations_temp = stations_filtered[pd.concat(conditions, axis=1).any(axis=1)]
+        if selected_regions: filtered_stations_temp = filtered_stations_temp[stations_filtered[Config.REGION_COL].isin(selected_regions)]
         municipios_list = sorted(filtered_stations_temp[Config.MUNICIPALITY_COL].dropna().unique())
         selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list, default=st.session_state.get('municipios_multiselect', []), key='municipios_multiselect')
         if selected_municipios: filtered_stations_temp = filtered_stations_temp[filtered_stations_temp[Config.MUNICIPALITY_COL].isin(selected_municipios)]
@@ -1601,9 +1603,10 @@ def main():
         st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.PRECIPITATION_COL] > 0]
     
     if st.session_state.df_long is not None and not st.session_state.df_long.empty:
-        df_monthly_to_filter = st.session_state.df_long.copy()
         if st.session_state.analysis_mode == "Completar series (interpolación)":
-            df_monthly_to_filter = complete_series(df_monthly_to_filter)
+            df_monthly_to_filter = complete_series(st.session_state.df_long.copy())
+        else:
+            df_monthly_to_filter = st.session_state.df_long.copy()
         
         if st.session_state.exclude_na:
             df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
@@ -1618,11 +1621,10 @@ def main():
                 (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
             ].copy()
         else:
-            st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
+            st.session_state.df_monthly_filtered = pd.DataFrame(columns=st.session_state.df_long.columns)
     else:
         st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
-
-
+        
     st.session_state.year_range = year_range
     st.session_state.meses_numeros = meses_numeros
 
