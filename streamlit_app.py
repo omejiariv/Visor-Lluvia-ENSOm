@@ -24,6 +24,8 @@ from prophet.plot import plot_plotly
 import branca.colormap as cm
 from rasterstats import zonal_stats
 import xarray as xr
+import locale
+import base64
 
 # ---
 # Constantes y Configuración Centralizada
@@ -44,7 +46,6 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-    MPIO_SHP_COL = 'nombre_mpio' # Columna de municipios en el shapefile
 
     # Rutas de Archivos
     LOGO_PATH = "CuencaVerdeLogo_V1.JPG"
@@ -159,7 +160,7 @@ def load_shapefile(file_path):
             gdf.columns = gdf.columns.str.strip().str.lower()
             if gdf.crs is None:
                gdf.set_crs("EPSG:9377", inplace=True)
-            return gdf.to_crs("EPSG:4326")
+            return gdf.to_crs("EPSG:4326')
     except Exception as e:
         st.error(f"Error al procesar el shapefile: {e}")
         return None
@@ -921,7 +922,7 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
                 st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
             fig_corr = px.scatter(
                 df_plot_corr, x=Config.ENSO_ONI_COL, y='precipitation', trendline='ols',
-                title=f"Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
+                title="Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
                 labels={Config.ENSO_ONI_COL: 'Anomalía ONI (°C)', 'precipitation': 'Precipitación Mensual (mm)'}
             )
             st.plotly_chart(fig_corr, use_container_width=True)
@@ -1446,7 +1447,7 @@ def main():
                 (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
             ].copy()
         else:
-            st.session_state.df_monthly_filtered = pd.DataFrame(columns=st.session_state.df_long.columns)
+            st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
     else:
         st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
 
