@@ -833,7 +833,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         if not df_anual_melted.empty and len(df_anual_melted[Config.YEAR_COL].unique()) > 0:
             min_year, max_year = int(df_anual_melted[Config.YEAR_COL].min()), int(df_anual_melted[Config.YEAR_COL].max())
             year_kriging = st.slider("Seleccione el año para la interpolación", min_year, max_year, max_year, key="year_kriging")
-            data_year_kriging = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year_kriging]
+            data_year_kriging = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year_kriging].copy()
             logo_col_k, metric_col_k = st.columns([1,8])
             with logo_col_k:
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=40)
@@ -850,6 +850,11 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             - Los círculos rojos representan las estaciones de lluvia.
                             - Este método considera no solo la distancia, sino también las propiedades de varianza espacial de los datos.
                         """)
+                    # Se crea la columna 'tooltip' antes de usarla
+                    data_year_kriging['tooltip'] = data_year_kriging.apply(
+                        lambda row: f"<b>{row[Config.STATION_NAME_COL]}</b><br>Municipio: {row[Config.MUNICIPALITY_COL]}<br>Ppt: {row[Config.PRECIPITATION_COL]:.0f} mm",
+                        axis=1
+                    )
                     lons, lats, vals = data_year_kriging[Config.LONGITUDE_COL].values, data_year_kriging[Config.LATITUDE_COL].values, data_year_kriging[Config.PRECIPITATION_COL].values
                     bounds = st.session_state.gdf_stations.loc[st.session_state.gdf_stations[Config.STATION_NAME_COL].isin(stations_for_analysis)].total_bounds
                     lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
@@ -1585,20 +1590,20 @@ def main():
 
     # Se corrige la inicialización de df_anual_melted
     if st.session_state.gdf_stations is not None and not st.session_state.gdf_stations.empty:
-        st.session_state.df_anual_melted = st.session_state.gdf_stations.melt(
+        df_anual_melted_temp = st.session_state.gdf_stations.melt(
             id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
             value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
             var_name=Config.YEAR_COL,
             value_name=Config.PRECIPITATION_COL
         )
-        st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-        
-        if st.session_state.exclude_na:
-            st.session_state.df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
-        if st.session_state.exclude_zeros:
-            st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.PRECIPITATION_COL] > 0]
+        st.session_state.df_anual_melted = df_anual_melted_temp[df_anual_melted_temp[Config.STATION_NAME_COL].isin(stations_for_analysis)]
     else:
-        st.session_state.df_anual_melted = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL, Config.YEAR_COL, Config.PRECIPITATION_COL])
+        st.session_state.df_anual_melted = pd.DataFrame()
+    
+    if st.session_state.exclude_na and not st.session_state.df_anual_melted.empty:
+        st.session_state.df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+    if st.session_state.exclude_zeros and not st.session_state.df_anual_melted.empty:
+        st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.PRECIPITATION_COL] > 0]
     
     # Se corrige la lógica de filtrado mensual para evitar KeyError
     if st.session_state.df_long is not None and not st.session_state.df_long.empty:
@@ -1613,7 +1618,7 @@ def main():
             df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
         
         # Se asegura que la columna exista antes de aplicar el filtro de estaciones
-        if Config.STATION_NAME_COL in df_monthly_to_filter.columns:
+        if Config.STATION_NAME_COL in df_monthly_to_filter.columns and not df_monthly_to_filter.empty:
             st.session_state.df_monthly_filtered = df_monthly_to_filter[
                 (df_monthly_to_filter[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
                 (df_monthly_to_filter[Config.DATE_COL].dt.year >= year_range[0]) &
@@ -1621,7 +1626,7 @@ def main():
                 (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
             ].copy()
         else:
-            st.session_state.df_monthly_filtered = pd.DataFrame(columns=df_monthly_to_filter.columns)
+            st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
             st.warning("La columna 'nom_est' no se encontró en los datos mensuales. Por favor, verifique el archivo.")
     else:
         st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
