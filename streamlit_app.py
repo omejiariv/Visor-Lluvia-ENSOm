@@ -56,7 +56,6 @@ class Config:
     # Mensajes de la UI
     APP_TITLE = "Sistema de información de las lluvias y el Clima en el norte de la región Andina"
     WELCOME_TEXT = """
-    La posibilidad de un futuro mejor depende tambien de nuestra capacidad para anticipar lo que puede ocurrir
     Esta plataforma interactiva está diseñada para la visualización y análisis de datos históricos de precipitación y su
     relación con el fenómeno ENSO en el norte de la región Andina.
     
@@ -891,6 +890,8 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             os.remove(raster_path)
                             
                             gdf_municipios['promedio_precipitacion'] = pd.Series([s['mean'] for s in stats_municipales])
+                            # Se asegura de que la columna con el nombre original del municipio esté presente
+                            gdf_municipios[Config.MPIO_SHP_COL] = gdf_municipios[Config.MPIO_SHP_COL].str.strip().str.lower()
                             st.session_state.gdf_municipal_stats = gdf_municipios
                             st.success("¡Promedios por municipio calculados con éxito! Ahora puede ver el Mapa Coroplético.")
                             st.rerun() # Recarga la app para mostrar los cambios
