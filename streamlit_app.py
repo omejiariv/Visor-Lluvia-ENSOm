@@ -865,7 +865,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     
                     if st.button("Calcular Precipitación por Municipio"):
                         with st.spinner("Calculando promedios por municipio..."):
-                            # Guarda el ráster interpolado en un archivo temporal
                             import rasterio
                             from rasterio.transform import from_origin
                             transform = from_origin(lon_range[0], lat_range[1], (lon_range[1] - lon_range[0])/100, (lat_range[1] - lat_range[0])/100)
@@ -874,26 +873,22 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                                     dst.write(z.T, 1)
                                 raster_path = tmpfile.name
                             
-                            # Carga los municipios y asegura que los CRS coincidan
                             gdf_municipios = st.session_state.gdf_municipios.copy().to_crs('EPSG:4326')
                             
-                            # Realiza el cálculo de estadísticas zonales
+                            # Se asegura de que la columna nombre_mpio exista en el gdf_municipios_data
                             stats_municipales = zonal_stats(
                                 vectors=gdf_municipios,
                                 raster=raster_path,
                                 stats=['mean'],
-                                all_touched=True # Incluye píxeles que solo tocan el borde
+                                all_touched=True
                             )
                             
-                            # Elimina el archivo temporal
                             os.remove(raster_path)
                             
                             gdf_municipios['promedio_precipitacion'] = pd.Series([s['mean'] for s in stats_municipales])
-                            # Se asegura de que la columna con el nombre original del municipio esté presente
-                            gdf_municipios[Config.MPIO_SHP_COL] = gdf_municipios[Config.MPIO_SHP_COL].str.strip().str.lower()
                             st.session_state.gdf_municipal_stats = gdf_municipios
                             st.success("¡Promedios por municipio calculados con éxito! Ahora puede ver el Mapa Coroplético.")
-                            st.rerun() # Recarga la app para mostrar los cambios
+                            st.rerun()
                     
                     fig_krig.add_trace(go.Scatter(
                         x=lons, y=lats, mode='markers',
