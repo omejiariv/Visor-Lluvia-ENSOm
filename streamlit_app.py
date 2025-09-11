@@ -1500,11 +1500,11 @@ def main():
             if celdas: stations_filtered = stations_filtered[stations_filtered[Config.CELL_COL].isin(celdas)]
             return stations_filtered
 
-        min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, 0, key='min_data_perc_slider')
+        min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, st.session_state.get('min_data_perc_slider', 0), key='min_data_perc_slider')
         altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
-        selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges, key='altitude_multiselect')
+        selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges, default=st.session_state.get('altitude_multiselect', []), key='altitude_multiselect')
         regions_list = sorted(st.session_state.gdf_stations[Config.REGION_COL].dropna().unique())
-        selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list, key='regions_multiselect')
+        selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list, default=st.session_state.get('regions_multiselect', []), key='regions_multiselect')
         filtered_stations_temp = st.session_state.gdf_stations[st.session_state.gdf_stations[Config.PERCENTAGE_COL] >= min_data_perc]
         if selected_altitudes:
             conditions = []
@@ -1517,10 +1517,10 @@ def main():
             if conditions: filtered_stations_temp = filtered_stations_temp[pd.concat(conditions, axis=1).any(axis=1)]
         if selected_regions: filtered_stations_temp = filtered_stations_temp[filtered_stations_temp[Config.REGION_COL].isin(selected_regions)]
         municipios_list = sorted(filtered_stations_temp[Config.MUNICIPALITY_COL].dropna().unique())
-        selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list, key='municipios_multiselect')
+        selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list, default=st.session_state.get('municipios_multiselect', []), key='municipios_multiselect')
         if selected_municipios: filtered_stations_temp = filtered_stations_temp[filtered_stations_temp[Config.MUNICIPALITY_COL].isin(selected_municipios)]
         celdas_list = sorted(filtered_stations_temp[Config.CELL_COL].dropna().unique())
-        selected_celdas = st.multiselect('Filtrar por Celda_XY', options=celdas_list, key='celdas_multiselect')
+        selected_celdas = st.multiselect('Filtrar por Celda_XY', options=celdas_list, default=st.session_state.get('celdas_multiselect', []), key='celdas_multiselect')
         st.session_state.selected_altitudes = selected_altitudes
         st.session_state.selected_regions = selected_regions
         st.session_state.selected_municipios = selected_municipios
@@ -1567,13 +1567,13 @@ def main():
             analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"))
             exclude_na = st.checkbox("Excluir datos nulos (NaN)", value=st.session_state.exclude_na, key='exclude_na_checkbox')
             exclude_zeros = st.checkbox("Excluir valores cero (0)", value=st.session_state.exclude_zeros, key='exclude_zeros_checkbox')
-        
+
         if analysis_mode != st.session_state.analysis_mode or exclude_na != st.session_state.exclude_na or exclude_zeros != st.session_state.exclude_zeros:
             st.session_state.analysis_mode = analysis_mode
             st.session_state.exclude_na = exclude_na
             st.session_state.exclude_zeros = exclude_zeros
             st.rerun()
-            
+
     # --- Lógica de filtrado de datos principal ---
     st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
 
