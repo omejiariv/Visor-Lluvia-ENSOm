@@ -17,6 +17,8 @@ import os
 import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
+import locale
+import base64
 from scipy import stats
 import statsmodels.api as sm
 from prophet import Prophet
@@ -44,7 +46,7 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-    MPIO_SHP_COL = 'nombre_mpio'
+    MPIO_SHP_COL = 'nombre_mpio' # Columna de municipios en el shapefile
 
     # Rutas de Archivos
     LOGO_PATH = "CuencaVerdeLogo_V1.JPG"
@@ -88,9 +90,7 @@ class Config:
             st.session_state.gdf_stations = None
             st.session_state.df_precip_anual = None
             st.session_state.gdf_municipios = None
-        if 'df_long' not in st.session_state:
             st.session_state.df_long = None
-        if 'df_enso' not in st.session_state:
             st.session_state.df_enso = None
         if 'min_data_perc_slider' not in st.session_state: st.session_state.min_data_perc_slider = 0
         if 'altitude_multiselect' not in st.session_state: st.session_state.altitude_multiselect = []
@@ -653,6 +653,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
     
+    # Se elimina la pestaña 'coropletico' de la lista
     gif_tab, temporal_tab, race_tab, anim_tab, compare_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Gráfico de Carrera", "Mapa Animado", "Comparación de Mapas", "Interpolación Kriging"])
 
     with gif_tab:
@@ -851,7 +852,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             - Este método considera no solo la distancia, sino también las propiedades de varianza espacial de los datos.
                         """)
                     data_year_kriging['tooltip'] = data_year_kriging.apply(
-                        lambda row: f"<b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>Municipio: {row[Config.MUNICIPALITY_COL]}<br>Ppt: {row[Config.PRECIPITATION_COL]:.0f} mm",
+                        lambda row: f"<b>{row[Config.STATION_NAME_COL]}</b><br>Municipio: {row[Config.MUNICIPALITY_COL]}<br>Ppt: {row[Config.PRECIPITATION_COL]:.0f} mm",
                         axis=1
                     )
                     lons, lats, vals = data_year_kriging[Config.LONGITUDE_COL].values, data_year_kriging[Config.LATITUDE_COL].values, data_year_kriging[Config.PRECIPITATION_COL].values
@@ -1090,7 +1091,7 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
             else:
                 st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
             fig_corr = px.scatter(
-                df_plot_corr, x=Config.ENSO_ONI_COL, y='precipitation', trendline="ols",
+                df_plot_corr, x=Config.ENSO_ONI_COL, y='precipitation', trendline='ols',
                 title=f"Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
                 labels={Config.ENSO_ONI_COL: 'Anomalía ONI (°C)', 'precipitation': 'Precipitación Mensual (mm)'}
             )
@@ -1135,7 +1136,6 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
                     st.plotly_chart(fig_scatter, use_container_width=True)
                 else:
                     st.warning("No hay suficientes datos superpuestos para calcular la correlación para las estaciones seleccionadas.")
-
 
 def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_analysis):
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
@@ -1493,7 +1493,6 @@ def main():
                     if r == '0-500': conditions.append((stations_filtered[Config.ALTITUDE_COL] >= 0) & (stations_filtered[Config.ALTITUDE_COL] <= 500))
                     elif r == '500-1000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 500) & (stations_filtered[Config.ALTITUDE_COL] <= 1000))
                     elif r == '1000-2000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 1000) & (stations_filtered[Config.ALTITUDE_COL] <= 2000))
-                    elif r == '2000-3000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 2000) & (stations_filtered[Config.ALTITUDE_COL] <= 3000))
                     elif r == '>3000': conditions.append(stations_filtered[Config.ALTITUDE_COL] > 3000)
                 if conditions: stations_filtered = stations_filtered[pd.concat(conditions, axis=1).any(axis=1)]
             if regions: stations_filtered = stations_filtered[stations_filtered[Config.REGION_COL].isin(regions)]
@@ -1620,7 +1619,7 @@ def main():
                 (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
             ].copy()
         else:
-            st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
+            st.session_state.df_monthly_filtered = pd.DataFrame(columns=st.session_state.df_long.columns)
     else:
         st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
 
