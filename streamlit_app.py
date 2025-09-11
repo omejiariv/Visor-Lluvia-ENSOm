@@ -653,6 +653,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
     
+    # Se ha corregido la asignación para que coincida con el número de pestañas
     gif_tab, temporal_tab, race_tab, anim_tab, compare_tab, kriging_tab, coropletico_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Gráfico de Carrera", "Mapa Animado", "Comparación de Mapas", "Interpolación Kriging", "Mapa Coroplético"])
 
     with kriging_tab:
@@ -715,8 +716,12 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             os.remove(raster_path)
                             
                             gdf_municipios['promedio_precipitacion'] = pd.Series([s['mean'] for s in stats_municipales])
-                            # Renombrar la columna de municipios del shp para que sea consistente
-                            gdf_municipios.rename(columns={'nombre_mpio': Config.MPIO_SHP_COL}, inplace=True)
+                            # Se asegura de que la columna de nombres de municipio se mantenga
+                            # y se estandariza el nombre para que folium pueda usarlo.
+                            municipio_col_name = next((col for col in gdf_municipios.columns if 'nombre_mpio' in col), None)
+                            if municipio_col_name:
+                                gdf_municipios.rename(columns={municipio_col_name: Config.MPIO_SHP_COL}, inplace=True)
+                            
                             st.session_state.gdf_municipal_stats = gdf_municipios
                             st.success("¡Promedios por municipio calculados con éxito! Ahora puede ver el Mapa Coroplético.")
                             st.rerun()
@@ -749,7 +754,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                 m_choro = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
                 folium.Choropleth(
                     geo_data=gdf_municipios_data.to_json(), name='Precipitación Media Anual',
-                    data=gdf_municipios_data, columns=[Config.MPIO_SHP_COL, 'promedio_precipitacion'],
+                    data=pd.DataFrame(gdf_municipios_data), columns=[Config.MPIO_SHP_COL, 'promedio_precipitacion'],
                     key_on=f'feature.properties.{Config.MPIO_SHP_COL}', fill_color='YlGnBu', fill_opacity=0.7,
                     line_opacity=0.2, legend_name='Precipitación Media Anual (mm)', nan_fill_color='white'
                 ).add_to(m_choro)
@@ -1205,7 +1210,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         key='download-sarima'
                     )
                 except Exception as e:
-                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
+                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo convergir. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
         else:
             st.info("Por favor, cargue datos para generar un pronóstico.")
 
@@ -1340,7 +1345,6 @@ def main():
                     if r == '0-500': conditions.append((stations_filtered[Config.ALTITUDE_COL] >= 0) & (stations_filtered[Config.ALTITUDE_COL] <= 500))
                     elif r == '500-1000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 500) & (stations_filtered[Config.ALTITUDE_COL] <= 1000))
                     elif r == '1000-2000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 1000) & (stations_filtered[Config.ALTITUDE_COL] <= 2000))
-                    elif r == '2000-3000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 2000) & (stations_filtered[Config.ALTITUDE_COL] <= 3000))
                     elif r == '>3000': conditions.append(stations_filtered[Config.ALTITUDE_COL] > 3000)
                 if conditions: stations_filtered = stations_filtered[pd.concat(conditions, axis=1).any(axis=1)]
             if regions: stations_filtered = stations_filtered[stations_filtered[Config.REGION_COL].isin(regions)]
@@ -1448,9 +1452,11 @@ def main():
     
     if st.session_state.df_long is not None and not st.session_state.df_long.empty:
         if st.session_state.analysis_mode == "Completar series (interpolación)":
-            df_monthly_to_filter = complete_series(st.session_state.df_long.copy())
+            st.session_state.df_monthly_processed = complete_series(st.session_state.df_long.copy())
         else:
-            df_monthly_to_filter = st.session_state.df_long.copy()
+            st.session_state.df_monthly_processed = st.session_state.df_long.copy()
+        
+        df_monthly_to_filter = st.session_state.df_monthly_processed.copy()
         
         if st.session_state.exclude_na:
             df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
