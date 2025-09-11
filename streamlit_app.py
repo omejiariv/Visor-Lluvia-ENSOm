@@ -159,7 +159,8 @@ def load_shapefile(file_path):
             gdf.columns = gdf.columns.str.strip().str.lower()
             if gdf.crs is None:
                gdf.set_crs("EPSG:9377", inplace=True)
-            return gdf.to_crs("EPSG:4326')
+            # Línea corregida: se cambia ' por "
+            return gdf.to_crs("EPSG:4326")
     except Exception as e:
         st.error(f"Error al procesar el shapefile: {e}")
         return None
@@ -218,7 +219,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     gdf_temp = gpd.GeoDataFrame(df_precip_anual,
                                 geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]),
                                 crs="EPSG:9377")
-    gdf_stations = gdf_temp.to_crs("EPSG:4326')
+    gdf_stations = gdf_temp.to_crs("EPSG:4326")
     gdf_stations[Config.LONGITUDE_COL] = gdf_stations.geometry.x
     gdf_stations[Config.LATITUDE_COL] = gdf_stations.geometry.y
 
