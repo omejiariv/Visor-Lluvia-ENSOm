@@ -56,6 +56,7 @@ class Config:
     # Mensajes de la UI
     APP_TITLE = "Sistema de información de las lluvias y el Clima en el norte de la región Andina"
     WELCOME_TEXT = """
+    La posibilidad de un futuro mejor depende tambien de nuestra capacidad para anticipar lo que puede ocurrir
     Esta plataforma interactiva está diseñada para la visualización y análisis de datos históricos de precipitación y su
     relación con el fenómeno ENSO en el norte de la región Andina.
     
