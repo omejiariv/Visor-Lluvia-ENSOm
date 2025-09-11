@@ -13,3 +13,4 @@ numpy
 branca
 openpyxl
 rasterstats
+xarray
