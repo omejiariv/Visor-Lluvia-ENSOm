@@ -881,7 +881,7 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
         return
 
     # Sub-pestañas para los dos tipos de análisis
-    enso_corr_tab, station_corr_tab = st.tabs(["Correlación con ENSO", "Comparación entre Estaciones"])
+    enso_corr_tab, station_corr_tab, indices_climaticos_tab = st.tabs(["Correlación con ENSO", "Comparación entre Estaciones", "Correlación con Índices Climáticos"])
     
     with enso_corr_tab:
         if Config.ENSO_ONI_COL not in df_monthly_filtered.columns:
