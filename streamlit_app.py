@@ -159,7 +159,7 @@ def load_shapefile(file_path):
             gdf.columns = gdf.columns.str.strip().str.lower()
             if gdf.crs is None:
                gdf.set_crs("EPSG:9377", inplace=True)
-            return gdf.to_crs("EPSG:4326")
+            return gdf.to_crs("EPSG:4326')
     except Exception as e:
         st.error(f"Error al procesar el shapefile: {e}")
         return None
@@ -218,7 +218,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     gdf_temp = gpd.GeoDataFrame(df_precip_anual,
                                 geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]),
                                 crs="EPSG:9377")
-    gdf_stations = gdf_temp.to_crs("EPSG:4326")
+    gdf_stations = gdf_temp.to_crs("EPSG:4326')
     gdf_stations[Config.LONGITUDE_COL] = gdf_stations.geometry.x
     gdf_stations[Config.LATITUDE_COL] = gdf_stations.geometry.y
 
@@ -1604,8 +1604,10 @@ def main():
             st.session_state.df_monthly_processed = st.session_state.df_long.copy()
 
     df_monthly_processed_filtered = st.session_state.df_monthly_processed.copy()
+    
+    # Aplica los filtros de nulos y ceros en un solo paso para evitar inconsistencias
     if st.session_state.exclude_na:
-        df_monthly_processed_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+        df_monthly_processed_filtered = df_monthly_processed_filtered.dropna(subset=[Config.PRECIPITATION_COL])
     if st.session_state.exclude_zeros:
         df_monthly_processed_filtered = df_monthly_processed_filtered[df_monthly_processed_filtered[Config.PRECIPITATION_COL] > 0]
 
