@@ -884,7 +884,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             
                             os.remove(raster_path)
                             
-                            # Aseguramos que la columna de nombres de municipio se mantenga
                             gdf_municipios['promedio_precipitacion'] = pd.Series([s['mean'] for s in stats_municipales])
                             st.session_state.gdf_municipal_stats = gdf_municipios
                             st.success("¡Promedios por municipio calculados con éxito! Ahora puede ver el Mapa Coroplético.")
@@ -912,10 +911,10 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
             with map_col:
                 gdf_municipios_data = st.session_state.gdf_municipal_stats.copy()
                 gdf_municipios_data = gdf_municipios_data.dropna(subset=['promedio_precipitacion'])
-                
+
                 # Se crea un DataFrame de Pandas para la columna 'data' del choropleth
                 data_for_choropleth = pd.DataFrame(gdf_municipios_data)
-
+                
                 center_lat = gdf_municipios_data.dissolve().centroid.y.iloc[0]
                 center_lon = gdf_municipios_data.dissolve().centroid.x.iloc[0]
                 m_choro = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
@@ -959,53 +958,60 @@ def display_anomalies_tab(df_long, df_monthly_filtered, df_enso, stations_for_an
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
 
-    df_long_filtered_stations = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-    df_climatology = df_long_filtered_stations.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().reset_index().rename(columns={Config.PRECIPITATION_COL: 'precip_promedio_mes'})
-    df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=[Config.STATION_NAME_COL, Config.MONTH_COL], how='left')
-    df_anomalias['anomalia'] = df_anomalias[Config.PRECIPITATION_COL] - df_anomalias['precip_promedio_mes']
+    if df_long is not None and not df_long.empty:
+        df_long_filtered_stations = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        if df_long_filtered_stations.empty:
+            st.warning("No hay datos de anomalías para la selección actual.")
+            return
 
-    if st.session_state.exclude_na:
-        df_anomalias.dropna(subset=['anomalia'], inplace=True)
+        df_climatology = df_long_filtered_stations.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().reset_index().rename(columns={Config.PRECIPITATION_COL: 'precip_promedio_mes'})
+        df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=[Config.STATION_NAME_COL, Config.MONTH_COL], how='left')
+        df_anomalias['anomalia'] = df_anomalias[Config.PRECIPITATION_COL] - df_anomalias['precip_promedio_mes']
 
-    if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
-        st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
-        return
+        if st.session_state.exclude_na:
+            df_anomalias.dropna(subset=['anomalia'], inplace=True)
 
-    anom_graf_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
+        if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
+            st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
+            return
 
-    with anom_graf_tab:
-        avg_monthly_anom = df_anomalias.groupby([Config.DATE_COL, Config.MONTH_COL])['anomalia'].mean().reset_index()
-        df_plot = pd.merge(avg_monthly_anom, df_enso[[Config.DATE_COL, Config.ENSO_ONI_COL]], on=Config.DATE_COL, how='left')
-        fig = create_anomaly_chart(df_plot)
-        st.plotly_chart(fig, use_container_width=True)
+        anom_graf_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
 
-    with anom_fase_tab:
-        if Config.ENSO_ONI_COL in df_anomalias.columns:
-            df_anomalias_enso = df_anomalias.dropna(subset=[Config.ENSO_ONI_COL]).copy()
-            conditions = [df_anomalias_enso[Config.ENSO_ONI_COL] >= 0.5, df_anomalias_enso[Config.ENSO_ONI_COL] <= -0.5]
-            phases = ['El Niño', 'La Niña']
-            df_anomalias_enso['enso_fase'] = np.select(conditions, phases, default='Neutral')
-            fig_box = px.box(df_anomalias_enso, x='enso_fase', y='anomalia', color='enso_fase',
-                             title="Distribución de Anomalías de Precipitación por Fase ENSO",
-                             labels={'anomalia': 'Anomalía de Precipitación (mm)', 'enso_fase': 'Fase ENSO'},
-                             points='all')
-            st.plotly_chart(fig_box, use_container_width=True)
-        else:
-            st.warning("La columna 'anomalia_oni' no está disponible para este análisis.")
+        with anom_graf_tab:
+            avg_monthly_anom = df_anomalias.groupby([Config.DATE_COL, Config.MONTH_COL])['anomalia'].mean().reset_index()
+            df_plot = pd.merge(avg_monthly_anom, df_enso[[Config.DATE_COL, Config.ENSO_ONI_COL]], on=Config.DATE_COL, how='left')
+            fig = create_anomaly_chart(df_plot)
+            st.plotly_chart(fig, use_container_width=True)
 
-    with anom_extremos_tab:
-        st.subheader("Eventos Mensuales Extremos (Basado en Anomalías)")
-        df_extremos = df_anomalias.dropna(subset=['anomalia']).copy()
-        df_extremos['fecha'] = df_extremos[Config.DATE_COL].dt.strftime('%Y-%m')
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("##### 10 Meses más Secos")
-            secos = df_extremos.nsmallest(10, 'anomalia')[['fecha', Config.STATION_NAME_COL, 'anomalia', Config.PRECIPITATION_COL, 'precip_promedio_mes']]
-            st.dataframe(secos.rename(columns={Config.STATION_NAME_COL: 'Estación', 'anomalia': 'Anomalía (mm)', Config.PRECIPITATION_COL: 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}).round(0), use_container_width=True)
-        with col2:
-            st.markdown("##### 10 Meses más Húmedos")
-            humedos = df_extremos.nlargest(10, 'anomalia')[['fecha', Config.STATION_NAME_COL, 'anomalia', Config.PRECIPITATION_COL, 'precip_promedio_mes']]
-            st.dataframe(humedos.rename(columns={Config.STATION_NAME_COL: 'Estación', 'anomalia': 'Anomalía (mm)', Config.PRECIPITATION_COL: 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}).round(0), use_container_width=True)
+        with anom_fase_tab:
+            if Config.ENSO_ONI_COL in df_anomalias.columns:
+                df_anomalias_enso = df_anomalias.dropna(subset=[Config.ENSO_ONI_COL]).copy()
+                conditions = [df_anomalias_enso[Config.ENSO_ONI_COL] >= 0.5, df_anomalias_enso[Config.ENSO_ONI_COL] <= -0.5]
+                phases = ['El Niño', 'La Niña']
+                df_anomalias_enso['enso_fase'] = np.select(conditions, phases, default='Neutral')
+                fig_box = px.box(df_anomalias_enso, x='enso_fase', y='anomalia', color='enso_fase',
+                                 title="Distribución de Anomalías de Precipitación por Fase ENSO",
+                                 labels={'anomalia': 'Anomalía de Precipitación (mm)', 'enso_fase': 'Fase ENSO'},
+                                 points='all')
+                st.plotly_chart(fig_box, use_container_width=True)
+            else:
+                st.warning("La columna 'anomalia_oni' no está disponible para este análisis.")
+
+        with anom_extremos_tab:
+            st.subheader("Eventos Mensuales Extremos (Basado en Anomalías)")
+            df_extremos = df_anomalias.dropna(subset=['anomalia']).copy()
+            df_extremos['fecha'] = df_extremos[Config.DATE_COL].dt.strftime('%Y-%m')
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("##### 10 Meses más Secos")
+                secos = df_extremos.nsmallest(10, 'anomalia')[['fecha', Config.STATION_NAME_COL, 'anomalia', Config.PRECIPITATION_COL, 'precip_promedio_mes']]
+                st.dataframe(secos.rename(columns={Config.STATION_NAME_COL: 'Estación', 'anomalia': 'Anomalía (mm)', Config.PRECIPITATION_COL: 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}).round(0), use_container_width=True)
+            with col2:
+                st.markdown("##### 10 Meses más Húmedos")
+                humedos = df_extremos.nlargest(10, 'anomalia')[['fecha', Config.STATION_NAME_COL, 'anomalia', Config.PRECIPITATION_COL, 'precip_promedio_mes']]
+                st.dataframe(humedos.rename(columns={Config.STATION_NAME_COL: 'Estación', 'anomalia': 'Anomalía (mm)', Config.PRECIPITATION_COL: 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}).round(0), use_container_width=True)
+    else:
+        st.warning("No se puede realizar el análisis de anomalías. El DataFrame de datos mensuales no está disponible.")
 
 def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_for_analysis):
     st.header("Estadísticas de Precipitación")
@@ -1052,20 +1058,23 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
 
     with resumen_mensual_tab:
         st.subheader("Resumen de Estadísticas Mensuales por Estación")
-        summary_data = []
-        for station_name, group in df_monthly_filtered.groupby(Config.STATION_NAME_COL):
-            max_row = group.loc[group[Config.PRECIPITATION_COL].idxmax()]
-            min_row = group.loc[group[Config.PRECIPITATION_COL].idxmin()]
-            summary_data.append({
-                "Estación": station_name,
-                "Ppt. Máxima Mensual (mm)": max_row[Config.PRECIPITATION_COL],
-                "Fecha Máxima": max_row[Config.DATE_COL].strftime('%Y-%m'),
-                "Ppt. Mínima Mensual (mm)": min_row[Config.PRECIPITATION_COL],
-                "Fecha Mínima": min_row[Config.DATE_COL].strftime('%Y-%m'),
-                "Promedio Mensual (mm)": group[Config.PRECIPITATION_COL].mean()
-            })
-        summary_df = pd.DataFrame(summary_data)
-        st.dataframe(summary_df.round(0), use_container_width=True)
+        if not df_monthly_filtered.empty:
+            summary_data = []
+            for station_name, group in df_monthly_filtered.groupby(Config.STATION_NAME_COL):
+                max_row = group.loc[group[Config.PRECIPITATION_COL].idxmax()]
+                min_row = group.loc[group[Config.PRECIPITATION_COL].idxmin()]
+                summary_data.append({
+                    "Estación": station_name,
+                    "Ppt. Máxima Mensual (mm)": max_row[Config.PRECIPITATION_COL],
+                    "Fecha Máxima": max_row[Config.DATE_COL].strftime('%Y-%m'),
+                    "Ppt. Mínima Mensual (mm)": min_row[Config.PRECIPITATION_COL],
+                    "Fecha Mínima": min_row[Config.DATE_COL].strftime('%Y-%m'),
+                    "Promedio Mensual (mm)": group[Config.PRECIPITATION_COL].mean()
+                })
+            summary_df = pd.DataFrame(summary_data)
+            st.dataframe(summary_df.round(0), use_container_width=True)
+        else:
+            st.info("No hay datos para mostrar el resumen mensual.")
 
     with sintesis_tab:
         st.subheader("Síntesis General de Precipitación")
@@ -1087,6 +1096,8 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                     f"{max_monthly_row[Config.PRECIPITATION_COL]:.0f} mm",
                     f"{max_monthly_row[Config.STATION_NAME_COL]} ({max_monthly_row['nom_mes']} {max_monthly_row[Config.DATE_COL].year})"
                 )
+        else:
+            st.info("No hay datos para mostrar la síntesis general.")
 
 def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
     st.header("Análisis de Correlación entre Precipitación y ENSO")
@@ -1362,7 +1373,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         key='download-sarima'
                     )
                 except Exception as e:
-                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
+                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo convergir. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
         else:
             st.info("Por favor, cargue datos para generar un pronóstico.")
 
@@ -1606,9 +1617,11 @@ def main():
     
     if st.session_state.df_long is not None and not st.session_state.df_long.empty:
         if st.session_state.analysis_mode == "Completar series (interpolación)":
-            df_monthly_to_filter = complete_series(st.session_state.df_long.copy())
+            st.session_state.df_monthly_processed = complete_series(st.session_state.df_long.copy())
         else:
-            df_monthly_to_filter = st.session_state.df_long.copy()
+            st.session_state.df_monthly_processed = st.session_state.df_long.copy()
+        
+        df_monthly_to_filter = st.session_state.df_monthly_processed.copy()
         
         if st.session_state.exclude_na:
             df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
