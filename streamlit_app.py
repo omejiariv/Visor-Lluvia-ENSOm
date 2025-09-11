@@ -850,7 +850,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             - Los círculos rojos representan las estaciones de lluvia.
                             - Este método considera no solo la distancia, sino también las propiedades de varianza espacial de los datos.
                         """)
-                    # Se crea la columna 'tooltip' antes de usarla
                     data_year_kriging['tooltip'] = data_year_kriging.apply(
                         lambda row: f"<b>{row[Config.STATION_NAME_COL]}</b><br>Municipio: {row[Config.MUNICIPALITY_COL]}<br>Ppt: {row[Config.PRECIPITATION_COL]:.0f} mm",
                         axis=1
@@ -1590,7 +1589,6 @@ def main():
         stations_for_analysis = selected_stations
         st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
 
-    # Se corrige la inicialización de df_anual_melted
     if st.session_state.gdf_stations is not None and not st.session_state.gdf_stations.empty:
         df_anual_melted_temp = st.session_state.gdf_stations.melt(
             id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
@@ -1607,19 +1605,16 @@ def main():
     if st.session_state.exclude_zeros and not st.session_state.df_anual_melted.empty:
         st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.PRECIPITATION_COL] > 0]
     
-    # Se corrige la lógica de filtrado mensual para evitar KeyError
     if st.session_state.df_long is not None and not st.session_state.df_long.empty:
         df_monthly_to_filter = st.session_state.df_long.copy()
         if st.session_state.analysis_mode == "Completar series (interpolación)":
             df_monthly_to_filter = complete_series(df_monthly_to_filter)
         
-        # Filtros de exclusión aplicados de manera segura
         if st.session_state.exclude_na:
             df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
         if st.session_state.exclude_zeros:
             df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
         
-        # Se asegura que la columna exista antes de aplicar el filtro de estaciones
         if Config.STATION_NAME_COL in df_monthly_to_filter.columns and not df_monthly_to_filter.empty:
             st.session_state.df_monthly_filtered = df_monthly_to_filter[
                 (df_monthly_to_filter[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
@@ -1629,7 +1624,6 @@ def main():
             ].copy()
         else:
             st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
-            st.warning("La columna 'nom_est' no se encontró en los datos mensuales. Por favor, verifique el archivo.")
     else:
         st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
 
