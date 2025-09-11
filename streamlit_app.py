@@ -1,6 +1,3 @@
-# ---
-# Importaciones
-# ---
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -24,8 +21,6 @@ from prophet.plot import plot_plotly
 import branca.colormap as cm
 from rasterstats import zonal_stats
 import xarray as xr
-import locale
-import base64
 
 # ---
 # Constantes y Configuración Centralizada
@@ -46,6 +41,10 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
+    
+    # Nuevas constantes para índices climáticos
+    SOI_COL = 'soi'
+    IOD_COL = 'iod'
 
     # Rutas de Archivos
     LOGO_PATH = "CuencaVerdeLogo_V1.JPG"
@@ -874,7 +873,8 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
 
 def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
     st.header("Análisis de Correlación")
-    st.markdown("Esta sección cuantifica la relación lineal entre la precipitación y la anomalía ONI (u otra estación) utilizando el coeficiente de correlación de Pearson.")
+    selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
+    st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
     
     if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
@@ -966,7 +966,11 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
                     st.plotly_chart(fig_scatter, use_container_width=True)
                 else:
                     st.warning("No hay suficientes datos superpuestos para calcular la correlación para las estaciones seleccionadas.")
-
+    
+    with indices_climaticos_tab:
+        st.subheader("Análisis de Correlación con Índices Climáticos")
+        st.info("Este módulo aún está en desarrollo. Pronto podrás analizar la correlación de la precipitación con índices como el SOI y el IOD.")
+        
 def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_analysis):
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
@@ -1447,7 +1451,7 @@ def main():
                 (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
             ].copy()
         else:
-            st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
+            st.session_state.df_monthly_filtered = pd.DataFrame(columns=st.session_state.df_long.columns)
     else:
         st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
 
