@@ -1615,8 +1615,8 @@ def main():
         # CORRECCIÓN: Usar df_monthly_processed para pronósticos
         display_trends_and_forecast_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_processed, stations_for_analysis)
     with descargas_tab:
-        # CORRECCIÓN: Usar df_monthly_processed para la descarga de datos completados
-        display_downloads_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_processed, stations_for_analysis)
+        # CORRECCIÓN: Usar df_monthly_filtered para la descarga de datos filtrados
+        display_downloads_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_filtered, stations_for_analysis)
 
 if __name__ == "__main__":
     main()
