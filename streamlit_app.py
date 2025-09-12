@@ -111,11 +111,6 @@ class Config:
             st.session_state.exclude_zeros = False
         if 'gdf_municipal_stats' not in st.session_state:
             st.session_state.gdf_municipal_stats = None
-        # Nuevas variables para almacenar datos de índices climáticos
-        if 'df_soi' not in st.session_state:
-            st.session_state.df_soi = None
-        if 'df_iod' not in st.session_state:
-            st.session_state.df_iod = None
 
 # ---
 # Funciones de Carga y Preprocesamiento
@@ -208,27 +203,20 @@ def complete_series(_df):
     return pd.concat(all_completed_dfs, ignore_index=True)
 
 @st.cache_data
-def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile, uploaded_file_soi, uploaded_file_iod):
+def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
     """Procesa todos los archivos de entrada."""
     df_precip_anual = load_data(uploaded_file_mapa)
     df_precip_mensual_raw = load_data(uploaded_file_precip)
     gdf_municipios = load_shapefile(uploaded_zip_shapefile)
 
     if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
-        return None, None, None, None, None, None, None
-    
-    # Se cargan los archivos de SOI e IOD si se han subido
-    df_soi = load_data(uploaded_file_soi) if uploaded_file_soi else None
-    df_iod = load_data(uploaded_file_iod) if uploaded_file_iod else None
-
-    if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None
 
     lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
     lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
     if not all([lon_col, lat_col]):
         st.error("No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None
     df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
     df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
     if Config.ALTITUDE_COL in df_precip_anual.columns:
@@ -245,7 +233,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
     if not station_cols:
         st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None
 
     id_vars_base = ['id', Config.DATE_COL, Config.YEAR_COL, Config.MONTH_COL, 'enso_año', 'enso_mes']
     id_vars_enso = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']
@@ -284,7 +272,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         df_enso[Config.DATE_COL] = parse_spanish_dates(df_enso[Config.DATE_COL])
         df_enso[Config.DATE_COL] = pd.to_datetime(df_enso[Config.DATE_COL], format='%b-%y', errors='coerce')
         df_enso.dropna(subset=[Config.DATE_COL], inplace=True)
-    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso, df_soi, df_iod
+    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
 
 # ---
 # Funciones para Gráficos y Mapas
@@ -992,31 +980,30 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
         available_indices_cols = []
 
         if 'df_soi' in st.session_state and st.session_state.df_soi is not None:
-            df_soi_temp = st.session_state.df_soi.copy()
-            if 'fecha_mes_año' in df_soi_temp.columns and 'soi' in df_soi_temp.columns:
-                df_soi_temp.rename(columns={'fecha_mes_año': Config.DATE_COL}, inplace=True)
+            # Aseguramos que las columnas existan antes de usarlas
+            if Config.DATE_COL in st.session_state.df_soi.columns and Config.SOI_COL in st.session_state.df_soi.columns:
+                df_soi_temp = st.session_state.df_soi.copy()
                 df_corr_indices = pd.merge(df_corr_indices, df_soi_temp[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
-                available_indices_cols.append(Config.SOI_COL)
+                available_indices_cols.append('soi')
         
         if 'df_iod' in st.session_state and st.session_state.df_iod is not None:
-            df_iod_temp = st.session_state.df_iod.copy()
-            if 'fecha_mes_año' in df_iod_temp.columns and 'iod' in df_iod_temp.columns:
-                df_iod_temp.rename(columns={'fecha_mes_año': Config.DATE_COL}, inplace=True)
+            if Config.DATE_COL in st.session_state.df_iod.columns and Config.IOD_COL in st.session_state.df_iod.columns:
+                df_iod_temp = st.session_state.df_iod.copy()
                 df_corr_indices = pd.merge(df_corr_indices, df_iod_temp[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
-                available_indices_cols.append(Config.IOD_COL)
+                available_indices_cols.append('iod')
 
         if not available_indices_cols:
-            st.warning("No se han cargado los archivos de datos para los índices climáticos (SOI o IOD).")
+            st.warning("No se han cargado los archivos de datos para los índices climáticos (SOI o IOD) o no tienen el formato esperado.")
             return
         
         selected_index = st.selectbox("Seleccione un índice climático:", available_indices_cols, key="indices_climaticos_selectbox")
         selected_station_corr_indices = st.selectbox("Seleccione una estación de precipitación:", options=sorted(stations_for_analysis), key="station_for_index_corr")
 
         if selected_index and selected_station_corr_indices:
-            df_plot_indices = df_corr_indices[df_corr_indices[Config.STATION_NAME_COL] == selected_station_corr_indices][[Config.DATE_COL, Config.PRECIPITATION_COL, selected_index.lower()]].dropna()
+            df_plot_indices = df_corr_indices[df_corr_indices[Config.STATION_NAME_COL] == selected_station_corr_indices][[Config.DATE_COL, Config.PRECIPITATION_COL, selected_index]].dropna()
 
             if not df_plot_indices.empty and len(df_plot_indices) > 2:
-                corr, p_value = stats.pearsonr(df_plot_indices[selected_index.lower()], df_plot_indices[Config.PRECIPITATION_COL])
+                corr, p_value = stats.pearsonr(df_plot_indices[selected_index], df_plot_indices[Config.PRECIPITATION_COL])
                 st.markdown(f"#### Resultados de la correlación ({selected_index} vs. Precipitación de {selected_station_corr_indices})")
                 st.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
                 
@@ -1025,13 +1012,13 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
                 else:
                     st.warning("La correlación no es estadísticamente significativa (p ≥ 0.05).")
                 
-                slope, intercept, _, _, _ = stats.linregress(df_plot_indices[selected_index.lower()], df_plot_indices[Config.PRECIPITATION_COL])
+                slope, intercept, _, _, _ = stats.linregress(df_plot_indices[selected_index], df_plot_indices[Config.PRECIPITATION_COL])
                 st.info(f"Ecuación de regresión: y = {slope:.2f}x + {intercept:.2f}")
 
                 fig_scatter_indices = px.scatter(
-                    df_plot_indices, x=selected_index.lower(), y=Config.PRECIPITATION_COL, trendline='ols',
+                    df_plot_indices, x=selected_index, y=Config.PRECIPITATION_COL, trendline='ols',
                     title=f'Dispersión: {selected_index} vs. Precipitación de {selected_station_corr_indices}',
-                    labels={selected_index.lower(): f'{selected_index} Index', Config.PRECIPITATION_COL: 'Precipitación Mensual (mm)'}
+                    labels={selected_index: f'{selected_index} Index', Config.PRECIPITATION_COL: 'Precipitación Mensual (mm)'}
                 )
                 st.plotly_chart(fig_scatter_indices, use_container_width=True)
             else:
@@ -1509,32 +1496,47 @@ def main():
         stations_for_analysis = selected_stations
         st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
 
-    st.session_state.df_anual_melted = st.session_state.gdf_stations.melt(
-        id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
-        value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
-        var_name=Config.YEAR_COL, value_name='precipitacion')
-    st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-    st.session_state.df_anual_melted.dropna(subset=['precipitacion'], inplace=True)
-
-    if st.session_state.analysis_mode != analysis_mode:
-        st.session_state.analysis_mode = analysis_mode
-        if analysis_mode == "Completar series (interpolación)":
-            st.session_state.df_monthly_processed = complete_series(st.session_state.df_long)
+    if st.session_state.gdf_stations is not None and not st.session_state.gdf_stations.empty:
+        df_anual_melted_temp = st.session_state.gdf_stations.melt(
+            id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
+            value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
+            var_name=Config.YEAR_COL,
+            value_name=Config.PRECIPITATION_COL
+        )
+        st.session_state.df_anual_melted = df_anual_melted_temp[df_anual_melted_temp[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+    else:
+        st.session_state.df_anual_melted = pd.DataFrame()
+    
+    if st.session_state.exclude_na and not st.session_state.df_anual_melted.empty:
+        st.session_state.df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+    if st.session_state.exclude_zeros and not st.session_state.df_anual_melted.empty:
+        st.session_state.df_anual_melted = st.session_state.df_anual_melted[st.session_state.df_anual_melted[Config.PRECIPITATION_COL] > 0]
+    
+    if st.session_state.df_long is not None and not st.session_state.df_long.empty:
+        if st.session_state.analysis_mode == "Completar series (interpolación)":
+            st.session_state.df_monthly_processed = complete_series(st.session_state.df_long.copy())
         else:
             st.session_state.df_monthly_processed = st.session_state.df_long.copy()
-            
-    df_monthly_processed_filtered = st.session_state.df_monthly_processed.copy()
-    if st.session_state.exclude_na:
-        df_monthly_processed_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
-    if st.session_state.exclude_zeros:
-        df_monthly_processed_filtered = df_monthly_processed_filtered[df_monthly_processed_filtered[Config.PRECIPITATION_COL] > 0]
+        
+        df_monthly_to_filter = st.session_state.df_monthly_processed.copy()
+        
+        if st.session_state.exclude_na:
+            df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
+        if st.session_state.exclude_zeros:
+            df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
+        
+        if Config.STATION_NAME_COL in df_monthly_to_filter.columns and not df_monthly_to_filter.empty:
+            st.session_state.df_monthly_filtered = df_monthly_to_filter[
+                (df_monthly_to_filter[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+                (df_monthly_to_filter[Config.DATE_COL].dt.year >= year_range[0]) &
+                (df_monthly_to_filter[Config.DATE_COL].dt.year <= year_range[1]) &
+                (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
+            ].copy()
+        else:
+            st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
+    else:
+        st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
 
-    st.session_state.df_monthly_filtered = df_monthly_processed_filtered[
-        (df_monthly_processed_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
-        (df_monthly_processed_filtered[Config.DATE_COL].dt.year >= year_range[0]) &
-        (df_monthly_processed_filtered[Config.DATE_COL].dt.year <= year_range[1]) &
-        (df_monthly_processed_filtered[Config.DATE_COL].dt.month.isin(meses_numeros))
-    ].copy()
 
     st.session_state.year_range = year_range
     st.session_state.meses_numeros = meses_numeros
