@@ -46,6 +46,7 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
+    # Se añade MPIO_SHP_COL para el mapa coroplético
     MPIO_SHP_COL = 'nombre_mpio' 
 
     # Nuevas constantes para índices climáticos
@@ -212,7 +213,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
 
     if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
         return None, None, None, None, None
-
+    
     lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
     lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
     if not all([lon_col, lat_col]):
@@ -978,7 +979,7 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
     with indices_climaticos_tab:
         st.subheader("Análisis de Correlación con Índices Climáticos")
         
-        df_corr_indices = st.session_state.df_monthly_filtered.copy()
+        df_corr_indices = df_monthly_filtered.copy()
         available_indices_cols = []
         
         if Config.SOI_COL in st.session_state.df_long.columns:
@@ -1108,26 +1109,23 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
     with indices_multiples_tab:
         st.subheader("Análisis de Índices Climáticos Múltiples")
 
-        df_indices = st.session_state.df_long[[Config.DATE_COL]].drop_duplicates().copy()
-        df_indices.set_index(Config.DATE_COL, inplace=True)
+        df_indices = st.session_state.df_long[[Config.DATE_COL, Config.ENSO_ONI_COL, Config.SOI_COL, Config.IOD_COL]].drop_duplicates().copy()
         
-        # Unir todos los índices disponibles
-        if Config.ENSO_ONI_COL in st.session_state.df_long.columns:
-            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.ENSO_ONI_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
-        if Config.SOI_COL in st.session_state.df_long.columns:
-            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.SOI_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
-        if Config.IOD_COL in st.session_state.df_long.columns:
-            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.IOD_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
-
         df_indices_filtered = df_indices[(df_indices[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) & (df_indices[Config.DATE_COL].dt.year <= st.session_state.year_range[1])]
 
         if df_indices_filtered.empty:
             st.warning("No hay datos de índices climáticos para el período seleccionado.")
             return
 
+        available_indices_cols = [col for col in df_indices_filtered.columns if col not in [Config.DATE_COL] and not df_indices_filtered[col].isnull().all()]
+        
+        if not available_indices_cols:
+            st.warning("No hay índices climáticos disponibles con datos en el período seleccionado para graficar.")
+            return
+            
         selected_indices = st.multiselect("Seleccione los índices a graficar:", 
-                                           options=[col for col in df_indices_filtered.columns if col not in [Config.DATE_COL]],
-                                           default=[col for col in df_indices_filtered.columns if col not in [Config.DATE_COL]])
+                                           options=available_indices_cols,
+                                           default=available_indices_cols)
         
         if selected_indices:
             fig = go.Figure()
@@ -1285,7 +1283,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         key='download-sarima'
                     )
                 except Exception as e:
-                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
+                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo convergir. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
         else:
             st.info("Por favor, cargue datos para generar un pronóstico.")
 
@@ -1421,7 +1419,7 @@ def main():
                     if r == '0-500': conditions.append((stations_filtered[Config.ALTITUDE_COL] >= 0) & (stations_filtered[Config.ALTITUDE_COL] <= 500))
                     elif r == '500-1000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 500) & (stations_filtered[Config.ALTITUDE_COL] <= 1000))
                     elif r == '1000-2000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 1000) & (stations_filtered[Config.ALTITUDE_COL] <= 2000))
-                    elif r == '>3000': conditions.append(filtered_stations_temp[Config.ALTITUDE_COL] > 3000)
+                    elif r == '>3000': conditions.append(stations_filtered[Config.ALTITUDE_COL] > 3000)
                 if conditions: stations_filtered = stations_filtered[pd.concat(conditions, axis=1).any(axis=1)]
             if regions: stations_filtered = stations_filtered[stations_filtered[Config.REGION_COL].isin(regions)]
             if municipios: stations_filtered = stations_filtered[stations_filtered[Config.MUNICIPALITY_COL].isin(municipios)]
