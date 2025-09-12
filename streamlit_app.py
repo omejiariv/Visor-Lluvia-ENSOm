@@ -46,7 +46,6 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-    # Se añade MPIO_SHP_COL para el mapa coroplético
     MPIO_SHP_COL = 'nombre_mpio' 
 
     # Nuevas constantes para índices climáticos
@@ -126,7 +125,7 @@ def parse_spanish_dates(date_series):
     return date_series
 
 @st.cache_data
-def load_data(file_path, sep=';', date_cols=None, lower_case=True):
+def load_data(file_path, sep=';', date_cols=None, lower_case=True, header=0, decimal='.'):
     """Carga y decodifica un archivo CSV de manera robusta."""
     if file_path is None:
         return None
@@ -142,7 +141,7 @@ def load_data(file_path, sep=';', date_cols=None, lower_case=True):
     encodings_to_try = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
     for encoding in encodings_to_try:
         try:
-            df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding, parse_dates=date_cols)
+            df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding, parse_dates=date_cols, header=header, decimal=decimal)
             df.columns = df.columns.str.strip().str.replace(';', '')
             if lower_case:
                 df.columns = df.columns.str.lower()
@@ -207,8 +206,8 @@ def complete_series(_df):
 @st.cache_data
 def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
     """Procesa todos los archivos de entrada."""
-    df_precip_anual = load_data(uploaded_file_mapa)
-    df_precip_mensual_raw = load_data(uploaded_file_precip)
+    df_precip_anual = load_data(uploaded_file_mapa, sep=';', decimal=',')
+    df_precip_mensual_raw = load_data(uploaded_file_precip, sep=';', decimal=',')
     gdf_municipios = load_shapefile(uploaded_zip_shapefile)
 
     if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
@@ -238,7 +237,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         return None, None, None, None, None
 
     id_vars_base = ['id', Config.DATE_COL, Config.YEAR_COL, Config.MONTH_COL, 'enso_año', 'enso_mes']
-    id_vars_enso = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']
+    id_vars_enso = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media', 'soi', 'iod']
     id_vars = id_vars_base + id_vars_enso
     for col in id_vars_enso:
         if col in df_precip_mensual.columns:
@@ -264,10 +263,10 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     df_long[Config.STATION_NAME_COL] = df_long['id_estacion'].map(station_mapping)
     df_long.dropna(subset=[Config.STATION_NAME_COL], inplace=True)
 
-    enso_cols = ['id', Config.DATE_COL, Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']
+    enso_cols = ['id', Config.DATE_COL, Config.ENSO_ONI_COL, 'temp_sst', 'temp_media', 'soi', 'iod']
     existing_enso_cols = [col for col in enso_cols if col in df_precip_mensual.columns]
     df_enso = df_precip_mensual[existing_enso_cols].drop_duplicates().copy()
-    for col in [c for c in [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media'] if c in df_enso.columns]:
+    for col in [c for c in [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media', 'soi', 'iod'] if c in df_enso.columns]:
         df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
 
     if Config.DATE_COL in df_enso.columns:
@@ -607,7 +606,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
             st.plotly_chart(fig_avg_monthly, use_container_width=True)
             st.markdown("##### Distribución de Precipitación Anual")
             df_anual_filtered_for_box = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-            fig_box_annual = px.box(df_anual_filtered_for_box, x=Config.STATION_NAME_COL, y=Config.PRECIPITATION_COL, color=Config.STATION_NAME_COL, points='all', title='Distribución de la Precipitación Anual por Estación', labels={Config.STATION_NAME_COL: 'Estación', Config.PRECENTATION_COL: 'Precipitación Anual (mm)'})
+            fig_box_annual = px.box(df_anual_filtered_for_box, x=Config.STATION_NAME_COL, y=Config.PRECIPITATION_COL, color=Config.STATION_NAME_COL, points='all', title='Distribución de la Precipitación Anual por Estación', labels={Config.STATION_NAME_COL: 'Estación', Config.PRECIPITATION_COL: 'Precipitación Anual (mm)'})
             fig_box_annual.update_layout(height=600)
             st.plotly_chart(fig_box_annual, use_container_width=True)
 
@@ -983,11 +982,13 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
         available_indices_cols = []
         
         if Config.SOI_COL in st.session_state.df_long.columns:
-            df_corr_indices = pd.merge(df_corr_indices, st.session_state.df_long[[Config.DATE_COL, Config.SOI_COL]].dropna(), on=Config.DATE_COL, how='left')
+            df_soi_temp = st.session_state.df_long[[Config.DATE_COL, Config.SOI_COL]].dropna().copy()
+            df_corr_indices = pd.merge(df_corr_indices, df_soi_temp, on=Config.DATE_COL, how='left')
             available_indices_cols.append(Config.SOI_COL)
         
         if Config.IOD_COL in st.session_state.df_long.columns:
-            df_corr_indices = pd.merge(df_corr_indices, st.session_state.df_long[[Config.DATE_COL, Config.IOD_COL]].dropna(), on=Config.DATE_COL, how='left')
+            df_iod_temp = st.session_state.df_long[[Config.DATE_COL, Config.IOD_COL]].dropna().copy()
+            df_corr_indices = pd.merge(df_corr_indices, df_iod_temp, on=Config.DATE_COL, how='left')
             available_indices_cols.append(Config.IOD_COL)
 
         if not available_indices_cols:
@@ -1029,7 +1030,7 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
     
-    enso_series_tab, enso_anim_tab = st.tabs(["Series de Tiempo ENSO", "Mapa Interactivo ENSO"])
+    enso_series_tab, enso_anim_tab, indices_multiples_tab = st.tabs(["Series de Tiempo ENSO", "Mapa Interactivo ENSO", "Análisis de Índices Múltiples"])
 
     with enso_series_tab:
         if df_enso.empty:
@@ -1037,8 +1038,8 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
             return
         enso_vars_available = {
             Config.ENSO_ONI_COL: 'Anomalía ONI',
-            'temp_sst': 'Temp. Superficial del Mar (SST)',
-            'temp_media': 'Temp. Media'
+            Config.SST_COL: 'Temp. Superficial del Mar (SST)',
+            Config.MEDIA_COL: 'Temp. Media'
         }
         available_tabs = [name for var, name in enso_vars_available.items() if var in df_enso.columns]
         if not available_tabs:
@@ -1103,6 +1104,45 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
                     folium.raster_layers.WmsTileLayer(url=layer_config["url"], layers=layer_config["layers"], fmt='image/png', transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]).add_to(m_enso)
                 folium.LayerControl().add_to(m_enso)
                 folium_static(m_enso, height=700, width="100%")
+    
+    with indices_multiples_tab:
+        st.subheader("Análisis de Índices Climáticos Múltiples")
+
+        df_indices = st.session_state.df_long[[Config.DATE_COL]].drop_duplicates().copy()
+        df_indices.set_index(Config.DATE_COL, inplace=True)
+        
+        # Unir todos los índices disponibles
+        if Config.ENSO_ONI_COL in st.session_state.df_long.columns:
+            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.ENSO_ONI_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
+        if Config.SOI_COL in st.session_state.df_long.columns:
+            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.SOI_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
+        if Config.IOD_COL in st.session_state.df_long.columns:
+            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.IOD_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
+
+        df_indices_filtered = df_indices[(df_indices[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) & (df_indices[Config.DATE_COL].dt.year <= st.session_state.year_range[1])]
+
+        if df_indices_filtered.empty:
+            st.warning("No hay datos de índices climáticos para el período seleccionado.")
+            return
+
+        selected_indices = st.multiselect("Seleccione los índices a graficar:", 
+                                           options=[col for col in df_indices_filtered.columns if col not in [Config.DATE_COL]],
+                                           default=[col for col in df_indices_filtered.columns if col not in [Config.DATE_COL]])
+        
+        if selected_indices:
+            fig = go.Figure()
+            for index in selected_indices:
+                fig.add_trace(go.Scatter(x=df_indices_filtered[Config.DATE_COL], y=df_indices_filtered[index], mode='lines', name=index.upper()))
+            
+            fig.update_layout(
+                title="Series de Tiempo de Índices Climáticos",
+                xaxis_title="Fecha",
+                yaxis_title="Valor del Índice",
+                height=600
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Seleccione uno o más índices para graficar.")
 
 def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stations_for_analysis):
     st.header("Análisis de Tendencias y Pronósticos")
