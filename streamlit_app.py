@@ -46,7 +46,9 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-    
+    # Se añade MPIO_SHP_COL para el mapa coroplético
+    MPIO_SHP_COL = 'nombre_mpio' 
+
     # Nuevas constantes para índices climáticos
     SOI_COL = 'soi'
     IOD_COL = 'iod'
@@ -202,19 +204,28 @@ def complete_series(_df):
 
 @st.cache_data
 def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
-    """Preprocesa todos los archivos de entrada."""
+    """Procesa todos los archivos de entrada."""
     df_precip_anual = load_data(uploaded_file_mapa)
     df_precip_mensual_raw = load_data(uploaded_file_precip)
     gdf_municipios = load_shapefile(uploaded_zip_shapefile)
 
     if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
         return None, None, None, None, None
+    
+    # Se cargan los archivos de SOI e IOD si se han subido
+    uploaded_file_soi = st.file_uploader("4. Cargar archivo de índice SOI (opcional)", type="csv")
+    uploaded_file_iod = st.file_uploader("5. Cargar archivo de índice IOD (opcional)", type="csv")
+    df_soi = load_data(uploaded_file_soi) if uploaded_file_soi else None
+    df_iod = load_data(uploaded_file_iod) if uploaded_file_iod else None
+
+    if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
+        return None, None, None, None, None, None, None
 
     lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
     lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
     if not all([lon_col, lat_col]):
         st.error("No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
-        return None, None, None, None, None
+        return None, None, None, None, None, None, None
     df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
     df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
     if Config.ALTITUDE_COL in df_precip_anual.columns:
@@ -231,7 +242,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
     if not station_cols:
         st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
-        return None, None, None, None, None
+        return None, None, None, None, None, None, None
 
     id_vars_base = ['id', Config.DATE_COL, Config.YEAR_COL, Config.MONTH_COL, 'enso_año', 'enso_mes']
     id_vars_enso = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']
@@ -1145,25 +1156,28 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
     with indices_climaticos_tab:
         st.subheader("Análisis de Correlación con Índices Climáticos")
         
-        # Unir los datos de precipitación con los índices SOI e IOD si están disponibles
-        df_corr_indices = df_monthly_filtered.copy()
-        available_indices = {}
-        if st.session_state.df_soi is not None and Config.SOI_COL in st.session_state.df_soi.columns:
+        df_corr_indices = st.session_state.df_monthly_filtered.copy()
+        available_indices_cols = []
+
+        if 'df_soi' in st.session_state and st.session_state.df_soi is not None and Config.SOI_COL in st.session_state.df_soi.columns:
             df_soi_temp = st.session_state.df_soi.copy()
-            df_soi_temp.rename(columns={'fecha_mes_año': Config.DATE_COL}, inplace=True)
+            if 'fecha' in df_soi_temp.columns:
+                df_soi_temp.rename(columns={'fecha': Config.DATE_COL}, inplace=True)
             df_corr_indices = pd.merge(df_corr_indices, df_soi_temp[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
-            available_indices[Config.SOI_COL] = Config.SOI_COL
-        if st.session_state.df_iod is not None and Config.IOD_COL in st.session_state.df_iod.columns:
-            df_iod_temp = st.session_state.df_iod.copy()
-            df_iod_temp.rename(columns={'fecha_mes_año': Config.DATE_COL}, inplace=True)
-            df_corr_indices = pd.merge(df_corr_indices, df_iod_temp[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
-            available_indices[Config.IOD_COL] = Config.IOD_COL
+            available_indices_cols.append(Config.SOI_COL)
         
-        if not available_indices:
+        if 'df_iod' in st.session_state and st.session_state.df_iod is not None and Config.IOD_COL in st.session_state.df_iod.columns:
+            df_iod_temp = st.session_state.df_iod.copy()
+            if 'fecha' in df_iod_temp.columns:
+                df_iod_temp.rename(columns={'fecha': Config.DATE_COL}, inplace=True)
+            df_corr_indices = pd.merge(df_corr_indices, df_iod_temp[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
+            available_indices_cols.append(Config.IOD_COL)
+
+        if not available_indices_cols:
             st.warning("No se han cargado los archivos de datos para los índices climáticos (SOI o IOD).")
             return
         
-        selected_index = st.selectbox("Seleccione un índice climático:", list(available_indices.keys()))
+        selected_index = st.selectbox("Seleccione un índice climático:", available_indices_cols, key="indices_climaticos_selectbox")
         selected_station_corr_indices = st.selectbox("Seleccione una estación de precipitación:", options=sorted(stations_for_analysis), key="station_for_index_corr")
 
         if selected_index and selected_station_corr_indices:
@@ -1192,7 +1206,6 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
                 st.warning("No hay suficientes datos superpuestos entre la estación y el índice para calcular la correlación.")
         else:
             st.info("Seleccione un índice climático y una estación para ver la correlación.")
-            
 
 def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_analysis):
     st.header("Análisis de Precipitación y el Fenómeno ENSO")
@@ -1531,7 +1544,12 @@ def main():
             st.stop()
         else:
             with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
-                st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso, st.session_state.df_soi, st.session_state.df_iod = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+                st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+                # NUEVO: Lógica para cargar SOI e IOD
+                if uploaded_file_soi:
+                    st.session_state.df_soi = load_data(uploaded_file_soi)
+                if uploaded_file_iod:
+                    st.session_state.df_iod = load_data(uploaded_file_iod)
             if st.session_state.gdf_stations is not None:
                 st.session_state.data_loaded = True
                 st.rerun()
