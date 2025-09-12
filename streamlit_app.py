@@ -111,10 +111,6 @@ class Config:
             st.session_state.exclude_zeros = False
         if 'gdf_municipal_stats' not in st.session_state:
             st.session_state.gdf_municipal_stats = None
-        if 'df_soi' not in st.session_state:
-            st.session_state.df_soi = None
-        if 'df_iod' not in st.session_state:
-            st.session_state.df_iod = None
 
 # ---
 # Funciones de Carga y Preprocesamiento
@@ -207,7 +203,7 @@ def complete_series(_df):
     return pd.concat(all_completed_dfs, ignore_index=True)
 
 @st.cache_data
-def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile, uploaded_file_soi, uploaded_file_iod):
+def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile, uploaded_file_soi=None, uploaded_file_iod=None):
     """Procesa todos los archivos de entrada."""
     df_precip_anual = load_data(uploaded_file_mapa)
     df_precip_mensual_raw = load_data(uploaded_file_precip)
@@ -217,29 +213,16 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         return None, None, None, None, None, None, None
     
     df_soi, df_iod = None, None
-    if uploaded_file_soi:
-        df_soi = load_data(uploaded_file_soi, sep=';', header=0, decimal=',')
-        if df_soi is not None:
-            df_soi_melted = df_soi.melt(id_vars='año', var_name='mes_nombre', value_name=Config.SOI_COL)
-            meses_map = {'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
-                         'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12}
-            df_soi_melted['mes'] = df_soi_melted['mes_nombre'].map(meses_map)
-            df_soi_melted.dropna(subset=['mes'], inplace=True)
-            df_soi_melted['fecha_mes_año'] = pd.to_datetime(df_soi_melted['año'].astype(str) + '-' + df_soi_melted['mes'].astype(str), format='%Y-%m')
-            df_soi = df_soi_melted.copy()
-            df_soi.drop(columns=['año', 'mes', 'mes_nombre'], inplace=True)
     
-    if uploaded_file_iod:
-        df_iod = load_data(uploaded_file_iod, sep=';', header=0, decimal=',')
-        if df_iod is not None:
-            df_iod_melted = df_iod.melt(id_vars='año', var_name='mes_nombre', value_name=Config.IOD_COL)
-            meses_map = {'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
-                         'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12}
-            df_iod_melted['mes'] = df_iod_melted['mes_nombre'].map(meses_map)
-            df_iod_melted.dropna(subset=['mes'], inplace=True)
-            df_iod_melted['fecha_mes_año'] = pd.to_datetime(df_iod_melted['año'].astype(str) + '-' + df_iod_melted['mes'].astype(str), format='%Y-%m')
-            df_iod = df_iod_melted.copy()
-            df_iod.drop(columns=['año', 'mes', 'mes_nombre'], inplace=True)
+    # Lógica para cargar SOI e IOD desde el archivo principal
+    if Config.SOI_COL in df_precip_mensual_raw.columns:
+        df_soi = df_precip_mensual_raw[['fecha_mes_año', Config.SOI_COL]].copy()
+        df_soi[Config.DATE_COL] = pd.to_datetime(df_soi['fecha_mes_año'])
+        df_soi.dropna(subset=[Config.SOI_COL], inplace=True)
+    if Config.IOD_COL in df_precip_mensual_raw.columns:
+        df_iod = df_precip_mensual_raw[['fecha_mes_año', Config.IOD_COL]].copy()
+        df_iod[Config.DATE_COL] = pd.to_datetime(df_iod['fecha_mes_año'])
+        df_iod.dropna(subset=[Config.IOD_COL], inplace=True)
 
     lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
     lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
@@ -1011,14 +994,16 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
         
         # Unir datos de SOI si están disponibles
         if 'df_soi' in st.session_state and st.session_state.df_soi is not None:
-            if Config.DATE_COL in st.session_state.df_soi.columns and Config.SOI_COL in st.session_state.df_soi.columns:
-                df_corr_indices = pd.merge(df_corr_indices, st.session_state.df_soi[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
+            df_soi_temp = st.session_state.df_soi.copy()
+            if Config.DATE_COL in df_soi_temp.columns and Config.SOI_COL in df_soi_temp.columns:
+                df_corr_indices = pd.merge(df_corr_indices, df_soi_temp[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
                 available_indices_cols.append(Config.SOI_COL)
         
         # Unir datos de IOD si están disponibles
         if 'df_iod' in st.session_state and st.session_state.df_iod is not None:
             if Config.DATE_COL in st.session_state.df_iod.columns and Config.IOD_COL in st.session_state.df_iod.columns:
-                df_corr_indices = pd.merge(df_corr_indices, st.session_state.df_iod[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
+                df_iod_temp = st.session_state.df_iod.copy()
+                df_corr_indices = pd.merge(df_corr_indices, df_iod_temp[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
                 available_indices_cols.append(Config.IOD_COL)
 
         if not available_indices_cols:
@@ -1276,7 +1261,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         key='download-sarima'
                     )
                 except Exception as e:
-                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo convergir. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
+                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
         else:
             st.info("Por favor, cargue datos para generar un pronóstico.")
 
@@ -1398,6 +1383,7 @@ def main():
                     st.session_state.df_soi = load_data(uploaded_file_soi, sep=';', header=0, decimal=',')
                 if uploaded_file_iod:
                     st.session_state.df_iod = load_data(uploaded_file_iod, sep=';', header=0, decimal=',')
+
             if st.session_state.gdf_stations is not None:
                 st.session_state.data_loaded = True
                 st.rerun()
