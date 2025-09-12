@@ -670,29 +670,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
     
-    # Se definen todas las pestañas
     gif_tab, temporal_tab, race_tab, anim_tab, compare_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Gráfico de Carrera", "Mapa Animado", "Comparación de Mapas", "Interpolación Kriging"])
-
-    # Se añade contenido a cada pestaña para que se muestren
-    with gif_tab:
-        st.info("Funcionalidad de Animación GIF en desarrollo.")
-        # Aquí puedes añadir el código para la animación GIF cuando esté listo
-
-    with temporal_tab:
-        st.info("Funcionalidad de Visualización Temporal en desarrollo.")
-        # Aquí puedes añadir el código para la visualización temporal
-
-    with race_tab:
-        st.info("Funcionalidad de Gráfico de Carrera en desarrollo.")
-        # Aquí puedes añadir el código para el gráfico de carrera
-
-    with anim_tab:
-        st.info("Funcionalidad de Mapa Animado en desarrollo.")
-        # Aquí puedes añadir el código para el mapa animado
-        
-    with compare_tab:
-        st.info("Funcionalidad de Comparación de Mapas en desarrollo.")
-        # Aquí puedes añadir el código para la comparación de mapas
 
     with kriging_tab:
         st.subheader("Interpolación Kriging para un Año Específico")
@@ -750,6 +728,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
             st.warning("No hay datos para realizar la interpolación.")
+
 
 def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Información Detallada de las Estaciones")
@@ -1633,9 +1612,11 @@ def main():
     with enso_tab:
         display_enso_tab(st.session_state.df_monthly_filtered, st.session_state.df_enso, st.session_state.gdf_filtered, stations_for_analysis)
     with tendencias_tab:
-        display_trends_and_forecast_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_filtered, stations_for_analysis)
+        # CORRECCIÓN: Usar df_monthly_processed para pronósticos
+        display_trends_and_forecast_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_processed, stations_for_analysis)
     with descargas_tab:
-        display_downloads_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_filtered, stations_for_analysis)
+        # CORRECCIÓN: Usar df_monthly_processed para la descarga de datos completados
+        display_downloads_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_processed, stations_for_analysis)
 
 if __name__ == "__main__":
     main()
