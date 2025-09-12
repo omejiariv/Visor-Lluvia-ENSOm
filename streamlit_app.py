@@ -1298,7 +1298,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         mime='text/csv',
                         key='download-sarima'
                     )
-
                 except Exception as e:
                     st.error(f"Ocurrió un error al generar el pronóstico con Prophet. Esto puede deberse a que la serie de datos es demasiado corta o inestable. Error: {e}")
         else:
