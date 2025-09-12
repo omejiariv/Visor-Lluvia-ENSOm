@@ -670,7 +670,29 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
     
+    # Se definen todas las pestañas
     gif_tab, temporal_tab, race_tab, anim_tab, compare_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Gráfico de Carrera", "Mapa Animado", "Comparación de Mapas", "Interpolación Kriging"])
+
+    # Se añade contenido a cada pestaña para que se muestren
+    with gif_tab:
+        st.info("Funcionalidad de Animación GIF en desarrollo.")
+        # Aquí puedes añadir el código para la animación GIF cuando esté listo
+
+    with temporal_tab:
+        st.info("Funcionalidad de Visualización Temporal en desarrollo.")
+        # Aquí puedes añadir el código para la visualización temporal
+
+    with race_tab:
+        st.info("Funcionalidad de Gráfico de Carrera en desarrollo.")
+        # Aquí puedes añadir el código para el gráfico de carrera
+
+    with anim_tab:
+        st.info("Funcionalidad de Mapa Animado en desarrollo.")
+        # Aquí puedes añadir el código para el mapa animado
+        
+    with compare_tab:
+        st.info("Funcionalidad de Comparación de Mapas en desarrollo.")
+        # Aquí puedes añadir el código para la comparación de mapas
 
     with kriging_tab:
         st.subheader("Interpolación Kriging para un Año Específico")
@@ -682,7 +704,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
             year_kriging = st.slider("Seleccione el año para la interpolación", min_year, max_year, max_year, key="year_kriging")
             data_year_kriging = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year_kriging].copy()
             
-            # Asegurarse de que no hay valores nulos en las columnas clave para kriging
             data_year_kriging.dropna(subset=[Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.PRECIPITATION_COL], inplace=True)
 
             logo_col_k, metric_col_k = st.columns([1,8])
@@ -703,7 +724,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             - Este método considera no solo la distancia, sino también las propiedades de varianza espacial de los datos.
                         """)
                     
-                    # La columna 'municipio' ya está en data_year_kriging.
                     data_year_kriging['tooltip'] = data_year_kriging.apply(
                         lambda row: f"<b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>Municipio: {row[Config.MUNICIPALITY_COL]}<br>Ppt: {row[Config.PRECIPITATION_COL]:.0f} mm",
                         axis=1
