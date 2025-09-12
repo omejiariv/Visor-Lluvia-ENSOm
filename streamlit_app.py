@@ -186,14 +186,15 @@ def complete_series(_df):
         if not df_station.index.is_unique:
             df_station = df_station[~df_station.index.duplicated(keep='first')]
 
-        original_data = df_station[[Config.PRECIPITATION_COL, Config.ORIGIN_COL]].copy()
+        # Antes de la interpolación, aseguramos que el índice no contenga NaNs
         df_resampled = df_station.resample('MS').asfreq()
-        df_resampled[Config.PRECIPITATION_COL] = original_data[Config.PRECIPITATION_COL]
-        df_resampled[Config.ORIGIN_COL] = original_data[Config.ORIGIN_COL]
-        if Config.ENSO_ONI_COL in df_station.columns:
-            df_resampled[Config.ENSO_ONI_COL] = df_station[Config.ENSO_ONI_COL]
         df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
         df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
+        
+        # Copiar otras columnas del archivo original
+        for col in [c for c in df_station.columns if c not in [Config.PRECIPITATION_COL, Config.ORIGIN_COL]]:
+            if col in df_resampled.columns:
+                df_resampled[col] = df_station[col]
 
         df_resampled[Config.STATION_NAME_COL] = station
         df_resampled[Config.YEAR_COL] = df_resampled.index.year
@@ -241,6 +242,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     id_vars_enso = [Config.ENSO_ONI_COL, Config.SST_COL, Config.MEDIA_COL, Config.SOI_COL, Config.IOD_COL]
     id_vars = id_vars_base + id_vars_enso
     
+    # Se asegura que la columna 'fecha_mes_año' se lea como fecha antes de la fusión
     df_precip_mensual['fecha_mes_año'] = pd.to_datetime(df_precip_mensual['fecha_mes_año'], format='%b-%y', errors='coerce')
 
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
@@ -267,7 +269,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
 
     if Config.DATE_COL in df_enso.columns:
-        df_enso[Config.DATE_COL] = df_enso[Config.DATE_COL] # Ya se convirtió antes
+        df_enso[Config.DATE_COL] = df_enso[Config.DATE_COL]
         df_enso.dropna(subset=[Config.DATE_COL], inplace=True)
         
     return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
@@ -730,7 +732,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                                 color=colormap(row[Config.PRECIPITATION_COL]), fill=True, fill_color=colormap(row[Config.PRECIPITATION_COL]),
                                 fill_opacity=0.8, tooltip=f"{row[Config.STATION_NAME_COL]}: {row[Config.PRECIPITATION_COL]:.0f} mm"
                             ).add_to(m_temporal)
-                        bounds = st.session_state.gdf_stations.loc[st.session_state.gdf_stations[Config.STATION_NAME_COL].isin(df_year_filtered[Config.STATION_NAME_COL])].total_bounds
+                        bounds = st.session_state.gdf_filtered.loc[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(df_year_filtered[Config.STATION_NAME_COL])].total_bounds
                         m_temporal.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
                     for layer_config in selected_overlays_config:
                         folium.raster_layers.WmsTileLayer(url=layer_config["url"], layers=layer_config["layers"], fmt='image/png', transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]).add_to(m_temporal)
@@ -1294,12 +1296,10 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
         df_indices = st.session_state.df_long[[Config.DATE_COL]].drop_duplicates().copy()
         
         # Unir todos los índices disponibles
-        if Config.ENSO_ONI_COL in st.session_state.df_long.columns:
-            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.ENSO_ONI_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
-        if Config.SOI_COL in st.session_state.df_long.columns:
-            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.SOI_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
-        if Config.IOD_COL in st.session_state.df_long.columns:
-            df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, Config.IOD_COL]].drop_duplicates(), on=Config.DATE_COL, how='left')
+        indices_to_merge = [Config.ENSO_ONI_COL, Config.SOI_COL, Config.IOD_COL]
+        for index_col in indices_to_merge:
+            if index_col in st.session_state.df_long.columns:
+                df_indices = pd.merge(df_indices, st.session_state.df_long[[Config.DATE_COL, index_col]].drop_duplicates(), on=Config.DATE_COL, how='left')
 
         df_indices_filtered = df_indices[(df_indices[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) & (df_indices[Config.DATE_COL].dt.year <= st.session_state.year_range[1])]
 
@@ -1705,7 +1705,7 @@ def main():
             var_name=Config.YEAR_COL,
             value_name=Config.PRECIPITATION_COL
         )
-        st.session_state.df_anual_melted = df_anual_melted_temp[df_anual_melted_temp[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        st.session_state.df_anual_melted = df_anual_melted_temp[df_anual_melted_temp[Config.STATION_NAME_COL].isin(stations_for_analysis)].copy()
     else:
         st.session_state.df_anual_melted = pd.DataFrame()
     
@@ -1720,19 +1720,19 @@ def main():
         else:
             st.session_state.df_monthly_processed = st.session_state.df_long.copy()
         
-        df_monthly_to_filter = st.session_state.df_monthly_processed.copy()
+        df_monthly_processed_filtered = st.session_state.df_monthly_processed.copy()
         
         if st.session_state.exclude_na:
-            df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
+            df_monthly_processed_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
         if st.session_state.exclude_zeros:
-            df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
+            df_monthly_processed_filtered = df_monthly_processed_filtered[df_monthly_processed_filtered[Config.PRECIPITATION_COL] > 0]
         
-        if Config.STATION_NAME_COL in df_monthly_to_filter.columns and not df_monthly_to_filter.empty:
-            st.session_state.df_monthly_filtered = df_monthly_to_filter[
-                (df_monthly_to_filter[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
-                (df_monthly_to_filter[Config.DATE_COL].dt.year >= year_range[0]) &
-                (df_monthly_to_filter[Config.DATE_COL].dt.year <= year_range[1]) &
-                (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
+        if Config.STATION_NAME_COL in df_monthly_processed_filtered.columns and not df_monthly_processed_filtered.empty:
+            st.session_state.df_monthly_filtered = df_monthly_processed_filtered[
+                (df_monthly_processed_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+                (df_monthly_processed_filtered[Config.DATE_COL].dt.year >= year_range[0]) &
+                (df_monthly_processed_filtered[Config.DATE_COL].dt.year <= year_range[1]) &
+                (df_monthly_processed_filtered[Config.DATE_COL].dt.month.isin(meses_numeros))
             ].copy()
         else:
             st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
