@@ -179,23 +179,37 @@ def complete_series(_df):
     all_completed_dfs = []
     station_list = _df[Config.STATION_NAME_COL].unique()
     progress_bar = st.progress(0, text="Completando todas las series...")
+    
+    # Aseguramos que la columna de fecha sea de tipo datetime y que no sea el índice
+    if not pd.api.types.is_datetime64_any_dtype(_df[Config.DATE_COL]):
+        _df[Config.DATE_COL] = pd.to_datetime(_df[Config.DATE_COL], errors='coerce')
+    
     for i, station in enumerate(station_list):
         df_station = _df[_df[Config.STATION_NAME_COL] == station].copy()
-        df_station[Config.DATE_COL] = pd.to_datetime(df_station[Config.DATE_COL], format='%b-%y', errors='coerce')
-        df_station.set_index(Config.DATE_COL, inplace=True)
-        if not df_station.index.is_unique:
-            df_station = df_station[~df_station.index.duplicated(keep='first')]
+        
+        # Eliminar duplicados y NaN en la columna de fecha antes de establecer el índice
+        df_station.dropna(subset=[Config.DATE_COL], inplace=True)
+        df_station.drop_duplicates(subset=[Config.DATE_COL], inplace=True)
 
-        # Antes de la interpolación, aseguramos que el índice no contenga NaNs
+        df_station.set_index(Config.DATE_COL, inplace=True)
+
+        original_data = df_station[[Config.PRECIPITATION_COL, Config.ORIGIN_COL]].copy()
         df_resampled = df_station.resample('MS').asfreq()
-        df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
-        df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
+        
+        df_resampled[Config.PRECIPITATION_COL] = original_data[Config.PRECIPITATION_COL]
+        df_resampled[Config.ORIGIN_COL] = original_data[Config.ORIGIN_COL]
         
         # Copiar otras columnas del archivo original
         for col in [c for c in df_station.columns if c not in [Config.PRECIPITATION_COL, Config.ORIGIN_COL]]:
-            if col in df_resampled.columns:
-                df_resampled[col] = df_station[col]
+            df_resampled[col] = df_station[col]
 
+        # Interpolar solo si el índice no tiene NaNs
+        if not df_resampled.index.isna().any():
+            df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
+        else:
+            st.warning(f"No se puede interpolar la estación '{station}' porque el índice de fecha contiene valores faltantes después del remuestreo.")
+        
+        df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
         df_resampled[Config.STATION_NAME_COL] = station
         df_resampled[Config.YEAR_COL] = df_resampled.index.year
         df_resampled[Config.MONTH_COL] = df_resampled.index.month
@@ -242,7 +256,6 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     id_vars_enso = [Config.ENSO_ONI_COL, Config.SST_COL, Config.MEDIA_COL, Config.SOI_COL, Config.IOD_COL]
     id_vars = id_vars_base + id_vars_enso
     
-    # Se asegura que la columna 'fecha_mes_año' se lea como fecha antes de la fusión
     df_precip_mensual['fecha_mes_año'] = pd.to_datetime(df_precip_mensual['fecha_mes_año'], format='%b-%y', errors='coerce')
 
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
@@ -269,7 +282,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
 
     if Config.DATE_COL in df_enso.columns:
-        df_enso[Config.DATE_COL] = df_enso[Config.DATE_COL]
+        df_enso[Config.DATE_COL] = df_enso[Config.DATE_COL] # Ya se convirtió antes
         df_enso.dropna(subset=[Config.DATE_COL], inplace=True)
         
     return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
@@ -646,7 +659,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
         st.subheader("Relación entre Altitud y Precipitación")
         if not df_anual_melted.empty and not st.session_state.gdf_filtered[Config.ALTITUDE_COL].isnull().all():
             df_relacion = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().round(0).reset_index()
-            df_relacion = df_relacion.merge(st.session_state.gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL]].drop_duplicates(), on=Config.STATION_NAME_COL, how='left')
+            df_relacion = df_relacion.merge(st.session_state.gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL]], on=Config.STATION_NAME_COL, how='left')
             fig_relacion = px.scatter(df_relacion, x=Config.ALTITUDE_COL, y=Config.PRECIPITATION_COL, color=Config.STATION_NAME_COL,
                                       title='Relación entre Precipitación Media Anual y Altitud',
                                       labels={Config.ALTITUDE_COL: 'Altitud (m)', Config.PRECIPITATION_COL: 'Precipitación Media Anual (mm)'})
@@ -1243,7 +1256,7 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
 
     with enso_anim_tab:
         st.subheader("Explorador Mensual del Fenómeno ENSO")
-        if df_enso.empty or st.session_state.gdf_stations.empty:
+        if df_enso.empty or st.session_state.gdf_filtered is None or st.session_state.gdf_filtered.empty:
             st.warning("No hay datos disponibles para generar esta visualización.")
             return
         if Config.ENSO_ONI_COL not in df_enso.columns:
@@ -1472,50 +1485,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         file_name=f'pronostico_sarima_{station_to_forecast.replace(" ", "_")}.csv',
                         mime='text/csv',
                         key='download-sarima'
-                    )
-                except Exception as e:
-                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
-        else:
-            st.info("Por favor, cargue datos para generar un pronóstico.")
-
-    with pronostico_prophet_tab:
-        st.subheader("Pronóstico de Precipitación Mensual (Modelo Prophet)")
-        with st.expander("¿Cómo funciona Prophet?"):
-            st.markdown("""
-                **Prophet**, desarrollado por Facebook, es un procedimiento para pronosticar series de tiempo.
-                - Se basa en un modelo aditivo en el que se ajustan las tendencias no lineales con la estacionalidad anual y semanal, además de los efectos de festivos.
-                - Es especialmente útil para series de tiempo que tienen una fuerte estacionalidad y múltiples ciclos.
-                - Es más robusto que otros modelos a datos faltantes o atípicos.
-            """)
-        
-        station_to_forecast_prophet = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="prophet_station_select", help="El pronóstico se realiza para una única serie de tiempo con Prophet.")
-        forecast_horizon_prophet = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="prophet_forecast_horizon_slider")
-
-        if not df_monthly_to_process.empty and len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet]) < 24:
-            st.warning("Se necesitan al menos 24 puntos de datos para que Prophet funcione correctamente. Por favor, ajuste la selección de años.")
-        elif not df_monthly_to_process.empty:
-            with st.spinner(f"Entrenando modelo Prophet y generando pronóstico para {station_to_forecast_prophet}..."):
-                try:
-                    ts_data_prophet = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
-                    ts_data_prophet.rename(columns={Config.DATE_COL: 'ds', Config.PRECIPITATION_COL: 'y'}, inplace=True)
-                    model_prophet = Prophet()
-                    model_prophet.fit(ts_data_prophet)
-                    future = model_prophet.make_future_dataframe(periods=forecast_horizon_prophet, freq='MS')
-                    forecast_prophet = model_prophet.predict(future)
-                    
-                    st.success("Pronóstico generado exitosamente.")
-                    fig_prophet = plot_plotly(model_prophet, forecast_prophet)
-                    fig_prophet.update_layout(title=f"Pronóstico de Precipitación con Prophet para {station_to_forecast_prophet}", yaxis_title="Precipitación (mm)")
-                    st.plotly_chart(fig_prophet, use_container_width=True)
-
-                    # Botón de descarga
-                    csv_data = forecast_prophet[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="Descargar Pronóstico Prophet en CSV",
-                        data=csv_data,
-                        file_name=f'pronostico_prophet_{station_to_forecast_prophet.replace(" ", "_")}.csv',
-                        mime='text/csv',
-                        key='download-prophet'
                     )
 
                 except Exception as e:
