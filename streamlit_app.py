@@ -203,20 +203,23 @@ def complete_series(_df):
     return pd.concat(all_completed_dfs, ignore_index=True)
 
 @st.cache_data
-def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
+def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile, uploaded_file_soi, uploaded_file_iod):
     """Procesa todos los archivos de entrada."""
     df_precip_anual = load_data(uploaded_file_mapa)
     df_precip_mensual_raw = load_data(uploaded_file_precip)
     gdf_municipios = load_shapefile(uploaded_zip_shapefile)
 
     if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
-        return None, None, None, None, None
+        return None, None, None, None, None, None, None
+    
+    df_soi = load_data(uploaded_file_soi, sep=',', header=0) if uploaded_file_soi else None
+    df_iod = load_data(uploaded_file_iod, sep=',', header=0) if uploaded_file_iod else None
 
     lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
     lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
     if not all([lon_col, lat_col]):
         st.error("No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
-        return None, None, None, None, None
+        return None, None, None, None, None, None, None
     df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
     df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
     if Config.ALTITUDE_COL in df_precip_anual.columns:
@@ -233,7 +236,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
     if not station_cols:
         st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
-        return None, None, None, None, None
+        return None, None, None, None, None, None, None
 
     id_vars_base = ['id', Config.DATE_COL, Config.YEAR_COL, Config.MONTH_COL, 'enso_año', 'enso_mes']
     id_vars_enso = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']
@@ -272,7 +275,8 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         df_enso[Config.DATE_COL] = parse_spanish_dates(df_enso[Config.DATE_COL])
         df_enso[Config.DATE_COL] = pd.to_datetime(df_enso[Config.DATE_COL], format='%b-%y', errors='coerce')
         df_enso.dropna(subset=[Config.DATE_COL], inplace=True)
-    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
+        
+    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso, df_soi, df_iod
 
 # ---
 # Funciones para Gráficos y Mapas
@@ -595,7 +599,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
             st.info("Seleccione al menos dos estaciones para comparar.")
         else:
             st.markdown("##### Precipitación Mensual Promedio")
-            df_monthly_avg = df_monthly_filtered.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().reset_index()
+            df_monthly_avg = df_monthly_filtered.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().round(0).reset_index()
             fig_avg_monthly = px.line(df_monthly_avg, x=Config.MONTH_COL, y=Config.PRECIPITATION_COL, color=Config.STATION_NAME_COL,
                                      labels={Config.MONTH_COL: 'Mes', Config.PRECIPITATION_COL: 'Precipitación Promedio (mm)'},
                                      title='Promedio de Precipitación Mensual por Estación')
@@ -978,19 +982,18 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
         
         df_corr_indices = df_monthly_filtered.copy()
         available_indices_cols = []
+        df_soi_temp = None
+        df_iod_temp = None
 
         if 'df_soi' in st.session_state and st.session_state.df_soi is not None:
-            # Aseguramos que las columnas existan antes de usarlas
-            if Config.DATE_COL in st.session_state.df_soi.columns and Config.SOI_COL in st.session_state.df_soi.columns:
-                df_soi_temp = st.session_state.df_soi.copy()
-                df_corr_indices = pd.merge(df_corr_indices, df_soi_temp[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
-                available_indices_cols.append('soi')
+            df_soi_temp = st.session_state.df_soi.copy()
+            df_corr_indices = pd.merge(df_corr_indices, df_soi_temp[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
+            available_indices_cols.append('soi')
         
         if 'df_iod' in st.session_state and st.session_state.df_iod is not None:
-            if Config.DATE_COL in st.session_state.df_iod.columns and Config.IOD_COL in st.session_state.df_iod.columns:
-                df_iod_temp = st.session_state.df_iod.copy()
-                df_corr_indices = pd.merge(df_corr_indices, df_iod_temp[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
-                available_indices_cols.append('iod')
+            df_iod_temp = st.session_state.df_iod.copy()
+            df_corr_indices = pd.merge(df_corr_indices, df_iod_temp[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
+            available_indices_cols.append('iod')
 
         if not available_indices_cols:
             st.warning("No se han cargado los archivos de datos para los índices climáticos (SOI o IOD) o no tienen el formato esperado.")
@@ -1482,7 +1485,8 @@ def main():
         exclude_na = st.checkbox("Excluir datos nulos (NaN)", value=st.session_state.exclude_na, key='exclude_na_checkbox')
         exclude_zeros = st.checkbox("Excluir valores cero (0)", value=st.session_state.exclude_zeros, key='exclude_zeros_checkbox')
 
-        if exclude_na != st.session_state.exclude_na or exclude_zeros != st.session_state.exclude_zeros:
+        if analysis_mode != st.session_state.analysis_mode or exclude_na != st.session_state.exclude_na or exclude_zeros != st.session_state.exclude_zeros:
+            st.session_state.analysis_mode = analysis_mode
             st.session_state.exclude_na = exclude_na
             st.session_state.exclude_zeros = exclude_zeros
             st.rerun()
