@@ -46,7 +46,6 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-    # Se añade MPIO_SHP_COL para el mapa coroplético
     MPIO_SHP_COL = 'nombre_mpio' 
 
     # Nuevas constantes para índices climáticos
@@ -124,7 +123,7 @@ def parse_spanish_dates(date_series):
     return date_series
 
 @st.cache_data
-def load_data(file_path, sep=';', date_cols=None, lower_case=True, header=0):
+def load_data(file_path, sep=';', date_cols=None, lower_case=True, header=0, decimal='.'):
     """Carga y decodifica un archivo CSV de manera robusta."""
     if file_path is None:
         return None
@@ -140,12 +139,7 @@ def load_data(file_path, sep=';', date_cols=None, lower_case=True, header=0):
     encodings_to_try = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
     for encoding in encodings_to_try:
         try:
-            df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding, parse_dates=date_cols, header=header)
-            # Asegurarse de que los decimales con coma se lean correctamente
-            if sep == ';':
-                df = df.apply(lambda x: x.str.replace(',', '.', regex=True) if x.dtype == 'object' else x)
-                df = df.apply(pd.to_numeric, errors='coerce')
-
+            df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding, parse_dates=date_cols, header=header, decimal=decimal)
             df.columns = df.columns.str.strip().str.replace(';', '')
             if lower_case:
                 df.columns = df.columns.str.lower()
@@ -224,7 +218,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
             df_soi.columns = ['año', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic', 'anual']
             df_soi_melted = df_soi.melt(id_vars='año', var_name='mes_nombre', value_name='soi')
             meses_map = {'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
-                         'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12, 'anual': np.nan}
+                         'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12}
             df_soi_melted['mes'] = df_soi_melted['mes_nombre'].map(meses_map)
             df_soi_melted.dropna(subset=['mes'], inplace=True)
             df_soi_melted['fecha_mes_año'] = pd.to_datetime(df_soi_melted['año'].astype(str) + '-' + df_soi_melted['mes'].astype(str), format='%Y-%m')
@@ -237,7 +231,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
             df_iod.columns = ['año', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic', 'anual']
             df_iod_melted = df_iod.melt(id_vars='año', var_name='mes_nombre', value_name='iod')
             meses_map = {'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
-                         'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12, 'anual': np.nan}
+                         'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12}
             df_iod_melted['mes'] = df_iod_melted['mes_nombre'].map(meses_map)
             df_iod_melted.dropna(subset=['mes'], inplace=True)
             df_iod_melted['fecha_mes_año'] = pd.to_datetime(df_iod_melted['año'].astype(str) + '-' + df_iod_melted['mes'].astype(str), format='%Y-%m')
@@ -249,6 +243,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     if not all([lon_col, lat_col]):
         st.error("No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
         return None, None, None, None, None, None, None
+
     df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
     df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
     if Config.ALTITUDE_COL in df_precip_anual.columns:
@@ -802,7 +797,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
             st.markdown("##### Opciones de Visualización")
             selected_base_map_config, selected_overlays_config = display_map_controls(st, "anim_map")
             
-            # Slider para controlar la animación
             if not df_anual_melted.empty:
                 all_years_anim = sorted(df_anual_melted[Config.YEAR_COL].unique().astype(int))
                 if all_years_anim:
@@ -1201,15 +1195,14 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
         # Unir datos de SOI si están disponibles
         if 'df_soi' in st.session_state and st.session_state.df_soi is not None:
             df_soi_temp = st.session_state.df_soi.copy()
-            if 'fecha_mes_año' in df_soi_temp.columns and 'soi' in df_soi_temp.columns:
+            if Config.DATE_COL in df_soi_temp.columns and Config.SOI_COL in df_soi_temp.columns:
                 df_corr_indices = pd.merge(df_corr_indices, df_soi_temp[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
                 available_indices_cols.append(Config.SOI_COL)
         
         # Unir datos de IOD si están disponibles
         if 'df_iod' in st.session_state and st.session_state.df_iod is not None:
             if Config.DATE_COL in st.session_state.df_iod.columns and Config.IOD_COL in st.session_state.df_iod.columns:
-                df_iod_temp = st.session_state.df_iod.copy()
-                df_corr_indices = pd.merge(df_corr_indices, df_iod_temp[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
+                df_corr_indices = pd.merge(df_corr_indices, st.session_state.df_iod[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
                 available_indices_cols.append(Config.IOD_COL)
 
         if not available_indices_cols:
@@ -1587,27 +1580,8 @@ def main():
                 # NUEVO: Lógica para cargar SOI e IOD
                 if uploaded_file_soi:
                     st.session_state.df_soi = load_data(uploaded_file_soi, sep=',', header=0, decimal=',')
-                    if st.session_state.df_soi is not None:
-                        st.session_state.df_soi.columns = ['año', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic', 'anual']
-                        df_soi_melted = st.session_state.df_soi.melt(id_vars='año', var_name='mes_nombre', value_name='soi')
-                        df_soi_melted['mes'] = df_soi_melted['mes_nombre'].map({
-                            'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
-                            'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12
-                        })
-                        df_soi_melted['fecha_mes_año'] = pd.to_datetime(df_soi_melted['año'].astype(str) + '-' + df_soi_melted['mes'].astype(str), format='%Y-%m')
-                        st.session_state.df_soi = df_soi_melted.copy()
                 if uploaded_file_iod:
                     st.session_state.df_iod = load_data(uploaded_file_iod, sep=',', header=0, decimal=',')
-                    if st.session_state.df_iod is not None:
-                        st.session_state.df_iod.columns = ['año', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic', 'anual']
-                        df_iod_melted = st.session_state.df_iod.melt(id_vars='año', var_name='mes_nombre', value_name='iod')
-                        df_iod_melted['mes'] = df_iod_melted['mes_nombre'].map({
-                            'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
-                            'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12
-                        })
-                        df_iod_melted['fecha_mes_año'] = pd.to_datetime(df_iod_melted['año'].astype(str) + '-' + df_iod_melted['mes'].astype(str), format='%Y-%m')
-                        st.session_state.df_iod = df_iod_melted.copy()
-
             if st.session_state.gdf_stations is not None:
                 st.session_state.data_loaded = True
                 st.rerun()
@@ -1739,19 +1713,19 @@ def main():
         else:
             st.session_state.df_monthly_processed = st.session_state.df_long.copy()
         
-        df_monthly_to_filter = st.session_state.df_monthly_processed.copy()
+        df_monthly_processed_filtered = st.session_state.df_monthly_processed.copy()
         
         if st.session_state.exclude_na:
-            df_monthly_to_filter = df_monthly_to_filter.dropna(subset=[Config.PRECIPITATION_COL])
+            df_monthly_processed_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
         if st.session_state.exclude_zeros:
-            df_monthly_to_filter = df_monthly_to_filter[df_monthly_to_filter[Config.PRECIPITATION_COL] > 0]
+            df_monthly_processed_filtered = df_monthly_processed_filtered[df_monthly_processed_filtered[Config.PRECIPITATION_COL] > 0]
         
-        if Config.STATION_NAME_COL in df_monthly_to_filter.columns and not df_monthly_to_filter.empty:
-            st.session_state.df_monthly_filtered = df_monthly_to_filter[
-                (df_monthly_to_filter[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
-                (df_monthly_to_filter[Config.DATE_COL].dt.year >= year_range[0]) &
-                (df_monthly_to_filter[Config.DATE_COL].dt.year <= year_range[1]) &
-                (df_monthly_to_filter[Config.DATE_COL].dt.month.isin(meses_numeros))
+        if Config.STATION_NAME_COL in df_monthly_processed_filtered.columns and not df_monthly_processed_filtered.empty:
+            st.session_state.df_monthly_filtered = df_monthly_processed_filtered[
+                (df_monthly_processed_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+                (df_monthly_processed_filtered[Config.DATE_COL].dt.year >= year_range[0]) &
+                (df_monthly_processed_filtered[Config.DATE_COL].dt.year <= year_range[1]) &
+                (df_monthly_processed_filtered[Config.DATE_COL].dt.month.isin(meses_numeros))
             ].copy()
         else:
             st.session_state.df_monthly_filtered = pd.DataFrame(columns=[Config.STATION_NAME_COL, Config.DATE_COL, Config.PRECIPITATION_COL])
