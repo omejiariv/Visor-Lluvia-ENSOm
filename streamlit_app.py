@@ -236,6 +236,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
     if Config.ALTITUDE_COL in df_precip_anual.columns:
         df_precip_anual[Config.ALTITUDE_COL] = pd.to_numeric(df_precip_anual[Config.ALTITUDE_COL].astype(str).str.replace(',', '.'), errors='coerce')
+    df_precip_anual.dropna(subset=[lon_col, lat_col], inplace=True)
     gdf_temp = gpd.GeoDataFrame(df_precip_anual,
                                 geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]),
                                 crs="EPSG:9377")
@@ -253,12 +254,12 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     id_vars_enso = [Config.ENSO_ONI_COL, Config.SST_COL, Config.MEDIA_COL, Config.SOI_COL, Config.IOD_COL]
     id_vars = id_vars_base + id_vars_enso
     
-    df_precip_mensual['fecha_mes_año'] = pd.to_datetime(df_precip_mensual['fecha_mes_año'], format='%b-%y', errors='coerce')
+    df_precip_mensual[Config.DATE_COL] = pd.to_datetime(df_precip_mensual[Config.DATE_COL], format='%b-%y', errors='coerce')
 
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
                                      value_vars=station_cols, var_name='id_estacion', value_name=Config.PRECIPITATION_COL)
 
-    df_long[Config.PRECIPITATION_COL] = pd.to_numeric(df_long[Config.PRECIPITATION_COL].astype(str).str.replace(',', '.'), errors='coerce')
+    df_long[Config.PRECIPITATION_COL] = pd.to_numeric(df_long[Config.PRECIPITATION_COL], errors='coerce').round(0)
     for col in id_vars_enso:
         if col in df_long.columns:
             df_long[col] = pd.to_numeric(df_long[col], errors='coerce')
@@ -1297,6 +1298,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         mime='text/csv',
                         key='download-sarima'
                     )
+
                 except Exception as e:
                     st.error(f"Ocurrió un error al generar el pronóstico con Prophet. Esto puede deberse a que la serie de datos es demasiado corta o inestable. Error: {e}")
         else:
