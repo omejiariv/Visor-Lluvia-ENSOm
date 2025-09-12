@@ -52,6 +52,8 @@ class Config:
     # Nuevas constantes para índices climáticos
     SOI_COL = 'soi'
     IOD_COL = 'iod'
+    SST_COL = 'temp_sst'
+    MEDIA_COL = 'temp_media'
 
     # Rutas de Archivos
     LOGO_PATH = "CuencaVerdeLogo_V1.JPG"
@@ -124,7 +126,7 @@ def parse_spanish_dates(date_series):
     return date_series
 
 @st.cache_data
-def load_data(file_path, sep=';', date_cols=None, lower_case=True, header=0, decimal='.'):
+def load_data(file_path, sep=';', date_cols=None, lower_case=True):
     """Carga y decodifica un archivo CSV de manera robusta."""
     if file_path is None:
         return None
@@ -140,7 +142,7 @@ def load_data(file_path, sep=';', date_cols=None, lower_case=True, header=0, dec
     encodings_to_try = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
     for encoding in encodings_to_try:
         try:
-            df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding, parse_dates=date_cols, header=header, decimal=decimal)
+            df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding, parse_dates=date_cols)
             df.columns = df.columns.str.strip().str.replace(';', '')
             if lower_case:
                 df.columns = df.columns.str.lower()
@@ -203,32 +205,20 @@ def complete_series(_df):
     return pd.concat(all_completed_dfs, ignore_index=True)
 
 @st.cache_data
-def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile, uploaded_file_soi=None, uploaded_file_iod=None):
+def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
     """Procesa todos los archivos de entrada."""
     df_precip_anual = load_data(uploaded_file_mapa)
     df_precip_mensual_raw = load_data(uploaded_file_precip)
     gdf_municipios = load_shapefile(uploaded_zip_shapefile)
 
     if any(df is None for df in [df_precip_anual, df_precip_mensual_raw, gdf_municipios]):
-        return None, None, None, None, None, None, None
-    
-    df_soi, df_iod = None, None
-    
-    # Lógica para cargar SOI e IOD desde el archivo principal
-    if Config.SOI_COL in df_precip_mensual_raw.columns:
-        df_soi = df_precip_mensual_raw[['fecha_mes_año', Config.SOI_COL]].copy()
-        df_soi[Config.DATE_COL] = pd.to_datetime(df_soi['fecha_mes_año'])
-        df_soi.dropna(subset=[Config.SOI_COL], inplace=True)
-    if Config.IOD_COL in df_precip_mensual_raw.columns:
-        df_iod = df_precip_mensual_raw[['fecha_mes_año', Config.IOD_COL]].copy()
-        df_iod[Config.DATE_COL] = pd.to_datetime(df_iod['fecha_mes_año'])
-        df_iod.dropna(subset=[Config.IOD_COL], inplace=True)
+        return None, None, None, None, None
 
     lon_col = next((col for col in df_precip_anual.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
     lat_col = next((col for col in df_precip_anual.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
     if not all([lon_col, lat_col]):
         st.error("No se encontraron las columnas de longitud y/o latitud en el archivo de estaciones.")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None
     df_precip_anual[lon_col] = pd.to_numeric(df_precip_anual[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
     df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
     if Config.ALTITUDE_COL in df_precip_anual.columns:
@@ -245,7 +235,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     station_cols = [col for col in df_precip_mensual.columns if col.isdigit()]
     if not station_cols:
         st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None
 
     id_vars_base = ['id', Config.DATE_COL, Config.YEAR_COL, Config.MONTH_COL, 'enso_año', 'enso_mes']
     id_vars_enso = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']
@@ -285,7 +275,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         df_enso[Config.DATE_COL] = pd.to_datetime(df_enso[Config.DATE_COL], format='%b-%y', errors='coerce')
         df_enso.dropna(subset=[Config.DATE_COL], inplace=True)
         
-    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso, df_soi, df_iod
+    return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
 
 # ---
 # Funciones para Gráficos y Mapas
@@ -617,7 +607,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
             st.plotly_chart(fig_avg_monthly, use_container_width=True)
             st.markdown("##### Distribución de Precipitación Anual")
             df_anual_filtered_for_box = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-            fig_box_annual = px.box(df_anual_filtered_for_box, x=Config.STATION_NAME_COL, y=Config.PRECIPITATION_COL, color=Config.STATION_NAME_COL, points='all', title='Distribución de la Precipitación Anual por Estación', labels={Config.STATION_NAME_COL: 'Estación', Config.PRECIPITATION_COL: 'Precipitación Anual (mm)'})
+            fig_box_annual = px.box(df_anual_filtered_for_box, x=Config.STATION_NAME_COL, y=Config.PRECIPITATION_COL, color=Config.STATION_NAME_COL, points='all', title='Distribución de la Precipitación Anual por Estación', labels={Config.STATION_NAME_COL: 'Estación', Config.PRECENTATION_COL: 'Precipitación Anual (mm)'})
             fig_box_annual.update_layout(height=600)
             st.plotly_chart(fig_box_annual, use_container_width=True)
 
@@ -989,22 +979,16 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
     with indices_climaticos_tab:
         st.subheader("Análisis de Correlación con Índices Climáticos")
         
-        df_corr_indices = df_monthly_filtered.copy()
+        df_corr_indices = st.session_state.df_monthly_filtered.copy()
         available_indices_cols = []
         
-        # Unir datos de SOI si están disponibles
-        if 'df_soi' in st.session_state and st.session_state.df_soi is not None:
-            df_soi_temp = st.session_state.df_soi.copy()
-            if Config.DATE_COL in df_soi_temp.columns and Config.SOI_COL in df_soi_temp.columns:
-                df_corr_indices = pd.merge(df_corr_indices, df_soi_temp[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
-                available_indices_cols.append(Config.SOI_COL)
+        if Config.SOI_COL in st.session_state.df_long.columns:
+            df_corr_indices = pd.merge(df_corr_indices, st.session_state.df_long[[Config.DATE_COL, Config.SOI_COL]].dropna(), on=Config.DATE_COL, how='left')
+            available_indices_cols.append(Config.SOI_COL)
         
-        # Unir datos de IOD si están disponibles
-        if 'df_iod' in st.session_state and st.session_state.df_iod is not None:
-            if Config.DATE_COL in st.session_state.df_iod.columns and Config.IOD_COL in st.session_state.df_iod.columns:
-                df_iod_temp = st.session_state.df_iod.copy()
-                df_corr_indices = pd.merge(df_corr_indices, df_iod_temp[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
-                available_indices_cols.append(Config.IOD_COL)
+        if Config.IOD_COL in st.session_state.df_long.columns:
+            df_corr_indices = pd.merge(df_corr_indices, st.session_state.df_long[[Config.DATE_COL, Config.IOD_COL]].dropna(), on=Config.DATE_COL, how='left')
+            available_indices_cols.append(Config.IOD_COL)
 
         if not available_indices_cols:
             st.warning("No se han cargado los archivos de datos para los índices climáticos (SOI o IOD) o no tienen el formato esperado.")
@@ -1363,9 +1347,6 @@ def main():
         uploaded_file_mapa = st.file_uploader("1. Cargar archivo de estaciones (mapaCVENSO.csv)", type="csv")
         uploaded_file_precip = st.file_uploader("2. Cargar archivo de precipitación mensual y ENSO (DatosPptnmes_ENSO.csv)", type="csv")
         uploaded_zip_shapefile = st.file_uploader("3. Cargar shapefile de municipios (.zip)", type="zip")
-        # Nuevos file_uploader para SOI y IOD
-        uploaded_file_soi = st.file_uploader("4. Cargar archivo de índice SOI (opcional)", type="csv")
-        uploaded_file_iod = st.file_uploader("5. Cargar archivo de índice IOD (opcional)", type="csv")
         if st.button("Recargar Datos"):
             st.session_state.data_loaded = False
             st.cache_data.clear()
@@ -1378,11 +1359,6 @@ def main():
         else:
             with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
                 st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
-                # NUEVO: Lógica para cargar SOI e IOD
-                if uploaded_file_soi:
-                    st.session_state.df_soi = load_data(uploaded_file_soi, sep=';', header=0, decimal=',')
-                if uploaded_file_iod:
-                    st.session_state.df_iod = load_data(uploaded_file_iod, sep=';', header=0, decimal=',')
 
             if st.session_state.gdf_stations is not None:
                 st.session_state.data_loaded = True
@@ -1404,7 +1380,7 @@ def main():
                 for r in altitudes:
                     if r == '0-500': conditions.append((stations_filtered[Config.ALTITUDE_COL] >= 0) & (stations_filtered[Config.ALTITUDE_COL] <= 500))
                     elif r == '500-1000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 500) & (stations_filtered[Config.ALTITUDE_COL] <= 1000))
-                    elif r == '1000-2000': conditions.append((filtered_stations_temp[Config.ALTITUDE_COL] > 1000) & (filtered_stations_temp[Config.ALTITUDE_COL] <= 2000))
+                    elif r == '1000-2000': conditions.append((stations_filtered[Config.ALTITUDE_COL] > 1000) & (stations_filtered[Config.ALTITUDE_COL] <= 2000))
                     elif r == '>3000': conditions.append(filtered_stations_temp[Config.ALTITUDE_COL] > 3000)
                 if conditions: stations_filtered = stations_filtered[pd.concat(conditions, axis=1).any(axis=1)]
             if regions: stations_filtered = stations_filtered[stations_filtered[Config.REGION_COL].isin(regions)]
