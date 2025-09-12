@@ -199,11 +199,9 @@ def complete_series(_df):
         df_resampled[Config.PRECIPITATION_COL] = original_data[Config.PRECIPITATION_COL]
         df_resampled[Config.ORIGIN_COL] = original_data[Config.ORIGIN_COL]
         
-        # Copiar otras columnas del archivo original
         for col in [c for c in df_station.columns if c not in [Config.PRECIPITATION_COL, Config.ORIGIN_COL]]:
             df_resampled[col] = df_station[col]
 
-        # Interpolar solo si el índice no tiene NaNs
         if not df_resampled.index.isna().any():
             df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
         else:
@@ -238,7 +236,6 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     df_precip_anual[lat_col] = pd.to_numeric(df_precip_anual[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
     if Config.ALTITUDE_COL in df_precip_anual.columns:
         df_precip_anual[Config.ALTITUDE_COL] = pd.to_numeric(df_precip_anual[Config.ALTITUDE_COL].astype(str).str.replace(',', '.'), errors='coerce')
-    df_precip_anual.dropna(subset=[lon_col, lat_col], inplace=True)
     gdf_temp = gpd.GeoDataFrame(df_precip_anual,
                                 geometry=gpd.points_from_xy(df_precip_anual[lon_col], df_precip_anual[lat_col]),
                                 crs="EPSG:9377")
@@ -256,8 +253,6 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
     id_vars_enso = [Config.ENSO_ONI_COL, Config.SST_COL, Config.MEDIA_COL, Config.SOI_COL, Config.IOD_COL]
     id_vars = id_vars_base + id_vars_enso
     
-    df_precip_mensual['fecha_mes_año'] = pd.to_datetime(df_precip_mensual['fecha_mes_año'], format='%b-%y', errors='coerce')
-
     df_long = df_precip_mensual.melt(id_vars=[col for col in id_vars if col in df_precip_mensual.columns],
                                      value_vars=station_cols, var_name='id_estacion', value_name=Config.PRECIPITATION_COL)
 
@@ -282,7 +277,7 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         df_enso[col] = pd.to_numeric(df_enso[col], errors='coerce')
 
     if Config.DATE_COL in df_enso.columns:
-        df_enso[Config.DATE_COL] = df_enso[Config.DATE_COL] # Ya se convirtió antes
+        df_enso[Config.DATE_COL] = df_enso[Config.DATE_COL]
         df_enso.dropna(subset=[Config.DATE_COL], inplace=True)
         
     return gdf_stations, df_precip_anual, gdf_municipios, df_long, df_enso
@@ -659,7 +654,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
         st.subheader("Relación entre Altitud y Precipitación")
         if not df_anual_melted.empty and not st.session_state.gdf_filtered[Config.ALTITUDE_COL].isnull().all():
             df_relacion = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().round(0).reset_index()
-            df_relacion = df_relacion.merge(st.session_state.gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL]], on=Config.STATION_NAME_COL, how='left')
+            df_relacion = df_relacion.merge(st.session_state.gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL]], on=Config.STATION_NAME_COL, how='inner')
             fig_relacion = px.scatter(df_relacion, x=Config.ALTITUDE_COL, y=Config.PRECIPITATION_COL, color=Config.STATION_NAME_COL,
                                       title='Relación entre Precipitación Media Anual y Altitud',
                                       labels={Config.ALTITUDE_COL: 'Altitud (m)', Config.PRECIPITATION_COL: 'Precipitación Media Anual (mm)'})
@@ -739,6 +734,9 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     if not df_year_filtered.empty:
                         min_val, max_val = df_anual_melted[Config.PRECIPITATION_COL].min(), df_anual_melted[Config.PRECIPITATION_COL].max()
                         colormap = cm.linear.YlGnBu_09.scale(vmin=min_val, vmax=max_val)
+                        # Unir el dataframe filtrado con las coordenadas geográficas
+                        df_year_filtered = df_year_filtered.merge(st.session_state.gdf_stations[[Config.STATION_NAME_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL]], on=Config.STATION_NAME_COL, how='inner')
+
                         for _, row in df_year_filtered.iterrows():
                             folium.CircleMarker(
                                 location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], radius=5,
@@ -920,7 +918,7 @@ def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analys
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
     if not df_anual_melted.empty:
-        df_info_table = gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL, Config.MUNICIPALITY_COL, Config.REGION_COL, Config.PERCENTAGE_COL]].copy()
+        df_info_table = gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL, Config.MUNICIPALITY_COL, Config.REGION_COL, Config.PERCENTAGE_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL]].copy()
         df_mean_precip = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().round(0).reset_index()
         df_mean_precip.rename(columns={Config.PRECIPITATION_COL: 'Precipitación media anual (mm)'}, inplace=True)
         df_info_table = df_info_table.merge(df_mean_precip, on=Config.STATION_NAME_COL, how='left')
@@ -1488,6 +1486,51 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     )
 
                 except Exception as e:
+                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo convergir. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
+        else:
+            st.info("Por favor, cargue datos para generar un pronóstico.")
+
+    with pronostico_prophet_tab:
+        st.subheader("Pronóstico de Precipitación Mensual (Modelo Prophet)")
+        with st.expander("¿Cómo funciona Prophet?"):
+            st.markdown("""
+                **Prophet**, desarrollado por Facebook, es un procedimiento para pronosticar series de tiempo.
+                - Se basa en un modelo aditivo en el que se ajustan las tendencias no lineales con la estacionalidad anual y semanal, además de los efectos de festivos.
+                - Es especialmente útil para series de tiempo que tienen una fuerte estacionalidad y múltiples ciclos.
+                - Es más robusto que otros modelos a datos faltantes o atípicos.
+            """)
+        
+        station_to_forecast_prophet = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="prophet_station_select", help="El pronóstico se realiza para una única serie de tiempo con Prophet.")
+        forecast_horizon_prophet = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="prophet_forecast_horizon_slider")
+
+        if not df_monthly_to_process.empty and len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet]) < 24:
+            st.warning("Se necesitan al menos 24 puntos de datos para que Prophet funcione correctamente. Por favor, ajuste la selección de años.")
+        elif not df_monthly_to_process.empty:
+            with st.spinner(f"Entrenando modelo Prophet y generando pronóstico para {station_to_forecast_prophet}..."):
+                try:
+                    ts_data_prophet = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
+                    ts_data_prophet.rename(columns={Config.DATE_COL: 'ds', Config.PRECIPITATION_COL: 'y'}, inplace=True)
+                    model_prophet = Prophet()
+                    model_prophet.fit(ts_data_prophet)
+                    future = model_prophet.make_future_dataframe(periods=forecast_horizon_prophet, freq='MS')
+                    forecast_prophet = model_prophet.predict(future)
+                    
+                    st.success("Pronóstico generado exitosamente.")
+                    fig_prophet = plot_plotly(model_prophet, forecast_prophet)
+                    fig_prophet.update_layout(title=f"Pronóstico de Precipitación con Prophet para {station_to_forecast_prophet}", yaxis_title="Precipitación (mm)")
+                    st.plotly_chart(fig_prophet, use_container_width=True)
+
+                    # Botón de descarga
+                    csv_data = forecast_prophet[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Descargar Pronóstico Prophet en CSV",
+                        data=csv_data,
+                        file_name=f'pronostico_prophet_{station_to_forecast_prophet.replace(" ", "_")}.csv',
+                        mime='text/csv',
+                        key='download-prophet'
+                    )
+
+                except Exception as e:
                     st.error(f"Ocurrió un error al generar el pronóstico con Prophet. Esto puede deberse a que la serie de datos es demasiado corta o inestable. Error: {e}")
         else:
             st.info("Por favor, cargue datos para generar un pronóstico.")
@@ -1557,6 +1600,11 @@ def main():
         else:
             with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
                 st.session_state.gdf_stations, st.session_state.df_precip_anual, st.session_state.gdf_municipios, st.session_state.df_long, st.session_state.df_enso = preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile)
+                # Añado los índices al df_long si existen
+                if Config.SOI_COL in st.session_state.df_enso.columns:
+                    st.session_state.df_long = pd.merge(st.session_state.df_long, st.session_state.df_enso[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
+                if Config.IOD_COL in st.session_state.df_enso.columns:
+                    st.session_state.df_long = pd.merge(st.session_state.df_long, st.session_state.df_enso[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
 
             if st.session_state.gdf_stations is not None:
                 st.session_state.data_loaded = True
