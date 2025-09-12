@@ -751,7 +751,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         else:
             st.warning("No hay datos para realizar la interpolación.")
 
-
 def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Información Detallada de las Estaciones")
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
