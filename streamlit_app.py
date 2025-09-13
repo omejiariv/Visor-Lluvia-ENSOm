@@ -188,30 +188,45 @@ def complete_series(_df):
         
         df_station.dropna(subset=[Config.DATE_COL], inplace=True)
         df_station.drop_duplicates(subset=[Config.DATE_COL], inplace=True)
+        
+        if df_station.empty:
+            continue
+
         df_station.set_index(Config.DATE_COL, inplace=True)
 
-        original_data = df_station[[Config.PRECIPITATION_COL, Config.ORIGIN_COL]].copy()
-        df_resampled = df_station.resample('MS').asfreq()
+        # --- INICIO DE LA CORRECCIÓN ---
+        # Reemplazamos .resample().asfreq() con un método más robusto usando .reindex()
+        # Esto garantiza un DatetimeIndex simple y evita el error de MultiIndex.
+        start_date = df_station.index.min()
+        end_date = df_station.index.max()
+        full_date_range = pd.date_range(start=start_date, end=end_date, freq='MS')
         
-        df_resampled[Config.PRECIPITATION_COL] = original_data[Config.PRECIPITATION_COL]
-        df_resampled[Config.ORIGIN_COL] = original_data[Config.ORIGIN_COL]
+        df_resampled = df_station.reindex(full_date_range)
         
-        for col in [c for c in df_station.columns if c not in [Config.PRECIPITATION_COL, Config.ORIGIN_COL]]:
-            df_resampled[col] = df_station[col]
-
-        if not df_resampled.index.isna().any():
-            df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
-        else:
-            st.warning(f"No se puede interpolar la estación '{station}' porque el índice de fecha contiene valores faltantes después del remuestreo.")
+        # Ahora que el índice es seguro, interpolamos la precipitación
+        df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
+        
+        # Rellenamos eficientemente los metadatos constantes de la estación (nombre, etc.)
+        metadata_cols = [c for c in df_station.columns if c != Config.PRECIPITATION_COL]
+        df_resampled[metadata_cols] = df_resampled[metadata_cols].ffill().bfill()
+        # --- FIN DE LA CORRECCIÓN ---
         
         df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
-        df_resampled[Config.STATION_NAME_COL] = station
+        df_resampled[Config.STATION_NAME_COL] = station # Aseguramos el nombre de la estación
         df_resampled[Config.YEAR_COL] = df_resampled.index.year
         df_resampled[Config.MONTH_COL] = df_resampled.index.month
         df_resampled.reset_index(inplace=True)
+        # Renombramos la columna del índice que se convirtió en columna
+        df_resampled.rename(columns={'index': Config.DATE_COL}, inplace=True) 
         all_completed_dfs.append(df_resampled)
+        
         progress_bar.progress((i + 1) / len(station_list), text=f"Completando series... Estación: {station}")
+    
     progress_bar.empty()
+    
+    if not all_completed_dfs:
+        return pd.DataFrame()
+        
     return pd.concat(all_completed_dfs, ignore_index=True)
 
 @st.cache_data
@@ -715,7 +730,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
             st.warning("No hay datos para realizar la interpolación.")
-
 
 def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Información Detallada de las Estaciones")
