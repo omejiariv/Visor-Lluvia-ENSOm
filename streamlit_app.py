@@ -368,7 +368,7 @@ def display_map_controls(container_object, key_prefix):
     return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
 
 # ---
-# --- SECCIÓN DE FUNCIONES DE PESTAÑAS ---
+# --- INICIO DEL BLOQUE DE FUNCIONES RESTAURADO ---
 # ---
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
@@ -886,6 +886,603 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
             st.warning("No hay datos para realizar la interpolación.")
+
+def display_anomalies_tab(df_long, df_monthly_filtered, stations_for_analysis):
+    st.header("Análisis de Anomalías de Precipitación")
+    selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
+    st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
+    
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+        return
+
+    if df_long is not None and not df_long.empty:
+        df_long_filtered_stations = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        if df_long_filtered_stations.empty:
+            st.warning("No hay datos de anomalías para la selección actual.")
+            return
+
+        df_climatology = df_long_filtered_stations.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().reset_index().rename(columns={Config.PRECIPITATION_COL: 'precip_promedio_mes'})
+        df_anomalias = pd.merge(df_monthly_filtered, df_climatology, on=[Config.STATION_NAME_COL, Config.MONTH_COL], how='left')
+        df_anomalias['anomalia'] = df_anomalias[Config.PRECIPITATION_COL] - df_anomalias['precip_promedio_mes']
+
+        if st.session_state.exclude_na:
+            df_anomalias.dropna(subset=['anomalia'], inplace=True)
+
+        if df_anomalias.empty or df_anomalias['anomalia'].isnull().all():
+            st.warning("No hay suficientes datos históricos para las estaciones y el período seleccionado para calcular y mostrar las anomalías.")
+            return
+
+        anom_graf_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
+
+        with anom_graf_tab:
+            df_plot = df_anomalias.groupby(Config.DATE_COL).agg(
+                anomalia=('anomalia', 'mean'),
+                anomalia_oni=(Config.ENSO_ONI_COL, 'first')
+            ).reset_index()
+            fig = create_anomaly_chart(df_plot)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with anom_fase_tab:
+            if Config.ENSO_ONI_COL in df_anomalias.columns:
+                df_anomalias_enso = df_anomalias.dropna(subset=[Config.ENSO_ONI_COL]).copy()
+                conditions = [df_anomalias_enso[Config.ENSO_ONI_COL] >= 0.5, df_anomalias_enso[Config.ENSO_ONI_COL] <= -0.5]
+                phases = ['El Niño', 'La Niña']
+                df_anomalias_enso['enso_fase'] = np.select(conditions, phases, default='Neutral')
+                fig_box = px.box(df_anomalias_enso, x='enso_fase', y='anomalia', color='enso_fase',
+                                 title="Distribución de Anomalías de Precipitación por Fase ENSO",
+                                 labels={'anomalia': 'Anomalía de Precipitación (mm)', 'enso_fase': 'Fase ENSO'},
+                                 points='all')
+                st.plotly_chart(fig_box, use_container_width=True)
+            else:
+                st.warning("La columna 'anomalia_oni' no está disponible para este análisis.")
+
+        with anom_extremos_tab:
+            st.subheader("Eventos Mensuales Extremos (Basado en Anomalías)")
+            df_extremos = df_anomalias.dropna(subset=['anomalia']).copy()
+            df_extremos['fecha'] = df_extremos[Config.DATE_COL].dt.strftime('%Y-%m')
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("##### 10 Meses más Secos")
+                secos = df_extremos.nsmallest(10, 'anomalia')[['fecha', Config.STATION_NAME_COL, 'anomalia', Config.PRECIPITATION_COL, 'precip_promedio_mes']]
+                st.dataframe(secos.rename(columns={Config.STATION_NAME_COL: 'Estación', 'anomalia': 'Anomalía (mm)', Config.PRECIPITATION_COL: 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}).round(0), use_container_width=True)
+            with col2:
+                st.markdown("##### 10 Meses más Húmedos")
+                humedos = df_extremos.nlargest(10, 'anomalia')[['fecha', Config.STATION_NAME_COL, 'anomalia', Config.PRECIPITATION_COL, 'precip_promedio_mes']]
+                st.dataframe(humedos.rename(columns={Config.STATION_NAME_COL: 'Estación', 'anomalia': 'Anomalía (mm)', Config.PRECIPITATION_COL: 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}).round(0), use_container_width=True)
+    else:
+        st.warning("No se puede realizar el análisis de anomalías. El DataFrame de datos mensuales no está disponible.")
+
+def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_for_analysis):
+    st.header("Estadísticas de Precipitación")
+    selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
+    st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
+    
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+        return
+    matriz_tab, resumen_mensual_tab, sintesis_tab = st.tabs(["Matriz de Disponibilidad", "Resumen Mensual", "Síntesis General"])
+
+    with matriz_tab:
+        st.subheader("Matriz de Disponibilidad de Datos Anual")
+        original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
+        original_data_counts['porc_original'] = (original_data_counts['count'] / 12) * 100
+        heatmap_original_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original')
+        
+        heatmap_df = heatmap_original_df
+        color_scale = "Greens"
+        title_text = "Disponibilidad Promedio de Datos Originales"
+        
+        if st.session_state.analysis_mode == "Completar series (interpolación)":
+            view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Completados"), horizontal=True)
+            if view_mode == "Porcentaje de Datos Completados":
+                completed_data = st.session_state.df_monthly_processed[(st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) & (st.session_state.df_monthly_processed[Config.ORIGIN_COL] == 'Completado')]
+                if not completed_data.empty:
+                    completed_counts = completed_data.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
+                    completed_counts['porc_completado'] = (completed_counts['count'] / 12) * 100
+                    heatmap_df = completed_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_completado')
+                    color_scale = "Reds"
+                    title_text = "Disponibilidad Promedio de Datos Completados"
+                else: heatmap_df = pd.DataFrame()
+        
+        if not heatmap_df.empty:
+            avg_availability = heatmap_df.stack().mean()
+            logo_col, metric_col = st.columns([1, 5])
+            with logo_col:
+                if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=50)
+            with metric_col: st.metric(label=title_text, value=f"{avg_availability:.1f}%")
+            
+            styled_df = heatmap_df.style.background_gradient(cmap=color_scale, axis=None, vmin=0, vmax=100).format("{:.0f}%", na_rep="-").set_table_styles([
+                {'selector': 'th', 'props': [('background-color', '#333'), ('color', 'white'), ('font-size', '14px')]},
+                {'selector': 'td', 'props': [('text-align', 'center')]}])
+            st.dataframe(styled_df, use_container_width=True)
+        else:
+            st.info("No hay datos para mostrar en la matriz con la selección actual.")
+
+    with resumen_mensual_tab:
+        st.subheader("Resumen de Estadísticas Mensuales por Estación")
+        if not df_monthly_filtered.empty:
+            summary_data = []
+            for station_name, group in df_monthly_filtered.groupby(Config.STATION_NAME_COL):
+                max_row = group.loc[group[Config.PRECIPITATION_COL].idxmax()]
+                min_row = group.loc[group[Config.PRECIPITATION_COL].idxmin()]
+                summary_data.append({
+                    "Estación": station_name,
+                    "Ppt. Máxima Mensual (mm)": max_row[Config.PRECIPITATION_COL],
+                    "Fecha Máxima": max_row[Config.DATE_COL].strftime('%Y-%m'),
+                    "Ppt. Mínima Mensual (mm)": min_row[Config.PRECIPITATION_COL],
+                    "Fecha Mínima": min_row[Config.DATE_COL].strftime('%Y-%m'),
+                    "Promedio Mensual (mm)": group[Config.PRECIPITATION_COL].mean()
+                })
+            summary_df = pd.DataFrame(summary_data)
+            st.dataframe(summary_df.round(0), use_container_width=True)
+        else:
+            st.info("No hay datos para mostrar el resumen mensual.")
+
+    with sintesis_tab:
+        st.subheader("Síntesis General de Precipitación")
+        if not df_monthly_filtered.empty and not df_anual_melted.empty:
+            max_annual_row = df_anual_melted.loc[df_anual_melted[Config.PRECIPITATION_COL].idxmax()]
+            max_monthly_row = df_monthly_filtered.loc[df_monthly_filtered[Config.PRECIPITATION_COL].idxmax()]
+            meses_map = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
+            max_monthly_row['nom_mes'] = meses_map.get(max_monthly_row[Config.MONTH_COL])
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    "Máxima Ppt. Anual Registrada",
+                    f"{max_annual_row[Config.PRECIPITATION_COL]:.0f} mm",
+                    f"{max_annual_row[Config.STATION_NAME_COL]} (Año {max_annual_row[Config.YEAR_COL]})"
+                )
+            with col2:
+                st.metric(
+                    "Máxima Ppt. Mensual Registrada",
+                    f"{max_monthly_row[Config.PRECIPITATION_COL]:.0f} mm",
+                    f"{max_monthly_row[Config.STATION_NAME_COL]} ({max_monthly_row['nom_mes']} {max_monthly_row[Config.DATE_COL].year})"
+                )
+        else:
+            st.info("No hay datos para mostrar la síntesis general.")
+
+def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
+    st.header("Análisis de Correlación")
+    st.markdown("Esta sección cuantifica la relación lineal entre la precipitación y diferentes variables (otras estaciones o índices climáticos) utilizando el coeficiente de correlación de Pearson.")
+    
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+        return
+
+    enso_corr_tab, station_corr_tab, indices_climaticos_tab = st.tabs(["Correlación con ENSO (ONI)", "Comparación entre Estaciones", "Correlación con Otros Índices"])
+    
+    with enso_corr_tab:
+        if Config.ENSO_ONI_COL not in df_monthly_filtered.columns or df_monthly_filtered[Config.ENSO_ONI_COL].isnull().all():
+            st.warning("No se puede realizar el análisis de correlación con ENSO. La columna 'anomalia_oni' no fue encontrada o no tiene datos en el período seleccionado.")
+            return
+        
+        df_corr_analysis = df_monthly_filtered.dropna(subset=[Config.PRECIPITATION_COL, Config.ENSO_ONI_COL])
+        if df_corr_analysis.empty:
+            st.warning("No hay datos coincidentes entre la precipitación y el ENSO para la selección actual.")
+            return
+
+        analysis_level = st.radio("Nivel de Análisis de Correlación con ENSO", ["Promedio de la selección", "Por Estación Individual"], key="enso_corr_level")
+        
+        df_plot_corr = pd.DataFrame()
+        title_text = ""
+        if analysis_level == "Por Estación Individual":
+            station_to_corr = st.selectbox("Seleccione Estación:", options=sorted(df_corr_analysis[Config.STATION_NAME_COL].unique()), key="enso_corr_station")
+            if station_to_corr:
+                df_plot_corr = df_corr_analysis[df_corr_analysis[Config.STATION_NAME_COL] == station_to_corr]
+                title_text = f"Correlación para la estación: {station_to_corr}"
+        else: # Promedio
+            df_plot_corr = df_corr_analysis.groupby(Config.DATE_COL).agg(
+                precipitation=(Config.PRECIPITATION_COL, 'mean'),
+                anomalia_oni=(Config.ENSO_ONI_COL, 'first')
+            ).reset_index()
+            title_text = "Correlación para el promedio de las estaciones seleccionadas"
+
+        if not df_plot_corr.empty and len(df_plot_corr) > 2:
+            corr, p_value = stats.pearsonr(df_plot_corr['anomalia_oni'], df_plot_corr['precipitation'])
+            st.subheader(title_text)
+            col1, col2 = st.columns(2)
+            col1.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
+            col2.metric("Significancia (valor p)", f"{p_value:.4f}")
+            if p_value < 0.05:
+                st.success("La correlación es estadísticamente significativa, lo que sugiere una relación lineal entre las variables.")
+            else:
+                st.warning("La correlación no es estadísticamente significativa. No hay evidencia de una relación lineal fuerte.")
+            
+            fig_corr = px.scatter(
+                df_plot_corr, x='anomalia_oni', y='precipitation', trendline='ols',
+                title="Gráfico de Dispersión: Precipitación vs. Anomalía ONI",
+                labels={'anomalia_oni': 'Anomalía ONI (°C)', 'precipitation': 'Precipitación Mensual (mm)'}
+            )
+            st.plotly_chart(fig_corr, use_container_width=True)
+
+    with station_corr_tab:
+        if len(stations_for_analysis) < 2:
+            st.info("Seleccione al menos dos estaciones para comparar la correlación entre ellas.")
+        else:
+            st.subheader("Correlación de Precipitación entre dos Estaciones")
+            station_options = sorted(stations_for_analysis)
+            col1, col2 = st.columns(2)
+            station1_name = col1.selectbox("Estación 1:", options=station_options, key="corr_station_1")
+            station2_name = col2.selectbox("Estación 2:", options=station_options, index=1 if len(station_options)>1 else 0, key="corr_station_2")
+
+            if station1_name and station2_name and station1_name != station2_name:
+                df_station1 = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == station1_name][[Config.DATE_COL, Config.PRECIPITATION_COL]]
+                df_station2 = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == station2_name][[Config.DATE_COL, Config.PRECIPITATION_COL]]
+                
+                df_merged = pd.merge(df_station1, df_station2, on=Config.DATE_COL, suffixes=('_1', '_2')).dropna()
+                df_merged.rename(columns={f'{Config.PRECIPITATION_COL}_1': station1_name, f'{Config.PRECIPITATION_COL}_2': station2_name}, inplace=True)
+                
+                if not df_merged.empty and len(df_merged) > 2:
+                    corr, p_value = stats.pearsonr(df_merged[station1_name], df_merged[station2_name])
+                    
+                    st.markdown(f"#### Resultados de la correlación ({station1_name} vs. {station2_name})")
+                    st.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
+                    
+                    if p_value < 0.05:
+                        st.success("La correlación es estadísticamente significativa (p < 0.05).")
+                    else:
+                        st.warning("La correlación no es estadísticamente significativa (p ≥ 0.05).")
+                    
+                    slope, intercept, _, _, _ = stats.linregress(df_merged[station1_name], df_merged[station2_name])
+                    st.info(f"Ecuación de regresión: y = {slope:.2f}x + {intercept:.2f}")
+
+                    fig_scatter = px.scatter(
+                        df_merged, x=station1_name, y=station2_name, trendline='ols',
+                        title=f'Dispersión de Precipitación: {station1_name} vs. {station2_name}',
+                        labels={station1_name: f'Precipitación en {station1_name} (mm)', station2_name: f'Precipitación en {station2_name} (mm)'}
+                    )
+                    st.plotly_chart(fig_scatter, use_container_width=True)
+                else:
+                    st.warning("No hay suficientes datos superpuestos para calcular la correlación para las estaciones seleccionadas.")
+
+    with indices_climaticos_tab:
+        st.subheader("Análisis de Correlación con Índices Climáticos (SOI, IOD)")
+        
+        available_indices = []
+        if Config.SOI_COL in df_monthly_filtered.columns and not df_monthly_filtered[Config.SOI_COL].isnull().all():
+            available_indices.append("SOI")
+        if Config.IOD_COL in df_monthly_filtered.columns and not df_monthly_filtered[Config.IOD_COL].isnull().all():
+            available_indices.append("IOD")
+
+        if not available_indices:
+            st.warning("No se encontraron columnas para los índices climáticos (SOI o IOD) en el archivo principal o no hay datos en el período seleccionado.")
+        else:
+            col1_corr, col2_corr = st.columns(2)
+            selected_index = col1_corr.selectbox("Seleccione un índice climático:", available_indices)
+            selected_station_corr = col2_corr.selectbox("Seleccione una estación:", options=sorted(stations_for_analysis), key="station_for_index_corr")
+
+            if selected_index and selected_station_corr:
+                index_col_name = selected_index.lower()
+                df_merged_indices = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == selected_station_corr].copy()
+                df_merged_indices.dropna(subset=[Config.PRECIPITATION_COL, index_col_name], inplace=True)
+                
+                if not df_merged_indices.empty and len(df_merged_indices) > 2:
+                    corr, p_value = stats.pearsonr(df_merged_indices[index_col_name], df_merged_indices[Config.PRECIPITATION_COL])
+
+                    st.markdown(f"#### Resultados de la correlación ({selected_index} vs. Precipitación de {selected_station_corr})")
+                    st.metric("Coeficiente de Correlación (r)", f"{corr:.3f}")
+                    if p_value < 0.05:
+                        st.success("La correlación es estadísticamente significativa (p < 0.05).")
+                    else:
+                        st.warning("La correlación no es estadísticamente significativa (p ≥ 0.05).")
+
+                    fig_scatter_indices = px.scatter(
+                        df_merged_indices, x=index_col_name, y=Config.PRECIPITATION_COL, trendline='ols',
+                        title=f'Dispersión: {selected_index} vs. Precipitación de {selected_station_corr}',
+                        labels={index_col_name: f'Valor del Índice {selected_index}', Config.PRECIPITATION_COL: 'Precipitación Mensual (mm)'}
+                    )
+                    st.plotly_chart(fig_scatter_indices, use_container_width=True)
+                else:
+                    st.warning("No hay suficientes datos superpuestos entre la estación y el índice para calcular la correlación.")
+
+def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_analysis):
+    st.header("Análisis de Precipitación y el Fenómeno ENSO")
+    selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
+    st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
+    
+    if df_enso is None or df_enso.empty:
+        st.warning("No se encontraron datos del fenómeno ENSO en el archivo de precipitación cargado.")
+        return
+
+    enso_series_tab, enso_anim_tab = st.tabs(["Series de Tiempo ENSO", "Mapa Interactivo ENSO"])
+
+    with enso_series_tab:
+        enso_vars_available = {
+            Config.ENSO_ONI_COL: 'Anomalía ONI',
+            'temp_sst': 'Temp. Superficial del Mar (SST)',
+            'temp_media': 'Temp. Media'
+        }
+        available_tabs = [name for var, name in enso_vars_available.items() if var in df_enso.columns]
+        if not available_tabs:
+            st.warning("No hay variables ENSO disponibles en el archivo de datos para visualizar.")
+        else:
+            enso_variable_tabs = st.tabs(available_tabs)
+            for i, var_name in enumerate(available_tabs):
+                with enso_variable_tabs[i]:
+                    var_code = [code for code, name in enso_vars_available.items() if name == var_name][0]
+                    df_enso_filtered = df_enso[(df_enso[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) & (df_enso[Config.DATE_COL].dt.year <= st.session_state.year_range[1]) & (df_enso[Config.DATE_COL].dt.month.isin(st.session_state.meses_numeros))]
+                    if not df_enso_filtered.empty and var_code in df_enso_filtered.columns and not df_enso_filtered[var_code].isnull().all():
+                        fig_enso_series = px.line(df_enso_filtered, x=Config.DATE_COL, y=var_code, title=f"Serie de Tiempo para {var_name}")
+                        st.plotly_chart(fig_enso_series, use_container_width=True)
+                    else:
+                        st.warning(f"No hay datos disponibles para '{var_code}' en el período seleccionado.")
+
+    with enso_anim_tab:
+        st.subheader("Explorador Mensual del Fenómeno ENSO")
+        if st.session_state.gdf_stations.empty or Config.ENSO_ONI_COL not in df_enso.columns:
+            st.warning("Datos insuficientes para generar esta visualización. Se requiere información de estaciones y la columna 'anomalia_oni'.")
+            return
+        
+        controls_col, map_col = st.columns([1, 3])
+        enso_anim_data = df_enso[[Config.DATE_COL, Config.ENSO_ONI_COL]].copy().dropna(subset=[Config.ENSO_ONI_COL])
+        conditions = [enso_anim_data[Config.ENSO_ONI_COL] >= 0.5, enso_anim_data[Config.ENSO_ONI_COL] <= -0.5]
+        phases = ['El Niño', 'La Niña']
+        enso_anim_data['fase'] = np.select(conditions, phases, default='Neutral')
+        enso_anim_data_filtered = enso_anim_data[(enso_anim_data[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) & (enso_anim_data[Config.DATE_COL].dt.year <= st.session_state.year_range[1])]
+
+        with controls_col:
+            st.markdown("##### Controles de Mapa")
+            selected_base_map_config, selected_overlays_config = display_map_controls(st, "enso_anim")
+            st.markdown("##### Selección de Fecha")
+            available_dates = sorted(enso_anim_data_filtered[Config.DATE_COL].unique())
+            if available_dates:
+                selected_date = st.select_slider("Seleccione una fecha (Año-Mes)", options=available_dates, format_func=lambda date: date.strftime('%Y-%m'))
+                phase_info = enso_anim_data_filtered[enso_anim_data_filtered[Config.DATE_COL] == selected_date]
+                if not phase_info.empty:
+                    current_phase = phase_info['fase'].iloc[0]
+                    current_oni = phase_info[Config.ENSO_ONI_COL].iloc[0]
+                    st.metric(f"Fase ENSO en {selected_date.strftime('%Y-%m')}", current_phase, f"Anomalía ONI: {current_oni:.2f}°C")
+                else:
+                    st.warning("No hay datos de ENSO para el período seleccionado.")
+
+        with map_col:
+            if 'selected_date' in locals():
+                m_enso = folium.Map(location=[4.57, -74.29], zoom_start=5, tiles=selected_base_map_config.get("tiles", "OpenStreetMap"), attr=selected_base_map_config.get("attr", None))
+                phase_color_map = {'El Niño': 'red', 'La Niña': 'blue', 'Neutral': 'grey'}
+                marker_color = phase_color_map.get(locals().get('current_phase', 'black'), 'black')
+                for _, station in gdf_filtered.iterrows():
+                    folium.Marker(
+                        location=[station[Config.LATITUDE_COL], station[Config.LONGITUDE_COL]],
+                        tooltip=f"{station[Config.STATION_NAME_COL]}<br>Fase: {locals().get('current_phase', 'N/A')}",
+                        icon=folium.Icon(color=marker_color, icon='cloud')
+                    ).add_to(m_enso)
+                bounds = gdf_filtered.total_bounds
+                m_enso.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+                for layer_config in selected_overlays_config:
+                    folium.raster_layers.WmsTileLayer(url=layer_config["url"], layers=layer_config["layers"], fmt='image/png', transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]).add_to(m_enso)
+                folium.LayerControl().add_to(m_enso)
+                folium_static(m_enso, height=700, width="100%")
+
+def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stations_for_analysis):
+    st.header("Análisis de Tendencias y Pronósticos")
+    selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
+    st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
+
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+        return
+        
+    tendencia_individual_tab, tendencia_tabla_tab, pronostico_sarima_tab, pronostico_prophet_tab = st.tabs(["Análisis Lineal", "Tabla Comparativa", "Pronóstico SARIMA", "Pronóstico Prophet"])
+
+    with tendencia_individual_tab:
+        st.subheader("Tendencia de Precipitación Anual")
+        analysis_type = st.radio("Tipo de Análisis de Tendencia:", ["Promedio de la selección", "Estación individual"], horizontal=True)
+        df_to_analyze = None
+        title_for_download = "promedio"
+        if analysis_type == "Promedio de la selección":
+            df_to_analyze = df_anual_melted.groupby(Config.YEAR_COL)[Config.PRECIPITATION_COL].mean().reset_index()
+        else:
+            station_to_analyze = st.selectbox("Seleccione una estación para analizar:", options=stations_for_analysis)
+            if station_to_analyze: 
+                df_to_analyze = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL] == station_to_analyze]
+                title_for_download = station_to_analyze.replace(" ","_")
+
+        if df_to_analyze is not None and len(df_to_analyze) > 2:
+            df_to_analyze['año_num'] = pd.to_numeric(df_to_analyze[Config.YEAR_COL])
+            df_to_analyze.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+            slope, intercept, r_value, p_value, std_err = stats.linregress(df_to_analyze['año_num'], df_to_analyze[Config.PRECIPITATION_COL])
+            tendencia_texto = "aumentando" if slope > 0 else "disminuyendo"
+            significancia_texto = "**estadísticamente significativa**" if p_value < 0.05 else "no es estadísticamente significativa"
+            
+            st.markdown(f"La tendencia de la precipitación es de **{slope:.2f} mm/año** (es decir, está {tendencia_texto}). Con un valor p de **{p_value:.3f}**, esta tendencia **{significancia_texto}**.")
+            
+            df_to_analyze['tendencia'] = slope * df_to_analyze['año_num'] + intercept
+            fig_tendencia = px.scatter(df_to_analyze, x='año_num', y=Config.PRECIPITATION_COL, title=f'Tendencia de la Precipitación Anual ({st.session_state.year_range[0]} - {st.session_state.year_range[1]})')
+            fig_tendencia.add_trace(go.Scatter(x=df_to_analyze['año_num'], y=df_to_analyze['tendencia'], mode='lines', name='Línea de Tendencia', line=dict(color='red')))
+            fig_tendencia.update_layout(xaxis_title="Año", yaxis_title="Precipitación Anual (mm)")
+            st.plotly_chart(fig_tendencia, use_container_width=True)
+            
+            csv_data = df_to_analyze.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Descargar datos de Tendencia Anual", data=csv_data,
+                file_name=f'tendencia_anual_{title_for_download}.csv', mime='text/csv',
+                key='download-anual-tendencia'
+            )
+        else:
+            st.warning("No hay suficientes datos en el período seleccionado para calcular una tendencia.")
+
+    with tendencia_tabla_tab:
+        st.subheader("Tabla Comparativa de Tendencias de Precipitación Anual")
+        if st.button("Calcular Tendencias para Todas las Estaciones Seleccionadas"):
+            with st.spinner("Calculando tendencias..."):
+                results = []
+                df_anual_calc = df_anual_melted.copy()
+                df_anual_calc.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+                if st.session_state.exclude_zeros: df_anual_calc = df_anual_calc[df_anual_calc[Config.PRECIPITATION_COL] > 0]
+                
+                for station in stations_for_analysis:
+                    station_data = df_anual_calc[df_anual_calc[Config.STATION_NAME_COL] == station]
+                    if len(station_data) > 2:
+                        station_data['año_num'] = pd.to_numeric(station_data[Config.YEAR_COL])
+                        slope, _, _, p_value, _ = stats.linregress(station_data['año_num'], station_data[Config.PRECIPITATION_COL])
+                        interpretation = "Significativa (p < 0.05)" if p_value < 0.05 else "No Significativa (p ≥ 0.05)"
+                        results.append({
+                            "Estación": station, "Tendencia (mm/año)": slope, "Valor p": p_value,
+                            "Interpretación": interpretation, "Años Analizados": len(station_data)
+                        })
+                    else:
+                        results.append({
+                            "Estación": station, "Tendencia (mm/año)": np.nan, "Valor p": np.nan,
+                            "Interpretación": "Datos insuficientes", "Años Analizados": len(station_data)
+                        })
+                if results:
+                    results_df = pd.DataFrame(results)
+                    def style_p_value(val):
+                        if pd.isna(val): return ''
+                        color = 'lightgreen' if val < 0.05 else 'lightcoral'
+                        return f'background-color: {color}'
+                    
+                    st.dataframe(results_df.style.format({
+                        "Tendencia (mm/año)": "{:.2f}",
+                        "Valor p": "{:.4f}"
+                    }).applymap(style_p_value, subset=['Valor p']), use_container_width=True)
+                    
+                    csv_data = results_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Descargar tabla de tendencias en CSV", data=csv_data,
+                        file_name='tabla_tendencias.csv', mime='text/csv', key='download-tabla-tendencias'
+                    )
+                else:
+                    st.warning("No se pudieron calcular tendencias para las estaciones seleccionadas.")
+
+    with pronostico_sarima_tab:
+        st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
+        with st.expander("¿Cómo funciona SARIMA?"):
+            st.markdown("""
+                El modelo **SARIMA** (Seasonal Auto-Regressive Integrated Moving Average) es un método estadístico que utiliza datos históricos para predecir valores futuros.
+                - **Autoregresivo (AR):** La predicción depende de valores pasados de la serie.
+                - **Integrado (I):** Utiliza la diferencia entre valores para hacer la serie estacionaria (eliminar tendencias).
+                - **Media Móvil (MA):** La predicción se basa en errores de pronósticos pasados.
+                - **Estacional (S):** Captura patrones que se repiten en ciclos, como la variación anual de las lluvias.
+            """)
+        
+        station_to_forecast = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="sarima_station_select")
+        forecast_horizon = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="sarima_forecast_horizon_slider")
+
+        if not df_monthly_to_process.empty and len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast]) < 24:
+            st.warning("Se necesitan al menos 24 puntos de datos para el pronóstico SARIMA. Por favor, ajuste la selección de años.")
+        elif not df_monthly_to_process.empty:
+            with st.spinner(f"Entrenando modelo y generando pronóstico para {station_to_forecast}..."):
+                try:
+                    ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
+                    ts_data = ts_data.set_index(Config.DATE_COL).sort_index()
+                    ts_data = ts_data[Config.PRECIPITATION_COL].asfreq('MS')
+
+                    model = sm.tsa.statespace.SARIMAX(ts_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), enforce_stationarity=False, enforce_invertibility=False)
+                    results = model.fit(disp=False)
+                    forecast = results.get_forecast(steps=forecast_horizon)
+                    forecast_mean = forecast.predicted_mean
+                    forecast_ci = forecast.conf_int()
+
+                    fig_pronostico = go.Figure()
+                    fig_pronostico.add_trace(go.Scatter(x=ts_data.index, y=ts_data, mode='lines', name='Datos Históricos'))
+                    fig_pronostico.add_trace(go.Scatter(x=forecast_mean.index, y=forecast_mean, mode='lines', name='Pronóstico', line=dict(color='red', dash='dash')))
+                    fig_pronostico.add_trace(go.Scatter(x=forecast_ci.index, y=forecast_ci.iloc[:, 0], fill=None, mode='lines', line=dict(color='rgba(255,0,0,0.2)'), showlegend=False))
+                    fig_pronostico.add_trace(go.Scatter(x=forecast_ci.index, y=forecast_ci.iloc[:, 1], fill='tonexty', mode='lines', line=dict(color='rgba(255,0,0,0.2)'), name='Intervalo de Confianza'))
+                    fig_pronostico.update_layout(title=f"Pronóstico de Precipitación para {station_to_forecast}", xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
+                    st.plotly_chart(fig_pronostico, use_container_width=True)
+                    st.info("Este pronóstico se basa en modelos estadísticos (SARIMA) que identifican patrones históricos y estacionales en los datos. Los resultados son probabilísticos y deben ser interpretados según el grado de incertidumbre.")
+                    
+                    forecast_df = pd.DataFrame({
+                        'fecha': forecast_mean.index, 'pronostico': forecast_mean.values,
+                        'limite_inferior': forecast_ci.iloc[:, 0].values, 'limite_superior': forecast_ci.iloc[:, 1].values
+                    })
+                    csv_data = forecast_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Descargar Pronóstico SARIMA en CSV", data=csv_data,
+                        file_name=f'pronostico_sarima_{station_to_forecast.replace(" ", "_")}.csv', mime='text/csv',
+                        key='download-sarima'
+                    )
+                except Exception as e:
+                    st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
+        else:
+            st.info("Por favor, cargue datos para generar un pronóstico.")
+
+    with pronostico_prophet_tab:
+        st.subheader("Pronóstico de Precipitación Mensual (Modelo Prophet)")
+        with st.expander("¿Cómo funciona Prophet?"):
+            st.markdown("""
+                **Prophet**, desarrollado por Facebook, es un procedimiento para pronosticar series de tiempo.
+                - Se basa en un modelo aditivo en el que se ajustan las tendencias no lineales con la estacionalidad anual y semanal, además de los efectos de festivos.
+                - Es especialmente útil para series de tiempo que tienen una fuerte estacionalidad y múltiples ciclos.
+                - Es más robusto que otros modelos a datos faltantes o atípicos.
+            """)
+        
+        station_to_forecast_prophet = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="prophet_station_select", help="El pronóstico se realiza para una única serie de tiempo con Prophet.")
+        forecast_horizon_prophet = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="prophet_forecast_horizon_slider")
+
+        if not df_monthly_to_process.empty and len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet]) < 24:
+            st.warning("Se necesitan al menos 24 puntos de datos para que Prophet funcione correctamente. Por favor, ajuste la selección de años.")
+        elif not df_monthly_to_process.empty:
+            with st.spinner(f"Entrenando modelo Prophet y generando pronóstico para {station_to_forecast_prophet}..."):
+                try:
+                    ts_data_prophet = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
+                    ts_data_prophet.rename(columns={Config.DATE_COL: 'ds', Config.PRECIPITATION_COL: 'y'}, inplace=True)
+                    model_prophet = Prophet()
+                    model_prophet.fit(ts_data_prophet)
+                    future = model_prophet.make_future_dataframe(periods=forecast_horizon_prophet, freq='MS')
+                    forecast_prophet = model_prophet.predict(future)
+                    
+                    st.success("Pronóstico generado exitosamente.")
+                    fig_prophet = plot_plotly(model_prophet, forecast_prophet)
+                    fig_prophet.update_layout(title=f"Pronóstico de Precipitación con Prophet para {station_to_forecast_prophet}", yaxis_title="Precipitación (mm)")
+                    st.plotly_chart(fig_prophet, use_container_width=True)
+
+                    csv_data = forecast_prophet[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Descargar Pronóstico Prophet en CSV", data=csv_data,
+                        file_name=f'pronostico_prophet_{station_to_forecast_prophet.replace(" ", "_")}.csv', mime='text/csv',
+                        key='download-prophet'
+                    )
+                except Exception as e:
+                    st.error(f"Ocurrió un error al generar el pronóstico con Prophet. Esto puede deberse a que la serie de datos es demasiado corta o inestable. Error: {e}")
+        else:
+            st.info("Por favor, cargue datos para generar un pronóstico.")
+
+def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis):
+    st.header("Opciones de Descarga")
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para activar las descargas.")
+        return
+    
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False).encode('utf-8')
+
+    st.markdown("**Datos de Precipitación Anual (Filtrados)**")
+    csv_anual = convert_df_to_csv(df_anual_melted)
+    st.download_button("Descargar CSV Anual", csv_anual, 'precipitacion_anual.csv', 'text/csv', key='download-anual')
+
+    st.markdown("**Datos de Precipitación Mensual (Filtrados)**")
+    csv_mensual = convert_df_to_csv(df_monthly_filtered)
+    st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv', key='download-mensual')
+
+    if st.session_state.analysis_mode == "Completar series (interpolación)":
+        st.markdown("**Datos de Precipitación Mensual (Series Completadas y Filtradas)**")
+        df_completed_filtered = st.session_state.df_monthly_filtered[st.session_state.df_monthly_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        csv_completado = convert_df_to_csv(df_completed_filtered)
+        st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
+    else:
+        st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
+
+def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
+    st.header("Información Detallada de las Estaciones")
+    selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
+    st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
+    
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+        return
+    if not df_anual_melted.empty:
+        df_info_table = gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL, Config.MUNICIPALITY_COL, Config.REGION_COL, Config.PERCENTAGE_COL]].copy()
+        df_mean_precip = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().round(0).reset_index()
+        df_mean_precip.rename(columns={Config.PRECIPITATION_COL: 'Precipitación media anual (mm)'}, inplace=True)
+        df_info_table = df_info_table.merge(df_mean_precip, on=Config.STATION_NAME_COL, how='left')
+        st.dataframe(df_info_table)
+    else:
+        st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
 
 # ---
 # Cuerpo Principal del Script
