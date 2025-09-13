@@ -22,6 +22,7 @@ import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from prophet import Prophet
 from prophet.plot import plot_plotly
+from sklearn.metrics import mean_squared_error
 import branca.colormap as cm
 import base64
 
@@ -1583,7 +1584,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         st.markdown("Cargue un archivo CSV con un pronóstico de precipitación para compararlo visualmente con los pronósticos generados por el sistema.")
 
         uploaded_forecast_file = st.file_uploader("Subir archivo de pronóstico externo (CSV)", type="csv")
-
+        
         if uploaded_forecast_file:
             try:
                 df_external_forecast = load_csv_data(uploaded_forecast_file)
@@ -1600,7 +1601,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                         
                         st.success("Archivo de pronóstico externo cargado exitosamente.")
                         
-                        # Generar pronóstico con Prophet para la misma estación y período
                         station_to_compare = st.selectbox("Seleccione la estación para la comparación:", options=stations_for_analysis, key="compare_station_select")
 
                         if station_to_compare:
@@ -1609,19 +1609,16 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                             
                             if not df_internal_data.empty:
                                 try:
-                                    # Generar pronóstico con Prophet
                                     model_prophet = Prophet()
                                     model_prophet.fit(df_internal_data)
                                     future = df_external_forecast[['ds']].copy()
                                     forecast_prophet = model_prophet.predict(future)
                                     
-                                    # Combinar datos
                                     df_combined = pd.merge(forecast_prophet[['ds', 'yhat']], df_external_forecast[['ds', 'y_external']], on='ds', how='inner')
                                     df_combined.rename(columns={'yhat': 'Pronóstico Prophet'}, inplace=True)
                                     df_combined.set_index('ds', inplace=True)
                                     
                                     if not df_combined.empty:
-                                        # Visualización
                                         fig_comparison = go.Figure()
                                         fig_comparison.add_trace(go.Scatter(x=df_combined.index, y=df_combined['Pronóstico Prophet'], mode='lines', name='Pronóstico Prophet'))
                                         fig_comparison.add_trace(go.Scatter(x=df_combined.index, y=df_combined['y_external'], mode='lines', name='Pronóstico Externo'))
@@ -1629,8 +1626,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                                                                     xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
                                         st.plotly_chart(fig_comparison, use_container_width=True)
 
-                                        # Calcular métricas de error
-                                        from sklearn.metrics import mean_squared_error
                                         df_validation = pd.merge(df_internal_data, df_combined, on='ds', how='inner').dropna()
                                         if not df_validation.empty:
                                             rmse_prophet = np.sqrt(mean_squared_error(df_validation['y'], df_validation['Pronóstico Prophet']))
