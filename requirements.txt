@@ -6,7 +6,6 @@ plotly
 geopandas
 pykrige
 scipy
-statsmodels
 prophet
 streamlit-folium
 numpy
