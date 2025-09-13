@@ -434,6 +434,7 @@ def display_spatial_distribution_tab(gdf_filtered, df_anual_melted, stations_for
                     st.info(summary_text)
 
         with map_col:
+            st.info(f"Depuración: Número de estaciones en gdf_filtered_map: {len(gdf_filtered_map)}")
             if not gdf_filtered_map.empty:
                 m = folium.Map(
                     location=st.session_state.map_view["location"],
