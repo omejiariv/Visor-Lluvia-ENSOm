@@ -376,7 +376,7 @@ def display_welcome_tab():
     if os.path.exists(Config.LOGO_PATH):
         st.image(Config.LOGO_PATH, width=400, caption="Corporación Cuenca Verde")
 
-def display_spatial_distribution_tab(gdf_filtered, df_anual_melted, stations_for_analysis, df_monthly_filtered):
+def display_spatial_distribution_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Distribución espacial de las Estaciones de Lluvia")
     
     if len(stations_for_analysis) == 0:
@@ -454,38 +454,16 @@ def display_spatial_distribution_tab(gdf_filtered, df_anual_melted, stations_for
                     ).add_to(m)
                 marker_cluster = MarkerCluster(name='Estaciones').add_to(m)
                 
-                # SÓLO CREA LOS MINI-GRÁFICOS SI HAY DATOS MENSUALES DISPONIBLES
-                if not df_monthly_filtered.empty:
-                    df_monthly_avg = df_monthly_filtered.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().reset_index()
-                    for _, row in gdf_filtered_map.iterrows():
-                        df_station_monthly_avg = df_monthly_avg[df_monthly_avg[Config.STATION_NAME_COL] == row[Config.STATION_NAME_COL]]
-                        
-                        fig = go.Figure(data=[go.Bar(x=df_station_monthly_avg[Config.MONTH_COL], y=df_station_monthly_avg[Config.PRECIPITATION_COL])])
-                        fig.update_layout(title=f"Ppt. Mensual Media<br>{row[Config.STATION_NAME_COL]}", 
-                                          xaxis_title="Mes", yaxis_title="Ppt. (mm)", height=250, width=350,
-                                          margin=dict(t=50, b=20, l=20, r=20))
-                        
-                        popup_html_chart = fig.to_html(full_html=False, include_plotlyjs='cdn')
-                        
-                        html_popup = f"""
-                            <h4>{row[Config.STATION_NAME_COL]}</h4>
-                            <p><b>Municipio:</b> {row[Config.MUNICIPALITY_COL]}</p>
-                            <p><b>Altitud:</b> {row[Config.ALTITUDE_COL]} m</p>
-                            <p><b>Ppt. Anual Media:</b> {row['precip_media_anual']:.0f} mm</p>
-                            {popup_html_chart}
-                        """
-                        
-                        folium.Marker(location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], popup=html_popup).add_to(marker_cluster)
-                else:
-                    st.warning("No hay datos mensuales para crear los mini-gráficos. Se mostrarán marcadores básicos.")
-                    for _, row in gdf_filtered_map.iterrows():
-                        html_popup = f"""
-                            <h4>{row[Config.STATION_NAME_COL]}</h4>
-                            <p><b>Municipio:</b> {row[Config.MUNICIPALITY_COL]}</p>
-                            <p><b>Altitud:</b> {row[Config.ALTITUDE_COL]} m</p>
-                            <p><b>Ppt. Anual Media:</b> {row['precip_media_anual']:.0f} mm</p>
-                        """
-                        folium.Marker(location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], popup=html_popup).add_to(marker_cluster)
+                # CÓDIGO ORIGINAL SIN MINI-GRÁFICOS
+                for _, row in gdf_filtered_map.iterrows():
+                    html = f"""
+                    <b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>
+                    <b>Municipio:</b> {row[Config.MUNICIPALITY_COL]}<br>
+                    <b>Celda:</b> {row[Config.CELL_COL]}<br>
+                    <b>% Datos Disponibles:</b> {row[Config.PERCENTAGE_COL]:.0f}%<br>
+                    <b>Ppt. Media Anual (mm):</b> {row['precip_media_anual']:.0f}
+                    """
+                    folium.Marker(location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], tooltip=html).add_to(marker_cluster)
                 
                 folium.LayerControl().add_to(m)
                 minimap = MiniMap(toggle_display=True)
@@ -704,12 +682,12 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
         else:
             st.info("No hay datos de altitud o precipitación disponibles para analizar la relación.")
 
-def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
+def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analysis, df_monthly_filtered):
     st.header("Mapas Avanzados")
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
     
-    gif_tab, temporal_tab, race_tab, anim_tab, compare_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Gráfico de Carrera", "Mapa Animado", "Comparación de Mapas", "Interpolación Kriging"])
+    gif_tab, mapa_interactivo_tab, temporal_tab, race_tab, anim_tab, compare_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Mapa Interactivo de Estaciones", "Visualización Temporal", "Gráfico de Carrera", "Mapa Animado", "Comparación de Mapas", "Interpolación Kriging"])
 
     with gif_tab:
         st.subheader("Distribución Espacio-Temporal de la Lluvia en Antioquia")
@@ -736,6 +714,75 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                         unsafe_allow_html=True)
         else:
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
+
+    with mapa_interactivo_tab:
+        st.subheader("Mapa Interactivo de Estaciones con Mini-gráficos")
+        if len(stations_for_analysis) == 0:
+            st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+        else:
+            controls_col, map_col = st.columns([1, 3])
+            with controls_col:
+                st.subheader("Controles del Mapa")
+                selected_base_map_config, selected_overlays_config = display_map_controls(st, "avanzado_estaciones")
+
+            with map_col:
+                if not gdf_filtered.empty:
+                    m = folium.Map(
+                        location=st.session_state.map_view["location"],
+                        zoom_start=st.session_state.map_view["zoom"],
+                        tiles=selected_base_map_config.get("tiles", "OpenStreetMap"),
+                        attr=selected_base_map_config.get("attr", None)
+                    )
+                    bounds = gdf_filtered.total_bounds
+                    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+                    
+                    folium.GeoJson(st.session_state.gdf_municipios.to_json(), name='Municipios').add_to(m)
+                    
+                    for layer_config in selected_overlays_config:
+                        folium.raster_layers.WmsTileLayer(
+                            url=layer_config["url"], layers=layer_config["layers"], fmt='image/png',
+                            transparent=layer_config.get("transparent", False), overlay=True, control=True,
+                            name=layer_config["attr"]
+                        ).add_to(m)
+                    
+                    marker_cluster = MarkerCluster(name='Estaciones').add_to(m)
+                    
+                    if not df_monthly_filtered.empty:
+                        df_monthly_avg = df_monthly_filtered.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().reset_index()
+                        for _, row in gdf_filtered.iterrows():
+                            df_station_monthly_avg = df_monthly_avg[df_monthly_avg[Config.STATION_NAME_COL] == row[Config.STATION_NAME_COL]]
+                            
+                            fig = go.Figure(data=[go.Bar(x=df_station_monthly_avg[Config.MONTH_COL], y=df_station_monthly_avg[Config.PRECIPITATION_COL])])
+                            fig.update_layout(title=f"Ppt. Mensual Media<br>{row[Config.STATION_NAME_COL]}", 
+                                              xaxis_title="Mes", yaxis_title="Ppt. (mm)", height=250, width=350,
+                                              margin=dict(t=50, b=20, l=20, r=20))
+                            
+                            popup_html_chart = fig.to_html(full_html=False, include_plotlyjs='cdn')
+                            
+                            html_popup = f"""
+                                <h4>{row[Config.STATION_NAME_COL]}</h4>
+                                <p><b>Municipio:</b> {row[Config.MUNICIPALITY_COL]}</p>
+                                <p><b>Altitud:</b> {row[Config.ALTITUDE_COL]} m</p>
+                                {popup_html_chart}
+                            """
+                            
+                            folium.Marker(location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], popup=html_popup).add_to(marker_cluster)
+                    else:
+                        st.warning("No hay datos mensuales para crear los mini-gráficos. Se mostrarán marcadores básicos.")
+                        for _, row in gdf_filtered.iterrows():
+                            html_popup = f"""
+                                <h4>{row[Config.STATION_NAME_COL]}</h4>
+                                <p><b>Municipio:</b> {row[Config.MUNICIPALITY_COL]}</p>
+                                <p><b>Altitud:</b> {row[Config.ALTITUDE_COL]} m</p>
+                            """
+                            folium.Marker(location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], popup=html_popup).add_to(marker_cluster)
+                    
+                    folium.LayerControl().add_to(m)
+                    minimap = MiniMap(toggle_display=True)
+                    m.add_child(minimap)
+                    folium_static(m, height=700, width="100%")
+                else:
+                    st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
 
     with temporal_tab:
         if len(stations_for_analysis) == 0:
@@ -1694,11 +1741,11 @@ def main():
     with bienvenida_tab:
         display_welcome_tab()
     with mapa_tab:
-        display_spatial_distribution_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis, df_monthly_filtered)
+        display_spatial_distribution_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis)
     with graficos_tab:
         display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis)
     with mapas_avanzados_tab:
-        display_advanced_maps_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis)
+        display_advanced_maps_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis, df_monthly_filtered)
     with anomalias_tab:
         display_anomalies_tab(st.session_state.df_long, df_monthly_filtered, stations_for_analysis)
     with estadisticas_tab:
