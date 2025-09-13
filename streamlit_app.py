@@ -1527,7 +1527,6 @@ def main():
         st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
 
     if st.session_state.gdf_stations is not None and not st.session_state.gdf_stations.empty:
-        # CORRECCIÓN: Se añade MUNICIPALITY_COL a id_vars para que esté disponible en df_anual_melted
         df_anual_melted_temp = st.session_state.gdf_stations.melt(
             id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.ALTITUDE_COL],
             value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
