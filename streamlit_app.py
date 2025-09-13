@@ -180,17 +180,14 @@ def complete_series(_df):
     station_list = _df[Config.STATION_NAME_COL].unique()
     progress_bar = st.progress(0, text="Completando todas las series...")
     
-    # Aseguramos que la columna de fecha sea de tipo datetime y que no sea el índice
     if not pd.api.types.is_datetime64_any_dtype(_df[Config.DATE_COL]):
         _df[Config.DATE_COL] = pd.to_datetime(_df[Config.DATE_COL], errors='coerce')
     
     for i, station in enumerate(station_list):
         df_station = _df[_df[Config.STATION_NAME_COL] == station].copy()
         
-        # Eliminar duplicados y NaN en la columna de fecha antes de establecer el índice
         df_station.dropna(subset=[Config.DATE_COL], inplace=True)
         df_station.drop_duplicates(subset=[Config.DATE_COL], inplace=True)
-
         df_station.set_index(Config.DATE_COL, inplace=True)
 
         original_data = df_station[[Config.PRECIPITATION_COL, Config.ORIGIN_COL]].copy()
@@ -202,7 +199,6 @@ def complete_series(_df):
         for col in [c for c in df_station.columns if c not in [Config.PRECIPITATION_COL, Config.ORIGIN_COL]]:
             df_resampled[col] = df_station[col]
 
-        # Interpolar solo si el índice no tiene NaNs
         if not df_resampled.index.isna().any():
             df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
         else:
@@ -252,7 +248,6 @@ def preprocess_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shape
         return None, None, None, None, None
 
     id_vars_base = ['id', Config.DATE_COL, Config.YEAR_COL, Config.MONTH_COL, 'enso_año', 'enso_mes']
-    # Lista de columnas de índices que se buscarán en el archivo de precipitación
     id_vars_enso = [Config.ENSO_ONI_COL, Config.SST_COL, Config.MEDIA_COL, Config.SOI_COL, Config.IOD_COL]
     id_vars = id_vars_base + id_vars_enso
     
@@ -681,17 +676,13 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
             min_year, max_year = int(df_anual_melted[Config.YEAR_COL].min()), int(df_anual_melted[Config.YEAR_COL].max())
             year_kriging = st.slider("Seleccione el año para la interpolación", min_year, max_year, max_year, key="year_kriging")
             data_year_kriging = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year_kriging].copy()
-            
-            data_year_kriging.dropna(subset=[Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.PRECIPITATION_COL], inplace=True)
-
             logo_col_k, metric_col_k = st.columns([1,8])
             with logo_col_k:
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=40)
             with metric_col_k:
                 st.metric(f"Estaciones con datos en {year_kriging}", f"{len(data_year_kriging)} de {len(stations_for_analysis)}")
-            
             if len(data_year_kriging) < 3:
-                st.warning(f"Se necesitan al menos 3 estaciones con datos válidos en el año {year_kriging} para generar el mapa Kriging.")
+                st.warning(f"Se necesitan al menos 3 estaciones con datos en el año {year_kriging} para generar el mapa Kriging.")
             else:
                 with st.spinner("Generando mapa Kriging..."):
                     with st.expander("¿Cómo interpretar este análisis?"):
@@ -701,22 +692,18 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             - Los círculos rojos representan las estaciones de lluvia.
                             - Este método considera no solo la distancia, sino también las propiedades de varianza espacial de los datos.
                         """)
-                    
+                    data_year_kriging = data_year_kriging.merge(st.session_state.gdf_filtered[[Config.STATION_NAME_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL]], on=Config.STATION_NAME_COL, how='inner')
                     data_year_kriging['tooltip'] = data_year_kriging.apply(
                         lambda row: f"<b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>Municipio: {row[Config.MUNICIPALITY_COL]}<br>Ppt: {row[Config.PRECIPITATION_COL]:.0f} mm",
                         axis=1
                     )
-                    
                     lons, lats, vals = data_year_kriging[Config.LONGITUDE_COL].values, data_year_kriging[Config.LATITUDE_COL].values, data_year_kriging[Config.PRECIPITATION_COL].values
-                    
-                    bounds = gdf_filtered.total_bounds
+                    bounds = st.session_state.gdf_filtered.loc[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)].total_bounds
                     lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
                     lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
                     grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
-                    
                     OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
-                    
                     fig_krig = go.Figure(data=go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
                     
                     fig_krig.add_trace(go.Scatter(
@@ -995,14 +982,9 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
     with indices_climaticos_tab:
         st.subheader("Análisis de Correlación con Índices Climáticos")
         
-        # Las columnas de los índices ya están en df_monthly_filtered gracias al preprocesamiento.
-        # Simplemente identificamos cuáles están disponibles para la selección actual.
         df_corr_indices = df_monthly_filtered.copy()
-        
-        # Lista de posibles índices a analizar
         potential_indices = [Config.ENSO_ONI_COL, Config.SOI_COL, Config.IOD_COL]
 
-        # Verificamos que las columnas existan y que contengan datos válidos en la selección filtrada
         available_indices_cols = [
             idx for idx in potential_indices 
             if idx in df_corr_indices.columns and not df_corr_indices[idx].isnull().all()
@@ -1125,7 +1107,6 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
     with indices_multiples_tab:
         st.subheader("Análisis de Índices Climáticos Múltiples")
 
-        # Seleccionamos directamente las columnas de interés de df_long, que es la fuente de datos completa.
         index_cols = [Config.ENSO_ONI_COL, Config.SOI_COL, Config.IOD_COL]
         available_cols_in_df = [col for col in index_cols if col in st.session_state.df_long.columns]
 
@@ -1133,10 +1114,8 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
             st.warning("No se encontraron columnas de índices climáticos (ONI, SOI, IOD) en los datos cargados.")
             return
 
-        # Creamos un DataFrame limpio solo con los datos de los índices, eliminando duplicados
         df_indices = st.session_state.df_long[[Config.DATE_COL] + available_cols_in_df].drop_duplicates().reset_index(drop=True)
 
-        # Filtramos por el rango de años y meses seleccionado por el usuario
         df_indices_filtered = df_indices[
             (df_indices[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) & 
             (df_indices[Config.DATE_COL].dt.year <= st.session_state.year_range[1]) &
@@ -1147,7 +1126,6 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
             st.warning("No hay datos de índices climáticos para el período seleccionado.")
             return
 
-        # Verificamos qué columnas tienen datos válidos DESPUÉS de filtrar
         available_indices_to_plot = [
             col for col in available_cols_in_df 
             if not df_indices_filtered[col].isnull().all()
@@ -1209,7 +1187,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
             fig_tendencia.update_layout(xaxis_title="Año", yaxis_title="Precipitación Anual (mm)")
             st.plotly_chart(fig_tendencia, use_container_width=True)
             
-            # Botón de descarga para el análisis lineal
             csv_data = df_to_analyze.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Descargar datos de Tendencia Anual",
@@ -1303,7 +1280,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     st.plotly_chart(fig_pronostico, use_container_width=True)
                     st.info("Este pronóstico se basa en modelos estadísticos (SARIMA) que identifican patrones históricos y estacionales en los datos. Los resultados son probabilísticos y deben ser interpretados según el grado de incertidumbre.")
                     
-                    # Botón de descarga
                     forecast_df = pd.DataFrame({
                         'fecha': forecast_mean.index,
                         'pronostico': forecast_mean.values,
@@ -1354,7 +1330,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     fig_prophet.update_layout(title=f"Pronóstico de Precipitación con Prophet para {station_to_forecast_prophet}", yaxis_title="Precipitación (mm)")
                     st.plotly_chart(fig_prophet, use_container_width=True)
 
-                    # Botón de descarga
                     csv_data = forecast_prophet[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="Descargar Pronóstico Prophet en CSV",
@@ -1408,7 +1383,6 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # Inicialización del estado de la sesión
     Config.initialize_session_state()
 
     title_col1, title_col2 = st.columns([0.07, 0.93])
@@ -1612,10 +1586,8 @@ def main():
     with enso_tab:
         display_enso_tab(st.session_state.df_monthly_filtered, st.session_state.df_enso, st.session_state.gdf_filtered, stations_for_analysis)
     with tendencias_tab:
-        # CORRECCIÓN: Usar df_monthly_processed para pronósticos
         display_trends_and_forecast_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_processed, stations_for_analysis)
     with descargas_tab:
-        # CORRECCIÓN: Usar df_monthly_filtered para la descarga de datos filtrados
         display_downloads_tab(st.session_state.df_anual_melted, st.session_state.df_monthly_filtered, stations_for_analysis)
 
 if __name__ == "__main__":
