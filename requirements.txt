@@ -14,3 +14,4 @@ branca
 openpyxl
 rasterstats
 xarray
+Pillow
