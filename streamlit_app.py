@@ -716,27 +716,25 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
             st.warning("No se encontró el archivo GIF 'PPAM.gif'. Asegúrate de que esté en el directorio principal de la aplicación.")
 
     with mapa_interactivo_tab:
-        st.subheader("Mapa Interactivo de Estaciones con Mini-gráficos")
+        st.subheader("Visualización de una Estación con Mini-gráfico de Precipitación")
         if len(stations_for_analysis) == 0:
-            st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+            st.warning("Por favor, seleccione al menos una estación en el panel lateral para ver esta sección.")
         else:
-            controls_col, map_col = st.columns([1, 3])
-            with controls_col:
-                st.subheader("Controles del Mapa")
-                selected_base_map_config, selected_overlays_config = display_map_controls(st, "avanzado_estaciones")
-
-            with map_col:
-                if not gdf_filtered.empty:
+            station_to_show = st.selectbox("Seleccione la estación a visualizar:", options=sorted(stations_for_analysis), key="station_map_select")
+            if station_to_show:
+                controls_col, map_col = st.columns([1, 3])
+                with controls_col:
+                    st.subheader("Controles del Mapa")
+                    selected_base_map_config, selected_overlays_config = display_map_controls(st, "avanzado_estaciones")
+                
+                with map_col:
+                    station_data = gdf_filtered[gdf_filtered[Config.STATION_NAME_COL] == station_to_show].iloc[0]
                     m = folium.Map(
-                        location=st.session_state.map_view["location"],
-                        zoom_start=st.session_state.map_view["zoom"],
+                        location=[station_data[Config.LATITUDE_COL], station_data[Config.LONGITUDE_COL]],
+                        zoom_start=12,
                         tiles=selected_base_map_config.get("tiles", "OpenStreetMap"),
                         attr=selected_base_map_config.get("attr", None)
                     )
-                    bounds = gdf_filtered.total_bounds
-                    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-                    
-                    folium.GeoJson(st.session_state.gdf_municipios.to_json(), name='Municipios').add_to(m)
                     
                     for layer_config in selected_overlays_config:
                         folium.raster_layers.WmsTileLayer(
@@ -745,44 +743,35 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             name=layer_config["attr"]
                         ).add_to(m)
                     
-                    marker_cluster = MarkerCluster(name='Estaciones').add_to(m)
-                    
-                    if not df_monthly_filtered.empty:
-                        df_monthly_avg = df_monthly_filtered.groupby([Config.STATION_NAME_COL, Config.MONTH_COL])[Config.PRECIPITATION_COL].mean().reset_index()
-                        for _, row in gdf_filtered.iterrows():
-                            df_station_monthly_avg = df_monthly_avg[df_monthly_avg[Config.STATION_NAME_COL] == row[Config.STATION_NAME_COL]]
-                            
-                            fig = go.Figure(data=[go.Bar(x=df_station_monthly_avg[Config.MONTH_COL], y=df_station_monthly_avg[Config.PRECIPITATION_COL])])
-                            fig.update_layout(title=f"Ppt. Mensual Media<br>{row[Config.STATION_NAME_COL]}", 
-                                              xaxis_title="Mes", yaxis_title="Ppt. (mm)", height=250, width=350,
-                                              margin=dict(t=50, b=20, l=20, r=20))
-                            
-                            popup_html_chart = fig.to_html(full_html=False, include_plotlyjs='cdn')
-                            
-                            html_popup = f"""
-                                <h4>{row[Config.STATION_NAME_COL]}</h4>
-                                <p><b>Municipio:</b> {row[Config.MUNICIPALITY_COL]}</p>
-                                <p><b>Altitud:</b> {row[Config.ALTITUDE_COL]} m</p>
-                                {popup_html_chart}
-                            """
-                            
-                            folium.Marker(location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], popup=html_popup).add_to(marker_cluster)
+                    df_station_monthly_avg = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == station_to_show]
+                    if not df_station_monthly_avg.empty:
+                        df_monthly_avg = df_station_monthly_avg.groupby(Config.MONTH_COL)[Config.PRECIPITATION_COL].mean().reset_index()
+                        
+                        fig = go.Figure(data=[go.Bar(x=df_monthly_avg[Config.MONTH_COL], y=df_monthly_avg[Config.PRECIPITATION_COL])])
+                        fig.update_layout(title=f"Ppt. Mensual Media<br>{station_data[Config.STATION_NAME_COL]}", 
+                                          xaxis_title="Mes", yaxis_title="Ppt. (mm)", height=250, width=350,
+                                          margin=dict(t=50, b=20, l=20, r=20))
+                        
+                        popup_html_chart = fig.to_html(full_html=False, include_plotlyjs='cdn')
+                        
+                        html_popup = f"""
+                            <h4>{station_data[Config.STATION_NAME_COL]}</h4>
+                            <p><b>Municipio:</b> {station_data[Config.MUNICIPALITY_COL]}</p>
+                            <p><b>Altitud:</b> {station_data[Config.ALTITUDE_COL]} m</p>
+                            {popup_html_chart}
+                        """
+                        folium.Marker(location=[station_data[Config.LATITUDE_COL], station_data[Config.LONGITUDE_COL]], popup=html_popup).add_to(m)
                     else:
-                        st.warning("No hay datos mensuales para crear los mini-gráficos. Se mostrarán marcadores básicos.")
-                        for _, row in gdf_filtered.iterrows():
-                            html_popup = f"""
-                                <h4>{row[Config.STATION_NAME_COL]}</h4>
-                                <p><b>Municipio:</b> {row[Config.MUNICIPALITY_COL]}</p>
-                                <p><b>Altitud:</b> {row[Config.ALTITUDE_COL]} m</p>
-                            """
-                            folium.Marker(location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], popup=html_popup).add_to(marker_cluster)
+                        st.warning(f"No hay datos mensuales para {station_to_show}. Se mostrará un marcador básico.")
+                        html_popup = f"""
+                            <h4>{station_data[Config.STATION_NAME_COL]}</h4>
+                            <p><b>Municipio:</b> {station_data[Config.MUNICIPALITY_COL]}</p>
+                            <p><b>Altitud:</b> {station_data[Config.ALTITUDE_COL]} m</p>
+                        """
+                        folium.Marker(location=[station_data[Config.LATITUDE_COL], station_data[Config.LONGITUDE_COL]], popup=html_popup).add_to(m)
                     
                     folium.LayerControl().add_to(m)
-                    minimap = MiniMap(toggle_display=True)
-                    m.add_child(minimap)
                     folium_static(m, height=700, width="100%")
-                else:
-                    st.warning("No hay estaciones seleccionadas para mostrar en el mapa.")
 
     with temporal_tab:
         if len(stations_for_analysis) == 0:
@@ -1501,6 +1490,47 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     )
                 except Exception as e:
                     st.error(f"No se pudo generar el pronóstico. El modelo estadístico no pudo converger. Esto puede ocurrir si la serie de datos es demasiado corta o inestable. Error: {e}")
+        else:
+            st.info("Por favor, cargue datos para generar un pronóstico.")
+
+    with pronostico_prophet_tab:
+        st.subheader("Pronóstico de Precipitación Mensual (Modelo Prophet)")
+        with st.expander("¿Cómo funciona Prophet?"):
+            st.markdown("""
+                **Prophet**, desarrollado por Facebook, es un procedimiento para pronosticar series de tiempo.
+                - Se basa en un modelo aditivo en el que se ajustan las tendencias no lineales con la estacionalidad anual y semanal, además de los efectos de festivos.
+                - Es especialmente útil para series de tiempo que tienen una fuerte estacionalidad y múltiples ciclos.
+                - Es más robusto que otros modelos a datos faltantes o atípicos.
+            """)
+        
+        station_to_forecast_prophet = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="prophet_station_select", help="El pronóstico se realiza para una única serie de tiempo con Prophet.")
+        forecast_horizon_prophet = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="prophet_forecast_horizon_slider")
+
+        if not df_monthly_to_process.empty and len(df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet]) < 24:
+            st.warning("Se necesitan al menos 24 puntos de datos para que Prophet funcione correctamente. Por favor, ajuste la selección de años.")
+        elif not df_monthly_to_process.empty:
+            with st.spinner(f"Entrenando modelo Prophet y generando pronóstico para {station_to_forecast_prophet}..."):
+                try:
+                    ts_data_prophet = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet][[Config.DATE_COL, Config.PRECIPITATION_COL]].copy()
+                    ts_data_prophet.rename(columns={Config.DATE_COL: 'ds', Config.PRECIPITATION_COL: 'y'}, inplace=True)
+                    model_prophet = Prophet()
+                    model_prophet.fit(ts_data_prophet)
+                    future = model_prophet.make_future_dataframe(periods=forecast_horizon_prophet, freq='MS')
+                    forecast_prophet = model_prophet.predict(future)
+                    
+                    st.success("Pronóstico generado exitosamente.")
+                    fig_prophet = plot_plotly(model_prophet, forecast_prophet)
+                    fig_prophet.update_layout(title=f"Pronóstico de Precipitación con Prophet para {station_to_forecast_prophet}", yaxis_title="Precipitación (mm)")
+                    st.plotly_chart(fig_prophet, use_container_width=True)
+
+                    csv_data = forecast_prophet[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Descargar Pronóstico Prophet en CSV", data=csv_data,
+                        file_name=f'pronostico_prophet_{station_to_forecast_prophet.replace(" ", "_")}.csv', mime='text/csv',
+                        key='download-prophet'
+                    )
+                except Exception as e:
+                    st.error(f"Ocurrió un error al generar el pronóstico con Prophet. Esto puede deberse a que la serie de datos es demasiado corta o inestable. Error: {e}")
         else:
             st.info("Por favor, cargue datos para generar un pronóstico.")
 
