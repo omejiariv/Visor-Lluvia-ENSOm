@@ -20,9 +20,9 @@ from pykrige.ok import OrdinaryKriging
 from scipy import stats
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.graphics.tsa import plot_acf, plot_pacf
 from prophet import Prophet
 from prophet.plot import plot_plotly
+from sklearn.metrics import mean_squared_error
 import branca.colormap as cm
 import base64
 
@@ -636,7 +636,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
                     fig_hist_anual.update_layout(height=600)
                     st.plotly_chart(fig_hist_anual, use_container_width=True)
                 else: # Gráfico de Violín Anual
-                    fig_violin_anual = px.violin(df_anual_melted, y=Config.PRECIPITATION_COL, x=Config.STATION_NAME_COL, color=Config.STATION_NAME_COL, 
+                    fig_violin_anual = px.violin(df_anual_melted, y=Config.PRECIPitación_COL, x=Config.STATION_NAME_COL, color=Config.STATION_NAME_COL, 
                                           box=True, points="all", title='Distribución Anual con Gráfico de Violín',
                                           labels={Config.PRECIPITATION_COL: 'Precipitación Anual (mm)', Config.STATION_NAME_COL: 'Estación'})
                     fig_violin_anual.update_layout(height=600)
@@ -1360,7 +1360,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
         
-    tendencia_individual_tab, tendencia_tabla_tab, descomposicion_tab, autocorrelacion_tab, pronostico_sarima_tab, pronostico_prophet_tab, validacion_pronostico_tab = st.tabs(["Análisis Lineal", "Tabla Comparativa", "Descomposición de Series", "Autocorrelación (ACF/PACF)", "Pronóstico SARIMA", "Pronóstico Prophet", "Validación de Pronósticos"])
+    tendencia_individual_tab, tendencia_tabla_tab, descomposicion_tab, pronostico_sarima_tab, pronostico_prophet_tab, validacion_pronostico_tab = st.tabs(["Análisis Lineal", "Tabla Comparativa", "Descomposición de Series", "Pronóstico SARIMA", "Pronóstico Prophet", "Validación de Pronósticos"])
 
     with tendencia_individual_tab:
         st.subheader("Tendencia de Precipitación Anual")
@@ -1484,35 +1484,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     st.error(f"No se pudo realizar la descomposición de la serie para la estación seleccionada. Es posible que la serie de datos sea demasiado corta o no tenga una estructura estacional clara. Error: {e}")
             else:
                 st.warning(f"No hay datos mensuales para la estación {station_to_decompose} en el período seleccionado.")
-
-    with autocorrelacion_tab:
-        st.subheader("Análisis de Autocorrelación (ACF) y Autocorrelación Parcial (PACF)")
-        st.markdown("Estos gráficos ayudan a entender la dependencia de la precipitación con sus valores pasados (rezagos). Las barras que superan el área azul sombreada indican una correlación estadísticamente significativa.")
-        
-        station_to_analyze_acf = st.selectbox("Seleccione una estación:", options=stations_for_analysis, key="acf_station_select")
-        max_lag = st.slider("Número máximo de rezagos (meses):", min_value=12, max_value=60, value=24, step=12)
-        
-        if station_to_analyze_acf:
-            df_station_acf = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_analyze_acf].copy()
-            if not df_station_acf.empty:
-                df_station_acf.set_index(Config.DATE_COL, inplace=True)
-                df_station_acf = df_station_acf.asfreq('MS')
-                df_station_acf[Config.PRECIPITATION_COL] = df_station_acf[Config.PRECIPITATION_COL].interpolate(method='time')
-
-                try:
-                    fig_acf = go.Figure()
-                    fig_pacf = go.Figure()
-                    
-                    fig_acf = plot_acf(df_station_acf[Config.PRECIPITATION_COL], lags=max_lag)
-                    fig_pacf = plot_pacf(df_station_acf[Config.PRECIPITATION_COL], lags=max_lag)
-
-                    st.plotly_chart(fig_acf, use_container_width=True)
-                    st.plotly_chart(fig_pacf, use_container_width=True)
-
-                except Exception as e:
-                    st.error(f"No se pudieron generar los gráficos de autocorrelación. Error: {e}")
-            else:
-                st.warning(f"No hay datos suficientes para la estación {station_to_analyze_acf} para realizar el análisis de autocorrelación.")
     
     with pronostico_sarima_tab:
         st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
@@ -1610,57 +1581,70 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
 
     with validacion_pronostico_tab:
         st.subheader("Validación de Pronósticos con Datos Externos")
-        st.markdown("Cargue un archivo CSV para comparar su pronóstico con los generados por el sistema.")
+        st.markdown("Cargue un archivo CSV con un pronóstico de precipitación para compararlo visualmente con los pronósticos generados por el sistema.")
 
-        uploaded_forecast_file = st.file_uploader("Subir archivo de pronóstico (CSV)", type="csv")
+        uploaded_forecast_file = st.file_uploader("Subir archivo de pronóstico externo (CSV)", type="csv")
 
         if uploaded_forecast_file:
             try:
                 df_external_forecast = load_csv_data(uploaded_forecast_file)
                 if df_external_forecast is not None:
-                    # Renombrar columnas para estandarizar
                     df_external_forecast.columns = [col.lower().strip() for col in df_external_forecast.columns]
-                    date_col_ext = next((col for col in df_external_forecast.columns if 'fecha' in col), None)
-                    precip_col_ext = next((col for col in df_external_forecast.columns if 'precip' in col or 'pronostico' in col), None)
+                    date_col_ext = next((col for col in df_external_forecast.columns if 'fecha' in col or 'ds' in col), None)
+                    precip_col_ext = next((col for col in df_external_forecast.columns if 'precip' in col or 'pronostico' in col or 'yhat' in col), None)
 
                     if not date_col_ext or not precip_col_ext:
-                        st.error("El archivo de pronóstico debe contener una columna de fecha y una de precipitación/pronóstico.")
+                        st.error("El archivo de pronóstico debe contener una columna de fecha y una de precipitación/pronóstico. Nombres sugeridos: 'fecha' y 'pronostico'.")
                     else:
                         df_external_forecast.rename(columns={date_col_ext: 'ds', precip_col_ext: 'y_external'}, inplace=True)
                         df_external_forecast['ds'] = pd.to_datetime(df_external_forecast['ds'])
                         
                         st.success("Archivo de pronóstico externo cargado exitosamente.")
-
+                        
                         # Generar pronóstico con Prophet para la misma estación y período
                         station_to_compare = st.selectbox("Seleccione la estación para la comparación:", options=stations_for_analysis, key="compare_station_select")
 
                         if station_to_compare:
-                            df_internal_forecast = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_compare].copy()
-                            df_internal_forecast.rename(columns={Config.DATE_COL: 'ds', Config.PRECIPITATION_COL: 'y'}, inplace=True)
+                            df_internal_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_compare].copy()
+                            df_internal_data.rename(columns={Config.DATE_COL: 'ds', Config.PRECIPITATION_COL: 'y'}, inplace=True)
                             
-                            if not df_internal_forecast.empty:
+                            if not df_internal_data.empty:
                                 try:
+                                    # Generar pronóstico con Prophet
                                     model_prophet = Prophet()
-                                    model_prophet.fit(df_internal_forecast)
-                                    future = model_prophet.make_future_dataframe(periods=12, freq='MS')
+                                    model_prophet.fit(df_internal_data)
+                                    future = df_external_forecast[['ds']].copy()
                                     forecast_prophet = model_prophet.predict(future)
                                     
                                     # Combinar datos
-                                    df_combined = pd.merge(forecast_prophet[['ds', 'yhat']], df_external_forecast, on='ds', how='inner')
+                                    df_combined = pd.merge(forecast_prophet[['ds', 'yhat']], df_external_forecast[['ds', 'y_external']], on='ds', how='inner')
                                     df_combined.rename(columns={'yhat': 'Pronóstico Prophet'}, inplace=True)
                                     df_combined.set_index('ds', inplace=True)
                                     
-                                    fig_comparison = go.Figure()
-                                    fig_comparison.add_trace(go.Scatter(x=df_combined.index, y=df_combined['Pronóstico Prophet'], mode='lines', name='Pronóstico Prophet'))
-                                    fig_comparison.add_trace(go.Scatter(x=df_combined.index, y=df_combined['y_external'], mode='lines', name='Pronóstico Externo'))
-                                    fig_comparison.update_layout(title=f"Comparación de Pronósticos para {station_to_compare}",
-                                                                xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
-                                    st.plotly_chart(fig_comparison, use_container_width=True)
+                                    if not df_combined.empty:
+                                        # Visualización
+                                        fig_comparison = go.Figure()
+                                        fig_comparison.add_trace(go.Scatter(x=df_combined.index, y=df_combined['Pronóstico Prophet'], mode='lines', name='Pronóstico Prophet'))
+                                        fig_comparison.add_trace(go.Scatter(x=df_combined.index, y=df_combined['y_external'], mode='lines', name='Pronóstico Externo'))
+                                        fig_comparison.update_layout(title=f"Comparación de Pronósticos para {station_to_compare}",
+                                                                    xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
+                                        st.plotly_chart(fig_comparison, use_container_width=True)
 
-                                    # Calcular métricas de error
-                                    from sklearn.metrics import mean_squared_error
-                                    rmse_prophet = np.sqrt(mean_squared_error(df_internal_forecast['y'], forecast_prophet['yhat'][:len(df_internal_forecast)]))
-                                    st.info(f"**Métrica de Error (RMSE)** para el modelo Prophet: **{rmse_prophet:.2f}**")
+                                        # Comparar con datos históricos si hay solapamiento
+                                        df_validation = pd.merge(df_combined, df_internal_data[['ds', 'y']], on='ds', how='inner').dropna()
+                                        if not df_validation.empty:
+                                            rmse_prophet = np.sqrt(mean_squared_error(df_validation['y'], df_validation['Pronóstico Prophet']))
+                                            rmse_external = np.sqrt(mean_squared_error(df_validation['y'], df_validation['y_external']))
+                                            
+                                            st.markdown("##### Métricas de Precisión (RMSE)")
+                                            col_rmse1, col_rmse2 = st.columns(2)
+                                            col_rmse1.metric("RMSE Prophet", f"{rmse_prophet:.2f}")
+                                            col_rmse2.metric("RMSE Externo", f"{rmse_external:.2f}")
+
+                                        else:
+                                            st.info("No hay solapamiento de fechas entre los pronósticos y los datos históricos para calcular el RMSE.")
+                                    else:
+                                        st.warning("No hay fechas coincidentes entre el pronóstico interno y el externo para la comparación.")
 
                                 except Exception as e:
                                     st.error(f"Ocurrió un error al generar los pronósticos para la comparación. Error: {e}")
