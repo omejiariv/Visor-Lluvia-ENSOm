@@ -16,3 +16,4 @@ xarray
 Pillow
 rioxarray
 statsmodels
+scikit-learn
