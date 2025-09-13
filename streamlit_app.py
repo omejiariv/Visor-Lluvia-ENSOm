@@ -674,6 +674,21 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
     
     gif_tab, temporal_tab, race_tab, anim_tab, compare_tab, kriging_tab = st.tabs(["Animación GIF (Antioquia)", "Visualización Temporal", "Gráfico de Carrera", "Mapa Animado", "Comparación de Mapas", "Interpolación Kriging"])
+    
+    with gif_tab:
+        st.info("Funcionalidad en desarrollo.")
+
+    with temporal_tab:
+        st.info("Funcionalidad en desarrollo.")
+
+    with race_tab:
+        st.info("Funcionalidad en desarrollo.")
+
+    with anim_tab:
+        st.info("Funcionalidad en desarrollo.")
+
+    with compare_tab:
+        st.info("Funcionalidad en desarrollo.")
 
     with kriging_tab:
         st.subheader("Interpolación Kriging para un Año Específico")
@@ -683,13 +698,27 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         if not df_anual_melted.empty and len(df_anual_melted[Config.YEAR_COL].unique()) > 0:
             min_year, max_year = int(df_anual_melted[Config.YEAR_COL].min()), int(df_anual_melted[Config.YEAR_COL].max())
             year_kriging = st.slider("Seleccione el año para la interpolación", min_year, max_year, max_year, key="year_kriging")
-            data_year_kriging = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year_kriging].copy()
+            
+            # 1. Filtrar los datos de precipitación para el año seleccionado
+            precip_data_for_year = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year_kriging].copy()
+            
+            # 2. Unir (merge) con los datos geográficos para obtener las coordenadas
+            # Se usa gdf_filtered para asegurar que solo se usan las estaciones actualmente seleccionadas
+            data_for_kriging = pd.merge(
+                precip_data_for_year,
+                gdf_filtered[[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL]],
+                on=Config.STATION_NAME_COL,
+                how='inner'
+            )
+            data_for_kriging.dropna(subset=[Config.PRECIPITATION_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL], inplace=True)
+
             logo_col_k, metric_col_k = st.columns([1,8])
             with logo_col_k:
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=40)
             with metric_col_k:
-                st.metric(f"Estaciones con datos en {year_kriging}", f"{len(data_year_kriging)} de {len(stations_for_analysis)}")
-            if len(data_year_kriging) < 3:
+                st.metric(f"Estaciones con datos en {year_kriging}", f"{len(data_for_kriging)} de {len(stations_for_analysis)}")
+            
+            if len(data_for_kriging) < 3:
                 st.warning(f"Se necesitan al menos 3 estaciones con datos en el año {year_kriging} para generar el mapa Kriging.")
             else:
                 with st.spinner("Generando mapa Kriging..."):
@@ -700,30 +729,35 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                             - Los círculos rojos representan las estaciones de lluvia.
                             - Este método considera no solo la distancia, sino también las propiedades de varianza espacial de los datos.
                         """)
-                    data_year_kriging = data_year_kriging.merge(st.session_state.gdf_filtered[[Config.STATION_NAME_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL]], on=Config.STATION_NAME_COL, how='inner')
-                    data_year_kriging['tooltip'] = data_year_kriging.apply(
+                    
+                    data_for_kriging['tooltip'] = data_for_kriging.apply(
                         lambda row: f"<b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>Municipio: {row[Config.MUNICIPALITY_COL]}<br>Ppt: {row[Config.PRECIPITATION_COL]:.0f} mm",
                         axis=1
                     )
-                    lons, lats, vals = data_year_kriging[Config.LONGITUDE_COL].values, data_year_kriging[Config.LATITUDE_COL].values, data_year_kriging[Config.PRECIPITATION_COL].values
-                    bounds = st.session_state.gdf_filtered.loc[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)].total_bounds
+                    
+                    lons = data_for_kriging[Config.LONGITUDE_COL].values
+                    lats = data_for_kriging[Config.LATITUDE_COL].values
+                    vals = data_for_kriging[Config.PRECIPITATION_COL].values
+                    
+                    bounds = gdf_filtered.total_bounds
                     lon_range = [bounds[0] - 0.1, bounds[2] + 0.1]
                     lat_range = [bounds[1] - 0.1, bounds[3] + 0.1]
                     grid_lon, grid_lat = np.linspace(lon_range[0], lon_range[1], 100), np.linspace(lat_range[0], lat_range[1], 100)
+                    
                     OK = OrdinaryKriging(lons, lats, vals, variogram_model='linear', verbose=False, enable_plotting=False)
                     z, ss = OK.execute('grid', grid_lon, grid_lat)
+                    
                     fig_krig = go.Figure(data=go.Contour(z=z.T, x=grid_lon, y=grid_lat, colorscale='YlGnBu', contours=dict(showlabels=True, labelfont=dict(size=12, color='white'))))
                     
                     fig_krig.add_trace(go.Scatter(
                         x=lons, y=lats, mode='markers',
                         marker=dict(color='red', size=5, symbol='circle'),
-                        name='Estaciones', text=data_year_kriging['tooltip'], hoverinfo='text'
+                        name='Estaciones', text=data_for_kriging['tooltip'], hoverinfo='text'
                     ))
                     fig_krig.update_layout(height=700, title=f"Superficie de Precipitación Interpolada (Kriging) - Año {year_kriging}", xaxis_title="Longitud", yaxis_title="Latitud")
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
             st.warning("No hay datos para realizar la interpolación.")
-
 
 def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Información Detallada de las Estaciones")
@@ -1528,7 +1562,7 @@ def main():
 
     if st.session_state.gdf_stations is not None and not st.session_state.gdf_stations.empty:
         df_anual_melted_temp = st.session_state.gdf_stations.melt(
-            id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
+            id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.ALTITUDE_COL],
             value_vars=[str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns],
             var_name=Config.YEAR_COL,
             value_name=Config.PRECIPITATION_COL
