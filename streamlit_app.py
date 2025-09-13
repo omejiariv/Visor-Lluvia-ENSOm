@@ -22,10 +22,7 @@ import statsmodels.api as sm
 from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
-from rasterstats import zonal_stats
-import xarray as xr
-import locale
-import base64
+from PIL import Image
 
 # ---
 # Constantes y Configuración Centralizada
@@ -112,10 +109,31 @@ class Config:
             st.session_state.exclude_zeros = False
         if 'gdf_municipal_stats' not in st.session_state:
             st.session_state.gdf_municipal_stats = None
+        if 'animation_running' not in st.session_state:
+            st.session_state.animation_running = True
 
 # ---
 # Funciones de Carga y Preprocesamiento
 # ---
+@st.cache_data
+def load_gif_and_get_first_frame(gif_path):
+    """Carga un GIF y extrae su primer fotograma para usarlo como imagen estática."""
+    try:
+        with open(gif_path, "rb") as f:
+            gif_bytes = f.read()
+        
+        gif_image = Image.open(gif_path)
+        first_frame = gif_image.convert("RGBA")
+        
+        buffer = io.BytesIO()
+        first_frame.save(buffer, format="PNG")
+        first_frame_bytes = buffer.getvalue()
+        
+        return gif_bytes, first_frame_bytes
+    except FileNotFoundError:
+        st.error(f"No se encontró el archivo GIF en la ruta: {gif_path}. Asegúrate de que el archivo está en la misma carpeta que el script.")
+        return None, None
+
 @st.cache_data
 def parse_spanish_dates(date_series):
     """Convierte abreviaturas de meses en español a inglés."""
