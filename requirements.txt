@@ -15,4 +15,4 @@ rasterstats
 xarray
 Pillow
 rioxarray
-statsmodels==0.14.0
+statsmodels
