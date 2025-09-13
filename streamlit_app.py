@@ -19,6 +19,7 @@ import numpy as np
 from pykrige.ok import OrdinaryKriging
 from scipy import stats
 import statsmodels.api as sm
+from statsmodels.tsa.seasonal import seasonal_decompose
 from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
@@ -1357,7 +1358,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
         
-    tendencia_individual_tab, tendencia_tabla_tab, pronostico_sarima_tab, pronostico_prophet_tab = st.tabs(["Análisis Lineal", "Tabla Comparativa", "Pronóstico SARIMA", "Pronóstico Prophet"])
+    tendencia_individual_tab, tendencia_tabla_tab, descomposicion_tab, pronostico_sarima_tab, pronostico_prophet_tab = st.tabs(["Análisis Lineal", "Tabla Comparativa", "Descomposición de Series", "Pronóstico SARIMA", "Pronóstico Prophet"])
 
     with tendencia_individual_tab:
         st.subheader("Tendencia de Precipitación Anual")
@@ -1439,6 +1440,55 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     )
                 else:
                     st.warning("No se pudieron calcular tendencias para las estaciones seleccionadas.")
+    
+    with descomposicion_tab:
+        st.subheader("Descomposición de Series de Tiempo Mensual")
+        st.markdown("""
+        La **descomposición de una serie de tiempo** separa sus componentes principales:
+        - **Tendencia**: Muestra la dirección a largo plazo de los datos (ascendente o descendente).
+        - **Estacionalidad**: Revela patrones que se repiten a intervalos regulares (por ejemplo, anualmente).
+        - **Residuo**: Representa la variabilidad restante después de eliminar la tendencia y la estacionalidad.
+        """)
+        
+        station_to_decompose = st.selectbox("Seleccione una estación para la descomposición:", options=stations_for_analysis, key="decompose_station_select")
+        
+        if station_to_decompose:
+            df_station = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_decompose].copy()
+            if not df_station.empty:
+                df_station.set_index(Config.DATE_COL, inplace=True)
+                df_station = df_station.asfreq('MS') # Asegura que el índice sea de frecuencia mensual
+
+                if df_station[Config.PRECIPITATION_COL].isnull().values.any():
+                    st.info("La serie tiene datos faltantes. Se rellenarán con interpolación lineal para la descomposición.")
+                    df_station[Config.PRECIPITATION_COL] = df_station[Config.PRECIPITATION_COL].interpolate(method='time')
+                
+                try:
+                    result = seasonal_decompose(df_station[Config.PRECIPITATION_COL], model='additive', period=12)
+                    
+                    fig_decomp = go.Figure()
+                    
+                    # Serie Original
+                    fig_decomp.add_trace(go.Scatter(x=df_station.index, y=df_station[Config.PRECIPITATION_COL], mode='lines', name='Original'))
+                    
+                    # Tendencia
+                    fig_decomp.add_trace(go.Scatter(x=result.trend.index, y=result.trend, mode='lines', name='Tendencia'))
+                    
+                    # Estacionalidad
+                    fig_decomp.add_trace(go.Scatter(x=result.seasonal.index, y=result.seasonal, mode='lines', name='Estacionalidad'))
+                    
+                    # Residuo
+                    fig_decomp.add_trace(go.Scatter(x=result.resid.index, y=result.resid, mode='lines', name='Residuo'))
+                    
+                    fig_decomp.update_layout(title=f"Descomposición de la Serie de Precipitación para {station_to_decompose}",
+                                             height=600,
+                                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    
+                    st.plotly_chart(fig_decomp, use_container_width=True)
+
+                except Exception as e:
+                    st.error(f"No se pudo realizar la descomposición de la serie para la estación seleccionada. Es posible que la serie de datos sea demasiado corta o no tenga una estructura estacional clara. Error: {e}")
+            else:
+                st.warning(f"No hay datos mensuales para la estación {station_to_decompose} en el período seleccionado.")
 
     with pronostico_sarima_tab:
         st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
