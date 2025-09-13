@@ -188,7 +188,7 @@ def complete_series(_df):
         
         df_station.dropna(subset=[Config.DATE_COL], inplace=True)
         df_station.drop_duplicates(subset=[Config.DATE_COL], inplace=True)
-
+        
         if df_station.empty:
             continue
 
