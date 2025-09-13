@@ -45,10 +45,9 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-    # Se añade MPIO_SHP_COL para el mapa coroplético
     MPIO_SHP_COL = 'nombre_mpio' 
 
-    # Nuevas constantes para índices climáticos
+    # Nuevas constantes para índices climáticos (ahora leídas del archivo principal)
     SOI_COL = 'soi'
     IOD_COL = 'iod'
 
@@ -102,8 +101,6 @@ class Config:
             'exclude_na': False,
             'exclude_zeros': False,
             'gdf_municipal_stats': None,
-            'df_soi': None,
-            'df_iod': None,
         }
         for key, value in state_defaults.items():
             if key not in st.session_state:
@@ -116,9 +113,11 @@ class Config:
 def parse_spanish_dates(date_series):
     """Convierte abreviaturas de meses en español a inglés."""
     months_es_to_en = {'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec'}
+    # Asegurarse que es string antes de reemplazar
+    date_series_str = date_series.astype(str).str.lower()
     for es, en in months_es_to_en.items():
-        date_series = date_series.str.replace(es, en, regex=False, case=False)
-    return pd.to_datetime(date_series, format='%b-%y', errors='coerce')
+        date_series_str = date_series_str.str.replace(es, en, regex=False)
+    return pd.to_datetime(date_series_str, format='%b-%y', errors='coerce')
 
 @st.cache_data
 def load_csv_data(file_uploader_object, sep=';', lower_case=True):
@@ -166,7 +165,6 @@ def load_shapefile(file_uploader_object):
             gdf = gpd.read_file(shp_path)
             gdf.columns = gdf.columns.str.strip().str.lower()
             
-            # MEJORA: Asignar CRS si no existe y reproyectar de forma segura.
             if gdf.crs is None:
                 st.warning("El shapefile no tiene un sistema de coordenadas de referencia (CRS) definido. Asumiendo MAGNA-SIRGAS (EPSG:9377).")
                 gdf.set_crs("EPSG:9377", inplace=True)
@@ -187,18 +185,14 @@ def complete_series(_df):
         df_station[Config.DATE_COL] = pd.to_datetime(df_station[Config.DATE_COL])
         df_station.set_index(Config.DATE_COL, inplace=True)
         
-        # MEJORA: Asegurar que el índice es único antes de remuestrear.
         if not df_station.index.is_unique:
             df_station = df_station[~df_station.index.duplicated(keep='first')]
 
-        # Crear un rango de fechas completo para la estación
         date_range = pd.date_range(start=df_station.index.min(), end=df_station.index.max(), freq='MS')
         df_resampled = df_station.reindex(date_range)
         
-        # Interpolar solo los valores de precipitación
         df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
         
-        # Rellenar metadatos
         df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
         df_resampled[Config.STATION_NAME_COL] = station
         df_resampled[Config.YEAR_COL] = df_resampled.index.year
@@ -212,28 +206,24 @@ def complete_series(_df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
-
-# MEJORA: Se crea una función única y cacheada para procesar todos los datos.
-# Esto separa la lógica de carga de la interfaz de usuario.
 @st.cache_data
-def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile, uploaded_file_soi, uploaded_file_iod):
+def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
     """
     Carga y procesa todos los archivos de entrada y los fusiona en dataframes listos para usar.
-    Esta función está optimizada para ser cacheada por Streamlit.
     """
     df_stations_raw = load_csv_data(uploaded_file_mapa)
     df_precip_raw = load_csv_data(uploaded_file_precip)
     gdf_municipios = load_shapefile(uploaded_zip_shapefile)
 
     if any(df is None for df in [df_stations_raw, df_precip_raw, gdf_municipios]):
-        return None, None, None, None, None
+        return None, None, None, None
 
     # --- 1. Procesar Estaciones (gdf_stations) ---
     lon_col = next((col for col in df_stations_raw.columns if 'longitud' in col.lower() or 'lon' in col.lower()), None)
     lat_col = next((col for col in df_stations_raw.columns if 'latitud' in col.lower() or 'lat' in col.lower()), None)
     if not all([lon_col, lat_col]):
         st.error("No se encontraron columnas de longitud y/o latitud en el archivo de estaciones.")
-        return None, None, None, None, None
+        return None, None, None, None
     
     df_stations_raw[lon_col] = pd.to_numeric(df_stations_raw[lon_col].astype(str).str.replace(',', '.'), errors='coerce')
     df_stations_raw[lat_col] = pd.to_numeric(df_stations_raw[lat_col].astype(str).str.replace(',', '.'), errors='coerce')
@@ -251,19 +241,20 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     station_id_cols = [col for col in df_precip_raw.columns if col.isdigit()]
     if not station_id_cols:
         st.error("No se encontraron columnas de estación (ej: '12345') en el archivo de precipitación mensual.")
-        return None, None, None, None, None
+        return None, None, None, None
 
     id_vars = [col for col in df_precip_raw.columns if not col.isdigit()]
     df_long = df_precip_raw.melt(id_vars=id_vars, value_vars=station_id_cols, 
                                var_name='id_estacion', value_name=Config.PRECIPITATION_COL)
 
     # Limpieza y conversión de tipos
-    for col in [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media', Config.PRECIPITATION_COL]:
+    cols_to_numeric = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media', Config.PRECIPITATION_COL, Config.SOI_COL, Config.IOD_COL]
+    for col in cols_to_numeric:
         if col in df_long.columns:
             df_long[col] = pd.to_numeric(df_long[col].astype(str).str.replace(',', '.'), errors='coerce')
     
     df_long.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
-    df_long[Config.DATE_COL] = parse_spanish_dates(df_long[Config.DATE_COL].astype(str))
+    df_long[Config.DATE_COL] = parse_spanish_dates(df_long[Config.DATE_COL])
     df_long.dropna(subset=[Config.DATE_COL], inplace=True)
     df_long[Config.ORIGIN_COL] = 'Original'
 
@@ -274,31 +265,25 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     df_long[Config.STATION_NAME_COL] = df_long['id_estacion'].map(station_mapping)
     df_long.dropna(subset=[Config.STATION_NAME_COL], inplace=True)
 
-    # --- 3. Integrar Índices Climáticos Adicionales (SOI, IOD) ---
-    df_soi = load_csv_data(uploaded_file_soi)
-    if df_soi is not None and Config.SOI_COL in df_soi.columns:
-        df_soi[Config.DATE_COL] = parse_spanish_dates(df_soi[Config.DATE_COL].astype(str))
-        df_long = pd.merge(df_long, df_soi[[Config.DATE_COL, Config.SOI_COL]], on=Config.DATE_COL, how='left')
-    
-    df_iod = load_csv_data(uploaded_file_iod)
-    if df_iod is not None and Config.IOD_COL in df_iod.columns:
-        df_iod[Config.DATE_COL] = parse_spanish_dates(df_iod[Config.DATE_COL].astype(str))
-        df_long = pd.merge(df_long, df_iod[[Config.DATE_COL, Config.IOD_COL]], on=Config.DATE_COL, how='left')
-
-    # --- 4. Extraer datos ENSO para gráficos aislados ---
+    # --- 3. Extraer datos ENSO para gráficos aislados ---
     enso_cols = ['id', Config.DATE_COL, Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']
     existing_enso_cols = [col for col in enso_cols if col in df_precip_raw.columns]
     df_enso = df_precip_raw[existing_enso_cols].drop_duplicates().copy()
+    
     if Config.DATE_COL in df_enso.columns:
-        df_enso[Config.DATE_COL] = parse_spanish_dates(df_enso[Config.DATE_COL].astype(str))
+        df_enso[Config.DATE_COL] = parse_spanish_dates(df_enso[Config.DATE_COL])
         df_enso.dropna(subset=[Config.DATE_COL], inplace=True)
+
+    # CORRECCIÓN: Convertir columnas numéricas de ENSO a tipo numérico. Este era el origen del error.
+    for col in [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']:
+        if col in df_enso.columns:
+            df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
 
     return gdf_stations, gdf_municipios, df_long, df_enso
 
 # ---
 # Funciones para Gráficos y Mapas
 # ---
-# ... (El resto de las funciones de visualización como create_enso_chart, display_map_controls, etc., permanecen igual)
 def create_enso_chart(enso_data):
     if enso_data.empty or Config.ENSO_ONI_COL not in enso_data.columns:
         return go.Figure()
@@ -306,6 +291,7 @@ def create_enso_chart(enso_data):
     data = enso_data.copy().sort_values(Config.DATE_COL)
     data.dropna(subset=[Config.ENSO_ONI_COL], inplace=True)
 
+    # Esta línea ahora funcionará porque la columna es numérica
     conditions = [data[Config.ENSO_ONI_COL] >= 0.5, data[Config.ENSO_ONI_COL] <= -0.5]
     phases = ['El Niño', 'La Niña']
     colors = ['red', 'blue']
@@ -532,7 +518,6 @@ def display_spatial_distribution_tab(gdf_filtered, df_anual_melted, stations_for
         else:
             st.warning("No hay estaciones seleccionadas para mostrar el gráfico.")
             
-# ... (El resto de las funciones de visualización de pestañas permanecen en su mayoría iguales)
 def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis):
     st.header("Visualizaciones de Precipitación")
     
@@ -684,7 +669,6 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
         else:
             st.info("No hay datos de altitud o precipitación disponibles para analizar la relación.")
 
-
 def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Mapas Avanzados")
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
@@ -709,7 +693,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                 
                 if st.button("Reiniciar Animación", key="restart_gif"):
                     st.session_state.gif_rerun_count += 1
-                    # Re-read to bypass browser caching if needed
                     with open(Config.GIF_PATH, "rb") as file:
                         contents = file.read()
                         data_url = base64.b64encode(contents).decode("utf-8")
@@ -911,7 +894,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         else:
             st.warning("No hay datos para realizar la interpolación.")
 
-
 def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Información Detallada de las Estaciones")
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
@@ -958,8 +940,6 @@ def display_anomalies_tab(df_long, df_monthly_filtered, stations_for_analysis):
         anom_graf_tab, anom_fase_tab, anom_extremos_tab = st.tabs(["Gráfico de Anomalías", "Anomalías por Fase ENSO", "Tabla de Eventos Extremos"])
 
         with anom_graf_tab:
-            avg_monthly_anom = df_anomalias.groupby([Config.DATE_COL, Config.MONTH_COL])['anomalia'].mean().reset_index()
-            # MEJORA: Se utiliza el df_anomalias que ya tiene la información fusionada.
             df_plot = df_anomalias.groupby(Config.DATE_COL).agg(
                 anomalia=('anomalia', 'mean'),
                 anomalia_oni=(Config.ENSO_ONI_COL, 'first')
@@ -1087,7 +1067,6 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
         else:
             st.info("No hay datos para mostrar la síntesis general.")
 
-
 def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
     st.header("Análisis de Correlación")
     st.markdown("Esta sección cuantifica la relación lineal entre la precipitación y diferentes variables (otras estaciones o índices climáticos) utilizando el coeficiente de correlación de Pearson.")
@@ -1096,7 +1075,6 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
 
-    # MEJORA: La lógica de esta pestaña se ha simplificado gracias a la fusión de datos en el preprocesamiento.
     enso_corr_tab, station_corr_tab, indices_climaticos_tab = st.tabs(["Correlación con ENSO (ONI)", "Comparación entre Estaciones", "Correlación con Otros Índices"])
     
     with enso_corr_tab:
@@ -1193,7 +1171,7 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
             available_indices.append("IOD")
 
         if not available_indices:
-            st.warning("No se han cargado datos para los índices climáticos (SOI o IOD) o no hay datos en el período seleccionado.")
+            st.warning("No se encontraron columnas para los índices climáticos (SOI o IOD) en el archivo principal o no hay datos en el período seleccionado.")
             return
             
         col1_corr, col2_corr = st.columns(2)
@@ -1302,7 +1280,6 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
                     folium.raster_layers.WmsTileLayer(url=layer_config["url"], layers=layer_config["layers"], fmt='image/png', transparent=layer_config.get("transparent", False), overlay=True, control=True, name=layer_config["attr"]).add_to(m_enso)
                 folium.LayerControl().add_to(m_enso)
                 folium_static(m_enso, height=700, width="100%")
-
 
 def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stations_for_analysis):
     st.header("Análisis de Tendencias y Pronósticos")
@@ -1490,7 +1467,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         else:
             st.info("Por favor, cargue datos para generar un pronóstico.")
 
-
 def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis):
     st.header("Opciones de Descarga")
     if len(stations_for_analysis) == 0:
@@ -1517,31 +1493,21 @@ def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_ana
     else:
         st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
 
-# ---
-# NUEVO: Pestaña para Mapa Coroplético y Estadísticas Zonales
-# ---
 @st.cache_data
 def calculate_municipal_stats(_df_monthly, _gdf_stations, _gdf_municipios):
     """Calcula estadísticas de precipitación por municipio."""
     if _df_monthly.empty or _gdf_stations.empty or _gdf_municipios.empty:
         return None
     
-    # 1. Promedio de precipitación por estación
     station_avg = _df_monthly.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().reset_index()
-    
-    # 2. Unir con datos geoespaciales de estaciones
     gdf_stations_with_precip = _gdf_stations.merge(station_avg, on=Config.STATION_NAME_COL, how='inner')
+    gdf_stations_in_municipios = gpd.sjoin(gdf_stations_with_precip, _gdf_municipios, how="inner", predicate='within')
     
-    # 3. Unir espacialmente estaciones con municipios
-    gdf_stations_in_municipios = gpd.sjoin(gdf_stations_with_precip, _gdf_municipios, how="inner", op='within')
-    
-    # 4. Calcular estadísticas por municipio (media de las estaciones dentro de cada uno)
     municipal_stats = gdf_stations_in_municipios.groupby(Config.MPIO_SHP_COL).agg(
         precip_media=(Config.PRECIPITATION_COL, 'mean'),
         num_estaciones=('nom_est', 'count')
     ).reset_index()
     
-    # 5. Unir estadísticas de vuelta al GeoDataFrame de municipios
     gdf_result = _gdf_municipios.merge(municipal_stats, on=Config.MPIO_SHP_COL, how='left')
     return gdf_result
 
@@ -1555,19 +1521,16 @@ def calculate_zonal_stats_from_raster(_gdf_municipios, raster_file_obj, band=1):
             tmp.write(raster_file_obj.getvalue())
             raster_path = tmp.name
         
-        # Usar affine y array para zonal_stats
         with rioxarray.open_rasterio(raster_path) as src:
             affine = src.rio.transform()
             array = src.read(band)
 
-        # Calcular estadísticas zonales
         stats = zonal_stats(_gdf_municipios, array, affine=affine, stats="min mean max median std", nodata=-9999)
         
-        # Unir resultados al GeoDataFrame
         df_stats = pd.DataFrame(stats)
         _gdf_municipios_stats = pd.concat([_gdf_municipios.reset_index(drop=True), df_stats], axis=1)
         
-        os.unlink(raster_path) # Limpiar archivo temporal
+        os.unlink(raster_path)
         return _gdf_municipios_stats
     except Exception as e:
         st.error(f"Error al procesar el archivo raster: {e}")
@@ -1605,7 +1568,6 @@ def display_choropleth_tab(gdf_municipal_stats, uploaded_raster):
             legend_name='Precipitación Media Mensual (mm)'
         ).add_to(m)
 
-        # Añadir tooltips
         folium.GeoJsonTooltip(fields=[Config.MPIO_SHP_COL, 'precip_media', 'num_estaciones'],
                               aliases=['Municipio:', 'Ppt. Media (mm):', 'Nº Estaciones:'],
                               style=("background-color: white; color: #333333; font-family: arial; font-size: 12px; padding: 10px;")).add_to(choropleth.geojson)
@@ -1647,7 +1609,6 @@ def main():
         </style>
     """, unsafe_allow_html=True)
 
-    # Inicialización del estado de la sesión
     Config.initialize_session_state()
 
     title_col1, title_col2 = st.columns([0.07, 0.93])
@@ -1658,15 +1619,13 @@ def main():
     
     st.sidebar.header("Panel de Control")
 
-    # MEJORA: La carga de archivos ahora está fuera de la función de procesamiento para evitar problemas de caché.
     with st.sidebar.expander("**Cargar Archivos**", expanded=not st.session_state.data_loaded):
         uploaded_file_mapa = st.file_uploader("1. Cargar archivo de estaciones (mapaCVENSO.csv)", type="csv")
         uploaded_file_precip = st.file_uploader("2. Cargar archivo de precipitación mensual y ENSO (DatosPptnmes_ENSO.csv)", type="csv")
         uploaded_zip_shapefile = st.file_uploader("3. Cargar shapefile de municipios (.zip)", type="zip")
-        uploaded_file_soi = st.file_uploader("4. Cargar archivo de índice SOI (opcional, .csv)", type="csv")
-        uploaded_file_iod = st.file_uploader("5. Cargar archivo de índice IOD (opcional, .csv)", type="csv")
-        # NUEVO: File uploader para raster
-        uploaded_raster = st.file_uploader("6. Cargar archivo Raster (opcional, .tif, .tiff)", type=["tif", "tiff"])
+        
+        # MEJORA: 🧹 Se eliminan los cargadores de archivos para SOI e IOD.
+        uploaded_raster = st.file_uploader("4. Cargar archivo Raster (opcional, .tif, .tiff)", type=["tif", "tiff"])
 
         if st.button("Recargar Datos"):
             st.session_state.data_loaded = False
@@ -1679,8 +1638,9 @@ def main():
             st.stop()
         else:
             with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
+                # MEJORA: Se actualiza la llamada a la función de procesamiento.
                 gdf_stations, gdf_municipios, df_long, df_enso = load_and_process_all_data(
-                    uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile, uploaded_file_soi, uploaded_file_iod
+                    uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile
                 )
                 if gdf_stations is not None:
                     st.session_state.gdf_stations = gdf_stations
@@ -1693,7 +1653,6 @@ def main():
                     st.error("Hubo un error al procesar los archivos. Por favor, verifique que sean correctos y vuelva a intentarlo.")
                     st.stop()
     
-    # --- Interfaz principal una vez cargados los datos ---
     if st.session_state.gdf_stations is None:
         st.stop()
 
@@ -1726,7 +1685,6 @@ def main():
         regions_list = sorted(st.session_state.gdf_stations[Config.REGION_COL].dropna().unique())
         selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list, default=st.session_state.get('regions_multiselect', []), key='regions_multiselect')
         
-        # Filtrado dinámico de municipios y celdas
         temp_filtered_for_ui = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, [], [])
         municipios_list = sorted(temp_filtered_for_ui[Config.MUNICIPALITY_COL].dropna().unique())
         selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list, default=st.session_state.get('municipios_multiselect', []), key='municipios_multiselect')
@@ -1775,13 +1733,11 @@ def main():
         exclude_na = st.checkbox("Excluir datos nulos (NaN)", value=st.session_state.exclude_na, key='exclude_na_checkbox')
         exclude_zeros = st.checkbox("Excluir valores cero (0)", value=st.session_state.exclude_zeros, key='exclude_zeros_checkbox')
 
-    # --- Lógica de filtrado de datos principal ---
     st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
     
     stations_for_analysis = selected_stations if selected_stations else st.session_state.gdf_filtered[Config.STATION_NAME_COL].unique()
     st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
 
-    # Filtrado de datos anuales (melt)
     cols_to_melt = [str(y) for y in range(year_range[0], year_range[1] + 1) if str(y) in st.session_state.gdf_stations.columns]
     df_anual_melted = st.session_state.gdf_stations.melt(
         id_vars=[Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL],
@@ -1789,14 +1745,13 @@ def main():
     )
     df_anual_melted = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
     
-    # Filtrado de datos mensuales
     if st.session_state.df_long is not None:
         if analysis_mode == "Completar series (interpolación)":
             df_monthly_processed = complete_series(st.session_state.df_long.copy())
         else:
             df_monthly_processed = st.session_state.df_long.copy()
         
-        st.session_state.df_monthly_processed = df_monthly_processed # Guardar para pronósticos
+        st.session_state.df_monthly_processed = df_monthly_processed
         
         df_monthly_filtered = df_monthly_processed[
             (df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
@@ -1808,7 +1763,6 @@ def main():
         df_monthly_filtered = pd.DataFrame()
         st.session_state.df_monthly_processed = pd.DataFrame()
     
-    # Aplicar exclusión de nulos/ceros
     if exclude_na:
         df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
         if not df_monthly_filtered.empty:
@@ -1818,33 +1772,23 @@ def main():
         if not df_monthly_filtered.empty:
             df_monthly_filtered = df_monthly_filtered[df_monthly_filtered[Config.PRECIPITATION_COL] > 0]
 
-    # Guardar estado para acceso en las pestañas
     st.session_state.year_range = year_range
     st.session_state.meses_numeros = meses_numeros
     st.session_state.df_monthly_filtered = df_monthly_filtered
 
-    # Pestañas Principales
     tab_names = [
         "🏠 Bienvenida", "Distribución Espacial", "Gráficos", "Mapas Avanzados", 
-        "🗺️ Mapa Coroplético", # NUEVO
-        "Análisis de Anomalías", "Estadísticas", "Análisis de Correlación", 
-        "Análisis ENSO", "Tendencias y Pronósticos", "Descargas", "Tabla de Estaciones"
+        "🗺️ Mapa Coroplético", "Análisis de Anomalías", "Estadísticas", 
+        "Análisis de Correlación", "Análisis ENSO", "Tendencias y Pronósticos", 
+        "Descargas", "Tabla de Estaciones"
     ]
     
     tabs = st.tabs(tab_names)
-    bienvenida_tab = tabs[0]
-    mapa_tab = tabs[1]
-    graficos_tab = tabs[2]
-    mapas_avanzados_tab = tabs[3]
-    coropletico_tab = tabs[4] # NUEVO
-    anomalias_tab = tabs[5]
-    estadisticas_tab = tabs[6]
-    correlacion_tab = tabs[7]
-    enso_tab = tabs[8]
-    tendencias_tab = tabs[9]
-    descargas_tab = tabs[10]
-    tabla_estaciones_tab = tabs[11]
-
+    (
+        bienvenida_tab, mapa_tab, graficos_tab, mapas_avanzados_tab, 
+        coropletico_tab, anomalias_tab, estadisticas_tab, correlacion_tab, 
+        enso_tab, tendencias_tab, descargas_tab, tabla_estaciones_tab
+    ) = tabs
 
     with bienvenida_tab:
         display_welcome_tab()
@@ -1854,7 +1798,7 @@ def main():
         display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis)
     with mapas_avanzados_tab:
         display_advanced_maps_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis)
-    with coropletico_tab: # NUEVO
+    with coropletico_tab:
         gdf_municipal_stats = calculate_municipal_stats(df_monthly_filtered, st.session_state.gdf_stations, st.session_state.gdf_municipios)
         display_choropleth_tab(gdf_municipal_stats, uploaded_raster)
     with anomalias_tab:
