@@ -15,3 +15,4 @@ openpyxl
 rasterstats
 xarray
 Pillow
+rioxarray
