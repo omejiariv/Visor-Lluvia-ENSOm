@@ -46,8 +46,7 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-    # Se añade MPIO_SHP_COL para el mapa coroplético
-    MPIO_SHP_COL = 'nombre_mpio' 
+    MPIO_SHP_COL = 'nombre_mpio'
 
     # Nuevas constantes para índices climáticos
     SOI_COL = 'soi'
