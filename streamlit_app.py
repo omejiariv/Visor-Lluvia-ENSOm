@@ -22,7 +22,6 @@ import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from prophet import Prophet
 from prophet.plot import plot_plotly
-from sklearn.metrics import mean_squared_error
 import branca.colormap as cm
 import base64
 
@@ -636,7 +635,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
                     fig_hist_anual.update_layout(height=600)
                     st.plotly_chart(fig_hist_anual, use_container_width=True)
                 else: # Gráfico de Violín Anual
-                    fig_violin_anual = px.violin(df_anual_melted, y=Config.PRECIPitación_COL, x=Config.STATION_NAME_COL, color=Config.STATION_NAME_COL, 
+                    fig_violin_anual = px.violin(df_anual_melted, y=Config.PRECIPITATION_COL, x=Config.STATION_NAME_COL, color=Config.STATION_NAME_COL, 
                                           box=True, points="all", title='Distribución Anual con Gráfico de Violín',
                                           labels={Config.PRECIPITATION_COL: 'Precipitación Anual (mm)', Config.STATION_NAME_COL: 'Estación'})
                     fig_violin_anual.update_layout(height=600)
@@ -1484,7 +1483,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     st.error(f"No se pudo realizar la descomposición de la serie para la estación seleccionada. Es posible que la serie de datos sea demasiado corta o no tenga una estructura estacional clara. Error: {e}")
             else:
                 st.warning(f"No hay datos mensuales para la estación {station_to_decompose} en el período seleccionado.")
-    
+
     with pronostico_sarima_tab:
         st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
         with st.expander("¿Cómo funciona SARIMA?"):
@@ -1630,8 +1629,9 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                                                                     xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
                                         st.plotly_chart(fig_comparison, use_container_width=True)
 
-                                        # Comparar con datos históricos si hay solapamiento
-                                        df_validation = pd.merge(df_combined, df_internal_data[['ds', 'y']], on='ds', how='inner').dropna()
+                                        # Calcular métricas de error
+                                        from sklearn.metrics import mean_squared_error
+                                        df_validation = pd.merge(df_internal_data, df_combined, on='ds', how='inner').dropna()
                                         if not df_validation.empty:
                                             rmse_prophet = np.sqrt(mean_squared_error(df_validation['y'], df_validation['Pronóstico Prophet']))
                                             rmse_external = np.sqrt(mean_squared_error(df_validation['y'], df_validation['y_external']))
