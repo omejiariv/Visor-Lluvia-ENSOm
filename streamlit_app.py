@@ -368,7 +368,7 @@ def display_map_controls(container_object, key_prefix):
     return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
 
 # ---
-# --- SECCIÓN DE FUNCIONES DE PESTAÑAS RESTAURADAS ---
+# --- SECCIÓN DE FUNCIONES DE PESTAÑAS ---
 # ---
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
@@ -886,27 +886,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     st.plotly_chart(fig_krig, use_container_width=True)
         else:
             st.warning("No hay datos para realizar la interpolación.")
-
-# ---
-# FUNCIÓN RESTAURADA
-# ---
-def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
-    st.header("Información Detallada de las Estaciones")
-    selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
-    st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
-    
-    if len(stations_for_analysis) == 0:
-        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
-        return
-    if not df_anual_melted.empty:
-        df_info_table = gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL, Config.MUNICIPALITY_COL, Config.REGION_COL, Config.PERCENTAGE_COL]].copy()
-        df_mean_precip = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().round(0).reset_index()
-        df_mean_precip.rename(columns={Config.PRECIPITATION_COL: 'Precipitación media anual (mm)'}, inplace=True)
-        df_info_table = df_info_table.merge(df_mean_precip, on=Config.STATION_NAME_COL, how='left')
-        st.dataframe(df_info_table)
-    else:
-        st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
-# ---
 
 # ---
 # Cuerpo Principal del Script
