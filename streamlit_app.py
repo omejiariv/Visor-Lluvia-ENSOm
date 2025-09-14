@@ -1062,7 +1062,6 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
     with matriz_tab:
         st.subheader("Matriz de Disponibilidad y Composición de Datos Anual")
         
-        # --- MEJORA: AÑADIR OPCIÓN PARA VER DATOS COMPLETADOS SI LA INTERPOLACIÓN ESTÁ ACTIVA ---
         if analysis_mode == "Completar series (interpolación)":
             view_mode = st.radio(
                 "Seleccione la vista de la matriz:", 
@@ -3081,3 +3080,116 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     model_prophet.fit(ts_data_prophet)
                     future = model_prophet.make_future_dataframe(periods=forecast_horizon_prophet, freq='MS')
                     forecast_prophet = model_prophet.predict(future)
+                    
+                    st.success("Pronóstico generado exitosamente.")
+                    fig_prophet = plot_plotly(model_prophet, forecast_prophet)
+                    fig_prophet.update_layout(title=f"Pronóstico de Precipitación con Prophet para {station_to_forecast_prophet}", yaxis_title="Precipitación (mm)")
+                    st.plotly_chart(fig_prophet, use_container_width=True)
+
+                    csv_data = forecast_prophet[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Descargar Pronóstico Prophet en CSV", data=csv_data,
+                        file_name=f'pronostico_prophet_{station_to_forecast_prophet.replace(" ", "_")}.csv', mime='text/csv',
+                        key='download-prophet'
+                    )
+                except Exception as e:
+                    st.error(f"Ocurrió un error al generar el pronóstico con Prophet. Esto puede deberse a que la serie de datos es demasiado corta o inestable. Error: {e}")
+        else:
+            st.info("Por favor, cargue datos para generar un pronóstico.")
+
+def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis, analysis_mode):
+    st.header("Opciones de Descarga")
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para activar las descargas.")
+        return
+    
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False).encode('utf-8')
+
+    st.markdown("**Datos de Precipitación Anual (Filtrados)**")
+    csv_anual = convert_df_to_csv(df_anual_melted)
+    st.download_button("Descargar CSV Anual", csv_anual, 'precipitacion_anual.csv', 'text/csv', key='download-anual')
+
+    st.markdown("**Datos de Precipitación Mensual (Filtrados)**")
+    csv_mensual = convert_df_to_csv(df_monthly_filtered)
+    st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv', key='download-mensual')
+
+    # --- MEJORA: AÑADIR BOTÓN DE DESCARGA DE SERIES COMPLETADAS ---
+    st.markdown("**Datos de Precipitación Mensual (Series Completadas)**")
+    if analysis_mode == "Completar series (interpolación)":
+        df_completed_filtered = st.session_state.df_monthly_processed[st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        csv_completado = convert_df_to_csv(df_completed_filtered)
+        st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
+    else:
+        st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
+
+def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
+    st.header("Información Detallada de las Estaciones")
+    selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
+    st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
+    
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+        return
+    if not df_anual_melted.empty:
+        df_info_table = gdf_filtered[[Config.STATION_NAME_COL, Config.ALTITUDE_COL, Config.MUNICIPALITY_COL, Config.REGION_COL, Config.PERCENTAGE_COL]].copy()
+        df_mean_precip = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().round(0).reset_index()
+        df_mean_precip.rename(columns={Config.PRECIPITATION_COL: 'Precipitación media anual (mm)'}, inplace=True)
+        df_info_table = df_info_table.merge(df_mean_precip, on=Config.STATION_NAME_COL, how='left')
+        st.dataframe(df_info_table)
+    else:
+        st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
+
+def display_sidebar_controls():
+    st.sidebar.header("Panel de Control")
+
+    with st.sidebar.expander("**Cargar Archivos**", expanded=not st.session_state.data_loaded):
+        uploaded_file_mapa = st.file_uploader("1. Cargar archivo de estaciones (mapaCVENSO.csv)", type="csv")
+        uploaded_file_precip = st.file_uploader("2. Cargar archivo de precipitación mensual y ENSO (DatosPptnmes_ENSO.csv)", type="csv")
+        uploaded_zip_shapefile = st.file_uploader("3. Cargar shapefile de municipios (.zip)", type="zip")
+
+        if st.button("Recargar Datos"):
+            st.session_state.data_loaded = False
+            st.cache_data.clear()
+            st.rerun()
+            
+    if not st.session_state.data_loaded:
+        if not all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
+            st.info("Por favor, suba los 3 archivos requeridos (estaciones, precipitación, shapefile) para habilitar la aplicación.")
+            st.stop()
+        else:
+            with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
+                gdf_stations, gdf_municipios, df_long, df_enso = load_and_process_all_data(
+                    uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile
+                )
+                if gdf_stations is not None:
+                    st.session_state.gdf_stations = gdf_stations
+                    st.session_state.gdf_municipios = gdf_municipios
+                    st.session_state.df_long = df_long
+                    st.session_state.df_enso = df_enso
+                    st.session_state.data_loaded = True
+                    st.rerun()
+                else:
+                    st.error("Hubo un error al procesar los archivos. Por favor, verifique que sean correctos y vuelva a intentarlo.")
+                    st.stop()
+    
+    if st.session_state.gdf_stations is None:
+        st.stop()
+
+    with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
+        
+        min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, st.session_state.min_data_perc_slider, key='min_data_perc_slider')
+        
+        altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
+        selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges, default=st.session_state.altitude_multiselect, key='altitude_multiselect')
+
+        regions_list = sorted(st.session_state.gdf_stations[Config.REGION_COL].dropna().unique())
+        selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list, default=st.session_state.regions_multiselect, key='regions_multiselect')
+        
+        # Filtro en cascada para municipios
+        stations_temp_filtered = st.session_state.gdf_stations.copy()
+        if selected_regions:
+            stations_temp_filtered = stations_temp_filtered[stations_temp_filtered[Config.REGION_COL].isin(selected_regions)]
+        municipios_list = sorted(stations_temp_filtered[Config.MUNICIPALITY_COL].dropna().unique())
+        selected_municipios = st
