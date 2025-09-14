@@ -1062,16 +1062,12 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
     with matriz_tab:
         st.subheader("Matriz de Disponibilidad y Composición de Datos Anual")
         
-        # --- MEJORA: AGREGAR OPCIÓN PARA VER DATOS COMPLETADOS SI LA INTERPOLACIÓN ESTÁ ACTIVA ---
         if st.session_state.analysis_mode == "Completar series (interpolación)":
             view_mode = st.radio("Seleccione la vista de la matriz:", ("Número de Datos Originales", "Número de Datos Completados"), horizontal=True, key="matriz_view_mode")
         else:
             view_mode = "Número de Datos Originales"
 
-        original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-        original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_original')
-        
-        if view_mode == "Número de Datos Completados":
+        if st.session_state.analysis_mode == "Completar series (interpolación)" and view_mode == "Número de Datos Completados":
             completed_data = st.session_state.df_monthly_processed[(st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) & (st.session_state.df_monthly_processed[Config.ORIGIN_COL] == 'Completado')]
             if not completed_data.empty:
                 completed_counts = completed_data.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_completed')
@@ -1081,6 +1077,8 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                 heatmap_df = pd.DataFrame()
                 title_text = "Número de Datos Completados"
         else:
+            original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+            original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_original')
             heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='count_original')
             title_text = "Número de Datos Originales"
         
@@ -1533,7 +1531,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                 El modelo **SARIMA** (Seasonal Auto-Regressive Integrated Moving Average) es un método estadístico que utiliza datos históricos para predecir valores futuros.
                 - **Autoregresivo (AR):** La predicción depende de valores pasados de la serie.
                 - **Integrado (I):** Utiliza la diferencia entre valores para hacer la serie estacionaria (eliminar tendencias).
-                - **Media Móvil (MA)::** La predicción se basa en errores de pronósticos pasados.
+                - **Media Móvil (MA):** La predicción se basa en errores de pronósticos pasados.
                 - **Estacional (S):** Captura patrones que se repiten en ciclos, como la variación anual de las lluvias.
             """)
         
