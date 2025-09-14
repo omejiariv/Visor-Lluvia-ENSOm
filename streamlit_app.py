@@ -1062,9 +1062,19 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
     with matriz_tab:
         st.subheader("Matriz de Disponibilidad y Composición de Datos Anual")
         
+        # --- LÓGICA CORREGIDA PARA MOSTRAR LAS OPCIONES DE INTERPOLACIÓN ---
         if st.session_state.analysis_mode == "Completar series (interpolación)":
-            view_mode = st.radio("Seleccione la vista de la matriz:", ("Número de Datos Originales", "Número de Datos Completados"), horizontal=True, key="matriz_view_mode")
+            view_mode = st.radio(
+                "Seleccione la vista de la matriz:", 
+                ("Número de Datos Originales", "Número de Datos Completados"), 
+                horizontal=True, 
+                key="matriz_view_mode"
+            )
         else:
+            st.markdown(
+                f'<p style="color:grey;">Opciones de visualización de series completadas (requiere la opción de interpolación activa)</p>',
+                unsafe_allow_html=True
+            )
             view_mode = "Número de Datos Originales"
 
         if st.session_state.analysis_mode == "Completar series (interpolación)" and view_mode == "Número de Datos Completados":
@@ -1077,7 +1087,7 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                 heatmap_df = pd.DataFrame()
                 title_text = "Número de Datos Completados"
         else:
-            original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+            original_data_counts = st.session_state.df_long[st.session_state.df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
             original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_original')
             heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='count_original')
             title_text = "Número de Datos Originales"
