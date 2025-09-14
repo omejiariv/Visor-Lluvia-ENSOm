@@ -1061,16 +1061,17 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
 
     with matriz_tab:
         st.subheader("Matriz de Disponibilidad y Composición de Datos Anual")
-        # --- MEJORA: AGREGAR OPCIÓN PARA VER DATOS COMPLETADOS ---
+        
+        # --- MEJORA: AGREGAR OPCIÓN PARA VER DATOS COMPLETADOS SI LA INTERPOLACIÓN ESTÁ ACTIVA ---
         if st.session_state.analysis_mode == "Completar series (interpolación)":
-            view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Completados"), horizontal=True, key="matriz_view_mode")
+            view_mode = st.radio("Seleccione la vista de la matriz:", ("Número de Datos Originales", "Número de Datos Completados"), horizontal=True, key="matriz_view_mode")
         else:
-            view_mode = "Porcentaje de Datos Originales"
+            view_mode = "Número de Datos Originales"
 
         original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
         original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_original')
         
-        if view_mode == "Porcentaje de Datos Completados":
+        if view_mode == "Número de Datos Completados":
             completed_data = st.session_state.df_monthly_processed[(st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) & (st.session_state.df_monthly_processed[Config.ORIGIN_COL] == 'Completado')]
             if not completed_data.empty:
                 completed_counts = completed_data.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_completed')
@@ -1082,16 +1083,15 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
         else:
             heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='count_original')
             title_text = "Número de Datos Originales"
-
+        
         if not heatmap_df.empty:
-            avg_availability = heatmap_df.stack().mean() if view_mode != "Porcentaje de Datos Completados" else None
+            avg_count = heatmap_df.stack().mean() if not heatmap_df.stack().empty else 0
             
             logo_col, metric_col = st.columns([1, 5])
             with logo_col:
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=50)
             with metric_col: 
-                if avg_availability is not None:
-                    st.metric(label=title_text, value=f"{avg_availability:.1f} por año")
+                st.metric(label=title_text, value=f"{avg_count:.1f} por año")
             
             styled_df = heatmap_df.style.background_gradient(cmap="Greens", axis=None, vmin=0, vmax=12).format("{:.0f}", na_rep="-").set_table_styles([
                 {'selector': 'th', 'props': [('background-color', '#333'), ('color', 'white'), ('font-size', '14px')]},
@@ -1323,7 +1323,7 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
         enso_anim_data_filtered = enso_anim_data[(enso_anim_data[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) & (enso_anim_data[Config.DATE_COL].dt.year <= st.session_state.year_range[1])]
 
         with controls_col:
-            st.markdown("##### Controles de Mapa")
+            st.markdown("##### Controles del Mapa")
             selected_base_map_config, selected_overlays_config = display_map_controls(st, "enso_anim")
             st.markdown("##### Selección de Fecha")
             available_dates = sorted(enso_anim_data_filtered[Config.DATE_COL].unique())
@@ -1520,9 +1520,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     fig_acf = plot_autocorrelation(df_station_acf[Config.PRECIPITATION_COL], f'Función de Autocorrelación (ACF) para {station_to_analyze_acf}', max_lag)
                     st.plotly_chart(fig_acf, use_container_width=True)
 
-                    # Nota: El cálculo manual de PACF es complejo. Para simplificar,
-                    # se muestra una advertencia. Puedes buscar una implementación
-                    # más sofisticada si la necesitas en el futuro.
                     st.info("El cálculo de la Autocorrelación Parcial (PACF) es complejo y requiere de la librería `statsmodels`. Sin embargo, el gráfico de ACF ya proporciona una excelente visión de los patrones de persistencia.")
                 else:
                     st.warning("No hay suficientes puntos de datos para el número de rezagos seleccionado.")
@@ -1536,7 +1533,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                 El modelo **SARIMA** (Seasonal Auto-Regressive Integrated Moving Average) es un método estadístico que utiliza datos históricos para predecir valores futuros.
                 - **Autoregresivo (AR):** La predicción depende de valores pasados de la serie.
                 - **Integrado (I):** Utiliza la diferencia entre valores para hacer la serie estacionaria (eliminar tendencias).
-                - **Media Móvil (MA):** La predicción se basa en errores de pronósticos pasados.
+                - **Media Móvil (MA)::** La predicción se basa en errores de pronósticos pasados.
                 - **Estacional (S):** Captura patrones que se repiten en ciclos, como la variación anual de las lluvias.
             """)
         
@@ -1641,9 +1638,10 @@ def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_ana
     csv_mensual = convert_df_to_csv(df_monthly_filtered)
     st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv', key='download-mensual')
 
+    # --- MEJORA: AÑADIR BOTÓN DE DESCARGA DE SERIES COMPLETADAS ---
+    st.markdown("**Datos de Precipitación Mensual (Series Completadas)**")
     if st.session_state.analysis_mode == "Completar series (interpolación)":
-        st.markdown("**Datos de Precipitación Mensual (Series Completadas y Filtradas)**")
-        df_completed_filtered = st.session_state.df_monthly_filtered[st.session_state.df_monthly_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        df_completed_filtered = st.session_state.df_monthly_processed[st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)]
         csv_completado = convert_df_to_csv(df_completed_filtered)
         st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
     else:
