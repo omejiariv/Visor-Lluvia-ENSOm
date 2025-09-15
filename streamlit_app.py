@@ -1073,42 +1073,56 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
  
     with matriz_tab:
         st.subheader("Matriz de Disponibilidad de Datos Anual")
-        original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-        original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
-        original_data_counts['porc_original'] = (original_data_counts['count'] / 12) * 100
-        heatmap_original_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original')
         
-        heatmap_df = heatmap_original_df
-        color_scale = "Greens"
-        title_text = "Porcentaje de Datos Originales (%) por Estación y Año"
-        
+        # Lógica para mostrar la matriz de datos originales o completados
         if st.session_state.analysis_mode == "Completar series (interpolación)":
             view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Completados"), horizontal=True, key="matriz_view_mode")
             if view_mode == "Porcentaje de Datos Completados":
-                completed_data = st.session_state.df_monthly_processed[
+                # Calcular el porcentaje de datos completados
+                completed_data_counts = st.session_state.df_monthly_processed[
                     (st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) & 
                     (st.session_state.df_monthly_processed[Config.ORIGIN_COL] == 'Completado')
                 ]
-                if not completed_data.empty:
-                    completed_counts = completed_data.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
+                if not completed_data_counts.empty:
+                    completed_counts = completed_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
                     completed_counts['porc_completado'] = (completed_counts['count'] / 12) * 100
-                    heatmap_df = completed_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_completado')
+                    heatmap_df = completed_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_completado').fillna(0)
                     color_scale = "Reds"
                     title_text = "Porcentaje de Datos Completados (%) por Estación y Año"
                 else:
                     heatmap_df = pd.DataFrame()
+            else: # Porcentaje de Datos Originales
+                original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+                original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
+                original_data_counts['porc_original'] = (original_data_counts['count'] / 12) * 100
+                heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original').fillna(0)
+                color_scale = "Greens"
+                title_text = "Porcentaje de Datos Originales (%) por Estación y Año"
+        else: # Solo datos originales
+            original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+            original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
+            original_data_counts['porc_original'] = (original_data_counts['count'] / 12) * 100
+            heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original').fillna(0)
+            color_scale = "Greens"
+            title_text = "Porcentaje de Datos Originales (%) por Estación y Año"
         
+        # Visualización
         if not heatmap_df.empty:
-            # Calcular el promedio de disponibilidad anual solo para las estaciones seleccionadas
-            num_years = len(heatmap_df.columns)
-            total_data_points = num_years * len(heatmap_df.index)
-            available_data_points = heatmap_df.sum().sum() / 100 * 12 # Convertir porcentaje a puntos de datos
-            avg_availability = (available_data_points / total_data_points) * 100 if total_data_points > 0 else 0
+            # Reindexar para asegurar que todas las estaciones seleccionadas estén en el heatmap
+            stations_in_heatmap = heatmap_df.index.unique().tolist()
+            missing_stations = list(set(stations_for_analysis) - set(stations_in_heatmap))
+            if missing_stations:
+                missing_df = pd.DataFrame(index=missing_stations, columns=heatmap_df.columns).fillna(0)
+                heatmap_df = pd.concat([heatmap_df, missing_df])
+                heatmap_df = heatmap_df.reindex(sorted(heatmap_df.index))
+            
+            # Calcular el promedio de disponibilidad anual
+            avg_availability = heatmap_df.replace(0, np.nan).stack().mean()
             
             logo_col, metric_col = st.columns([1, 5])
             with logo_col:
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=50)
-            with metric_col: st.metric(label=title_text, value=f"{avg_availability:.1f}%")
+            with metric_col: st.metric(label=title_text, value=f"{avg_availability:.1f}%" if not np.isnan(avg_availability) else "N/A")
             
             fig_heatmap = px.imshow(
                 heatmap_df,
