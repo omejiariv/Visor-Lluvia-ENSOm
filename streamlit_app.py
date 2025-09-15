@@ -20,7 +20,7 @@ from pykrige.ok import OrdinaryKriging
 from scipy import stats
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.tsa.stattools import pacf # <<< CORRECCIÓN: Importación correcta para PACF
+from statsmodels.tsa.stattools import pacf
 from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
@@ -135,7 +135,6 @@ def load_csv_data(file_uploader_object, sep=';', lower_case=True):
     for encoding in encodings_to_try:
         try:
             df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding)
-            # <<< MEJORA: Limpieza de columnas más robusta
             df.columns = df.columns.str.strip().str.replace(';', '')
             if lower_case:
                 df.columns = df.columns.str.lower()
@@ -162,7 +161,6 @@ def load_shapefile(file_uploader_object):
             
             shp_path = os.path.join(temp_dir, shp_files[0])
             gdf = gpd.read_file(shp_path)
-            # <<< MEJORA: Limpieza de columnas más robusta
             gdf.columns = gdf.columns.str.strip().str.lower()
             
             if gdf.crs is None:
@@ -206,6 +204,7 @@ def complete_series(_df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
+# <<< INICIO DEL CÓDIGO CORREGIDO >>>
 @st.cache_data
 def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
     """
@@ -247,7 +246,6 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     df_long = df_precip_raw.melt(id_vars=id_vars, value_vars=station_id_cols, 
                                  var_name='id_estacion', value_name=Config.PRECIPITATION_COL)
 
-    # Limpieza y conversión de tipos
     cols_to_numeric = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media', Config.PRECIPITATION_COL, Config.SOI_COL, Config.IOD_COL]
     for col in cols_to_numeric:
         if col in df_long.columns:
@@ -258,8 +256,10 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     df_long.dropna(subset=[Config.DATE_COL], inplace=True)
     df_long[Config.ORIGIN_COL] = 'Original'
 
-    # Mapeo de nombres de estación
-    # <<< MEJORA: Asegurar que la columna de ID sea string para el merge.
+    # <<< CORRECCIÓN (Paso 1): Crear explícitamente las columnas de año y mes
+    df_long[Config.YEAR_COL] = df_long[Config.DATE_COL].dt.year
+    df_long[Config.MONTH_COL] = df_long[Config.DATE_COL].dt.month
+    
     id_estacion_col_name = next((col for col in gdf_stations.columns if 'id_estacio' in col), None)
     if id_estacion_col_name is None:
         st.error("No se encontró la columna 'id_estacio' en el archivo de estaciones.")
@@ -271,6 +271,20 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     df_long[Config.STATION_NAME_COL] = df_long['id_estacion'].map(station_mapping)
     df_long.dropna(subset=[Config.STATION_NAME_COL], inplace=True)
 
+    # <<< CORRECCIÓN (Paso 2): Fusionar con metadatos de estaciones para añadir las columnas que faltaban
+    station_metadata_cols = [
+        Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.REGION_COL, 
+        Config.ALTITUDE_COL, Config.CELL_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL
+    ]
+    existing_metadata_cols = [col for col in station_metadata_cols if col in gdf_stations.columns]
+
+    df_long = pd.merge(
+        df_long,
+        gdf_stations[existing_metadata_cols].drop_duplicates(subset=[Config.STATION_NAME_COL]),
+        on=Config.STATION_NAME_COL,
+        how='left'
+    )
+    
     # --- 3. Extraer datos ENSO para gráficos aislados ---
     enso_cols = ['id', Config.DATE_COL, Config.ENSO_ONI_COL, 'temp_sst', 'temp_media']
     existing_enso_cols = [col for col in enso_cols if col in df_precip_raw.columns]
@@ -285,6 +299,7 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
 
     return gdf_stations, gdf_municipios, df_long, df_enso
+# <<< FIN DEL CÓDIGO CORREGIDO >>>
 
 # ---
 # Funciones para Gráficos y Mapas
@@ -378,7 +393,6 @@ def display_map_controls(container_object, key_prefix):
     
     return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
 
-# <<< MEJORA: Función refactorizada para crear mapas Folium y reducir duplicación
 def create_folium_map(location, zoom, base_map_config, overlays_config, fit_bounds_data=None):
     """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
     m = folium.Map(
@@ -476,7 +490,6 @@ def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations
                 folium.GeoJson(st.session_state.gdf_municipios.to_json(), name='Municipios').add_to(m)
                 marker_cluster = MarkerCluster(name='Estaciones').add_to(m)
                 
-                # <<< MEJORA: Popups con mini-gráficos para todas las estaciones
                 for _, row in gdf_filtered.iterrows():
                     df_station_monthly = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == row[Config.STATION_NAME_COL]]
                     popup_content = f"""
@@ -571,7 +584,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
                     x=alt.X(f'{Config.YEAR_COL}:O', title='Año'),
                     y=alt.Y(f'{Config.PRECIPITATION_COL}:Q', title='Precipitación (mm)'),
                     color=f'{Config.STATION_NAME_COL}:N',
-                    tooltip=[alt.Tooltip(Config.STATION_NAME_COL), alt.Tooltip(Config.YEAR_COL), alt.Tooltip(f'{Config.PRECIPITATION_COL}:Q', format='.0f')]
+                    tooltip=[alt.Tooltip(Config.STATION_NAME_COL), alt.Tooltip(Config.YEAR_COL, format='d'), alt.Tooltip(f'{Config.PRECIPITATION_COL}:Q', format='.0f')]
                 ).properties(title=f'Precipitación Anual por Estación ({st.session_state.year_range[0]} - {st.session_state.year_range[1]})').interactive()
                 st.altair_chart(chart_anual, use_container_width=True)
 
@@ -808,7 +821,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         
         st.subheader("Explorador Anual de Precipitación")
         if not df_anual_melted.empty:
-            all_years_int = sorted([int(y) for y in df_anual_melted[Config.YEAR_COL].unique()])
+            all_years_int = sorted(df_anual_melted[Config.YEAR_COL].unique())
             if all_years_int:
                 selected_year = st.slider('Seleccione un Año para Explorar', min_value=min(all_years_int), max_value=max(all_years_int), value=min(all_years_int))
                 
@@ -824,7 +837,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                     selected_base_map_config, selected_overlays_config = display_map_controls(st, "temporal")
                     st.markdown(f"#### Resumen del Año: {selected_year}")
                     df_year_filtered = df_anual_melted[
-                        (df_anual_melted[Config.YEAR_COL] == str(selected_year)) & 
+                        (df_anual_melted[Config.YEAR_COL] == selected_year) & 
                         (df_anual_melted[Config.PRECIPITATION_COL] >= min_precip_filter) &
                         (df_anual_melted[Config.PRECIPITATION_COL] <= max_precip_filter)
                     ].dropna(subset=[Config.PRECIPITATION_COL])
@@ -866,19 +879,19 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
     with race_tab:
         st.subheader("Ranking Anual de Precipitación por Estación")
         if not df_anual_melted.empty:
-            station_order = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].sum().sort_values(ascending=True).index
+            df_anual_melted_sorted = df_anual_melted.sort_values([Config.YEAR_COL, Config.PRECIPITATION_COL])
             fig_racing = px.bar(
-                df_anual_melted, x=Config.PRECIPITATION_COL, y=Config.STATION_NAME_COL,
-                animation_frame=Config.YEAR_COL, orientation='h', text=Config.PRECIPITATION_COL,
+                df_anual_melted_sorted, x=Config.PRECIPITATION_COL, y=Config.STATION_NAME_COL,
+                animation_frame=Config.YEAR_COL, orientation='h',
                 labels={Config.PRECIPITATION_COL: 'Precipitación Anual (mm)', Config.STATION_NAME_COL: 'Estación'},
-                title=f"Evolución de Precipitación Anual por Estación ({st.session_state.year_range[0]} - {st.session_state.year_range[1]})",
-                category_orders={Config.STATION_NAME_COL: station_order}
+                title=f"Evolución de Precipitación Anual por Estación ({st.session_state.year_range[0]} - {st.session_state.year_range[1]})"
             )
             fig_racing.update_traces(texttemplate='%{x:.0f}', textposition='outside')
             fig_racing.update_layout(
                 xaxis_range=[0, df_anual_melted[Config.PRECIPITATION_COL].max() * 1.15],
                 height=max(600, len(stations_for_analysis) * 35),
-                title_font_size=20, font_size=12
+                title_font_size=20, font_size=12,
+                yaxis=dict(categoryorder='total ascending')
             )
             fig_racing.layout.sliders[0]['currentvalue']['font']['size'] = 24
             fig_racing.layout.sliders[0]['currentvalue']['prefix'] = '<b>Año: </b>'
@@ -930,8 +943,8 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                 min_precip_comp, max_precip_comp = int(df_anual_melted[Config.PRECIPITATION_COL].min()), int(df_anual_melted[Config.PRECIPITATION_COL].max())
                 color_range_comp = st.slider("Rango de Escala de Color (mm)", min_precip_comp, max_precip_comp, (min_precip_comp, max_precip_comp), key="color_comp")
 
-            data_year1 = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year1]
-            data_year2 = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year2]
+            data_year1 = df_anual_melted[df_anual_melted[Config.YEAR_COL] == year1]
+            data_year2 = df_anual_melted[df_anual_melted[Config.YEAR_COL] == year2]
             
             colormap = cm.linear.YlGnBu_09.scale(vmin=color_range_comp[0], vmax=color_range_comp[1])
 
@@ -965,7 +978,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         if not df_anual_melted.empty and len(df_anual_melted[Config.YEAR_COL].unique()) > 0:
             min_year, max_year = int(df_anual_melted[Config.YEAR_COL].min()), int(df_anual_melted[Config.YEAR_COL].max())
             year_kriging = st.slider("Seleccione el año para la interpolación", min_year, max_year, max_year, key="year_kriging")
-            data_year_kriging = df_anual_melted[df_anual_melted[Config.YEAR_COL].astype(int) == year_kriging].copy()
+            data_year_kriging = df_anual_melted[df_anual_melted[Config.YEAR_COL] == year_kriging].copy()
             logo_col_k, metric_col_k = st.columns([1,8])
             with logo_col_k:
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=40)
@@ -1519,38 +1532,40 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
             if not df_station_acf.empty:
                 df_station_acf.set_index(Config.DATE_COL, inplace=True)
                 df_station_acf = df_station_acf.asfreq('MS')
-                df_station_acf[Config.PRECIPITATION_COL] = df_station_acf[Config.PRECIPITATION_COL].interpolate(method='time')
+                df_station_acf[Config.PRECIPITATION_COL] = df_station_acf[Config.PRECIPITATION_COL].interpolate(method='time').dropna()
 
-                try:
-                    # Cálculo y visualización de ACF con Plotly
-                    acf_values = sm.tsa.acf(df_station_acf[Config.PRECIPITATION_COL], nlags=max_lag)
-                    lags = list(range(max_lag + 1))
-                    
-                    conf_interval = 1.96 / np.sqrt(len(df_station_acf))
-                    
-                    fig_acf = go.Figure(data=[
-                        go.Bar(x=lags, y=acf_values, name='ACF'),
-                        go.Scatter(x=lags, y=[conf_interval] * (max_lag + 1), mode='lines', line=dict(color='blue', dash='dash'), name='Límite de Confianza Superior'),
-                        go.Scatter(x=lags, y=[-conf_interval] * (max_lag + 1), mode='lines', line=dict(color='blue', dash='dash'), fill='tonexty', fillcolor='rgba(0,0,255,0.1)', name='Límite de Confianza Inferior')
-                    ])
-                    fig_acf.update_layout(title='Función de Autocorrelación (ACF)', xaxis_title='Rezagos (Meses)', yaxis_title='Correlación', height=400)
-                    st.plotly_chart(fig_acf, use_container_width=True)
+                if len(df_station_acf) > max_lag:
+                    try:
+                        # Cálculo y visualización de ACF con Plotly
+                        acf_values = sm.tsa.acf(df_station_acf[Config.PRECIPITATION_COL], nlags=max_lag)
+                        lags = list(range(max_lag + 1))
+                        
+                        conf_interval = 1.96 / np.sqrt(len(df_station_acf))
+                        
+                        fig_acf = go.Figure(data=[
+                            go.Bar(x=lags, y=acf_values, name='ACF'),
+                            go.Scatter(x=lags, y=[conf_interval] * (max_lag + 1), mode='lines', line=dict(color='blue', dash='dash'), name='Límite de Confianza Superior'),
+                            go.Scatter(x=lags, y=[-conf_interval] * (max_lag + 1), mode='lines', line=dict(color='blue', dash='dash'), fill='tonexty', fillcolor='rgba(0,0,255,0.1)', name='Límite de Confianza Inferior')
+                        ])
+                        fig_acf.update_layout(title='Función de Autocorrelación (ACF)', xaxis_title='Rezagos (Meses)', yaxis_title='Correlación', height=400)
+                        st.plotly_chart(fig_acf, use_container_width=True)
 
-                    # <<< CORRECCIÓN: Cálculo correcto de PACF usando statsmodels
-                    pacf_values = pacf(df_station_acf[Config.PRECIPITATION_COL], nlags=max_lag)
-                    
-                    fig_pacf = go.Figure(data=[
-                        go.Bar(x=lags, y=pacf_values, name='PACF'),
-                        go.Scatter(x=lags, y=[conf_interval] * (max_lag + 1), mode='lines', line=dict(color='red', dash='dash'), name='Límite de Confianza Superior'),
-                        go.Scatter(x=lags, y=[-conf_interval] * (max_lag + 1), mode='lines', line=dict(color='red', dash='dash'), fill='tonexty', fillcolor='rgba(255,0,0,0.1)', name='Límite de Confianza Inferior')
-                    ])
-                    fig_pacf.update_layout(title='Función de Autocorrelación Parcial (PACF)', xaxis_title='Rezagos (Meses)', yaxis_title='Correlación', height=400)
-                    st.plotly_chart(fig_pacf, use_container_width=True)
+                        pacf_values = pacf(df_station_acf[Config.PRECIPITATION_COL], nlags=max_lag)
+                        
+                        fig_pacf = go.Figure(data=[
+                            go.Bar(x=lags, y=pacf_values, name='PACF'),
+                            go.Scatter(x=lags, y=[conf_interval] * (max_lag + 1), mode='lines', line=dict(color='red', dash='dash'), name='Límite de Confianza Superior'),
+                            go.Scatter(x=lags, y=[-conf_interval] * (max_lag + 1), mode='lines', line=dict(color='red', dash='dash'), fill='tonexty', fillcolor='rgba(255,0,0,0.1)', name='Límite de Confianza Inferior')
+                        ])
+                        fig_pacf.update_layout(title='Función de Autocorrelación Parcial (PACF)', xaxis_title='Rezagos (Meses)', yaxis_title='Correlación', height=400)
+                        st.plotly_chart(fig_pacf, use_container_width=True)
 
-                except Exception as e:
-                    st.error(f"No se pudieron generar los gráficos de autocorrelación. Error: {e}")
+                    except Exception as e:
+                        st.error(f"No se pudieron generar los gráficos de autocorrelación. Error: {e}")
+                else:
+                    st.warning(f"No hay suficientes datos (se requieren > {max_lag} meses) para la estación {station_to_analyze_acf} para realizar el análisis de autocorrelación.")
             else:
-                st.warning(f"No hay datos suficientes para la estación {station_to_analyze_acf} para realizar el análisis de autocorrelación.")
+                st.warning(f"No hay datos para la estación {station_to_analyze_acf} en el período seleccionado.")
     
     with pronostico_sarima_tab:
         st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
@@ -1568,7 +1583,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
 
         ts_data_sarima = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast]
 
-        if ts_data_sarima.empty or len(ts_data_sarima) < 24: # <<< MEJORA: Validación de datos suficientes
+        if ts_data_sarima.empty or len(ts_data_sarima) < 24:
             st.warning("Se necesitan al menos 24 meses de datos continuos para un pronóstico SARIMA confiable. Por favor, ajuste la selección de años o elija otra estación.")
         else:
             with st.spinner(f"Entrenando modelo y generando pronóstico para {station_to_forecast}..."):
@@ -1620,7 +1635,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         
         ts_data_prophet_raw = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast_prophet]
         
-        if ts_data_prophet_raw.empty or len(ts_data_prophet_raw) < 24: # <<< MEJORA: Validación de datos suficientes
+        if ts_data_prophet_raw.empty or len(ts_data_prophet_raw) < 24:
             st.warning("Se necesitan al menos 24 meses de datos para que Prophet funcione correctamente. Por favor, ajuste la selección de años.")
         else:
             with st.spinner(f"Entrenando modelo Prophet y generando pronóstico para {station_to_forecast_prophet}..."):
@@ -1733,7 +1748,7 @@ def main():
                 gdf_stations, gdf_municipios, df_long, df_enso = load_and_process_all_data(
                     uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile
                 )
-                if gdf_stations is not None:
+                if gdf_stations is not None and df_long is not None:
                     st.session_state.gdf_stations = gdf_stations
                     st.session_state.gdf_municipios = gdf_municipios
                     st.session_state.df_long = df_long
@@ -1809,7 +1824,7 @@ def main():
         else:
             selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=st.session_state.get('station_multiselect', []), key='station_multiselect')
 
-        years_with_data_in_selection = sorted([int(col) for col in st.session_state.df_long[Config.YEAR_COL].unique()]) if not st.session_state.df_long.empty else []
+        years_with_data_in_selection = sorted(st.session_state.df_long[Config.YEAR_COL].unique()) if not st.session_state.df_long.empty else []
         if not years_with_data_in_selection:
             st.error("No se encontraron años disponibles en el archivo de precipitación.")
             st.stop()
@@ -1829,7 +1844,6 @@ def main():
     stations_for_analysis = selected_stations if selected_stations else st.session_state.gdf_filtered[Config.STATION_NAME_COL].unique()
     st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
 
-    # <<< MEJORA: El cálculo de df_anual_melted se hace a partir de df_long para mayor consistencia
     df_annual = st.session_state.df_long.groupby([Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL, Config.YEAR_COL])[Config.PRECIPITATION_COL].sum().reset_index()
     df_anual_melted = df_annual[
         (df_annual[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
