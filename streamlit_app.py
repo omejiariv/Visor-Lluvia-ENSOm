@@ -204,7 +204,6 @@ def complete_series(_df):
     progress_bar.empty()
     return pd.concat(all_completed_dfs, ignore_index=True)
 
-# <<< INICIO DEL CÓDIGO CORREGIDO >>>
 @st.cache_data
 def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
     """
@@ -256,7 +255,6 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     df_long.dropna(subset=[Config.DATE_COL], inplace=True)
     df_long[Config.ORIGIN_COL] = 'Original'
 
-    # <<< CORRECCIÓN (Paso 1): Crear explícitamente las columnas de año y mes
     df_long[Config.YEAR_COL] = df_long[Config.DATE_COL].dt.year
     df_long[Config.MONTH_COL] = df_long[Config.DATE_COL].dt.month
     
@@ -271,7 +269,6 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     df_long[Config.STATION_NAME_COL] = df_long['id_estacion'].map(station_mapping)
     df_long.dropna(subset=[Config.STATION_NAME_COL], inplace=True)
 
-    # <<< CORRECCIÓN (Paso 2): Fusionar con metadatos de estaciones para añadir las columnas que faltaban
     station_metadata_cols = [
         Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.REGION_COL, 
         Config.ALTITUDE_COL, Config.CELL_COL, Config.LATITUDE_COL, Config.LONGITUDE_COL
@@ -299,7 +296,6 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
             df_enso[col] = pd.to_numeric(df_enso[col].astype(str).str.replace(',', '.'), errors='coerce')
 
     return gdf_stations, gdf_municipios, df_long, df_enso
-# <<< FIN DEL CÓDIGO CORREGIDO >>>
 
 # ---
 # Funciones para Gráficos y Mapas
@@ -403,7 +399,8 @@ def create_folium_map(location, zoom, base_map_config, overlays_config, fit_boun
     )
     if fit_bounds_data is not None and not fit_bounds_data.empty:
         bounds = fit_bounds_data.total_bounds
-        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        if np.all(np.isfinite(bounds)):
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
     for layer_config in overlays_config:
         WmsTileLayer(
@@ -1493,7 +1490,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
             df_station = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_decompose].copy()
             if not df_station.empty:
                 df_station.set_index(Config.DATE_COL, inplace=True)
-                df_station = df_station.asfreq('MS') # Asegura que el índice sea de frecuencia mensual
+                df_station = df_station.asfreq('MS')
 
                 if df_station[Config.PRECIPITATION_COL].isnull().values.any():
                     st.info("La serie tiene datos faltantes. Se rellenarán con interpolación lineal para la descomposición.")
@@ -1536,7 +1533,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
 
                 if len(df_station_acf) > max_lag:
                     try:
-                        # Cálculo y visualización de ACF con Plotly
                         acf_values = sm.tsa.acf(df_station_acf[Config.PRECIPITATION_COL], nlags=max_lag)
                         lags = list(range(max_lag + 1))
                         
@@ -1849,7 +1845,7 @@ def main():
         (df_annual[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
         (df_annual[Config.YEAR_COL] >= year_range[0]) &
         (df_annual[Config.YEAR_COL] <= year_range[1])
-    ]
+    ].copy()
     
     if st.session_state.df_long is not None:
         if analysis_mode == "Completar series (interpolación)":
