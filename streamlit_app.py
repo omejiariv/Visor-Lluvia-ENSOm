@@ -25,6 +25,7 @@ from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
+import pymannkendall as mk # <--- NUEVA IMPORTACIÓN
 
 # ---
 # Constantes y Configuración Centralizada
@@ -1419,11 +1420,14 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
         
-    tendencia_individual_tab, tendencia_tabla_tab, descomposicion_tab, autocorrelacion_tab, pronostico_sarima_tab, pronostico_prophet_tab = st.tabs(["Análisis Lineal", "Tabla Comparativa", "Descomposición de Series", "Autocorrelación (ACF/PACF)", "Pronóstico SARIMA", "Pronóstico Prophet"])
+    tendencia_individual_tab, mann_kendall_tab, tendencia_tabla_tab, descomposicion_tab, autocorrelacion_tab, pronostico_sarima_tab, pronostico_prophet_tab = st.tabs([
+        "Análisis Lineal", "Tendencia Mann-Kendall", "Tabla Comparativa", "Descomposición de Series", 
+        "Autocorrelación (ACF/PACF)", "Pronóstico SARIMA", "Pronóstico Prophet"
+    ])
 
     with tendencia_individual_tab:
-        st.subheader("Tendencia de Precipitación Anual")
-        analysis_type = st.radio("Tipo de Análisis de Tendencia:", ["Promedio de la selección", "Estación individual"], horizontal=True)
+        st.subheader("Tendencia de Precipitación Anual (Regresión Lineal)")
+        analysis_type = st.radio("Tipo de Análisis de Tendencia:", ["Promedio de la selección", "Estación individual"], horizontal=True, key="linear_trend_type")
         df_to_analyze = None
         title_for_download = "promedio"
         if analysis_type == "Promedio de la selección":
@@ -1457,6 +1461,66 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
             )
         else:
             st.warning("No hay suficientes datos en el período seleccionado para calcular una tendencia.")
+
+    # <--- INICIO DEL NUEVO CÓDIGO PARA MANN-KENDALL --->
+    with mann_kendall_tab:
+        st.subheader("Tendencia de Precipitación Anual (Prueba de Mann-Kendall)")
+        with st.expander("¿Qué es la prueba de Mann-Kendall?"):
+            st.markdown("""
+            La **Prueba de Mann-Kendall** es un método estadístico no paramétrico utilizado para detectar tendencias en series de tiempo. A diferencia de la regresión lineal, no asume que los datos sigan una distribución particular.
+            - **Objetivo**: Determinar si existe una tendencia monotónica (consistentemente creciente o decreciente) a lo largo del tiempo.
+            - **Resultados Clave**:
+                - **Tendencia**: Indica si es 'increasing' (creciente), 'decreasing' (decreciente) o 'no trend' (sin tendencia).
+                - **Valor p**: Si es menor a 0.05, la tendencia se considera estadísticamente significativa.
+            - **Pendiente de Sen (Sen's Slope)**: Es un método para cuantificar la magnitud de la tendencia, calculando la mediana de todas las pendientes entre pares de puntos. Es robusto frente a valores atípicos.
+            """)
+        
+        mk_analysis_type = st.radio("Tipo de Análisis de Tendencia:", ["Promedio de la selección", "Estación individual"], horizontal=True, key="mk_trend_type")
+        df_to_analyze_mk = None
+
+        if mk_analysis_type == "Promedio de la selección":
+            df_to_analyze_mk = df_anual_melted.groupby(Config.YEAR_COL)[Config.PRECIPITATION_COL].mean().reset_index()
+        else:
+            station_to_analyze_mk = st.selectbox("Seleccione una estación para analizar:", options=stations_for_analysis, key="mk_station_select")
+            if station_to_analyze_mk:
+                df_to_analyze_mk = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL] == station_to_analyze_mk]
+
+        if df_to_analyze_mk is not None and len(df_to_analyze_mk.dropna(subset=[Config.PRECIPITATION_COL])) > 3:
+            df_clean_mk = df_to_analyze_mk.dropna(subset=[Config.PRECIPITATION_COL]).sort_values(by=Config.YEAR_COL)
+            
+            mk_result = mk.original_test(df_clean_mk[Config.PRECIPITATION_COL])
+            
+            st.markdown(f"#### Resultados para: {mk_analysis_type if mk_analysis_type == 'Promedio de la selección' else station_to_analyze_mk}")
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Tendencia Detectada", mk_result.trend.capitalize())
+            col2.metric("Valor p", f"{mk_result.p:.4f}")
+            col3.metric("Pendiente de Sen (mm/año)", f"{mk_result.slope:.2f}")
+
+            if mk_result.p < 0.05:
+                st.success("La tendencia es estadísticamente significativa (p < 0.05).")
+            else:
+                st.warning("La tendencia no es estadísticamente significativa (p ≥ 0.05).")
+
+            # Visualización
+            fig_mk = px.scatter(df_clean_mk, x=Config.YEAR_COL, y=Config.PRECIPITATION_COL, title="Análisis de Tendencia con Pendiente de Sen")
+            
+            # Calcular línea de tendencia de Sen
+            median_x = df_clean_mk[Config.YEAR_COL].median()
+            median_y = df_clean_mk[Config.PRECIPITATION_COL].median()
+            intercept_sen = median_y - mk_result.slope * median_x
+            
+            x_vals = np.array(df_clean_mk[Config.YEAR_COL])
+            y_vals = mk_result.slope * x_vals + intercept_sen
+            
+            fig_mk.add_trace(go.Scatter(x=x_vals, y=y_vals, mode='lines', name="Pendiente de Sen", line=dict(color='orange')))
+            fig_mk.update_layout(xaxis_title="Año", yaxis_title="Precipitación Anual (mm)")
+            st.plotly_chart(fig_mk, use_container_width=True)
+
+        else:
+            st.warning("No hay suficientes datos (se requieren al menos 4 puntos) para calcular la tendencia de Mann-Kendall.")
+
+    # <--- FIN DEL NUEVO CÓDIGO --->
 
     with tendencia_tabla_tab:
         st.subheader("Tabla Comparativa de Tendencias de Precipitación Anual")
