@@ -163,7 +163,6 @@ def load_shapefile(file_uploader_object):
             gdf = gpd.read_file(shp_path)
             gdf.columns = gdf.columns.str.strip().str.lower()
             
-            # <<< CORRECCIÓN: Se valida el CRS sin mostrar advertencia al usuario.
             if gdf.crs is None:
                 gdf.set_crs("EPSG:9377", inplace=True)
             return gdf.to_crs("EPSG:4326")
@@ -367,6 +366,29 @@ def create_anomaly_chart(df_plot):
     )
     return fig
 
+# <<< CORRECCIÓN: Funciones auxiliares del mapa reinsertadas aquí
+def get_map_options():
+    return {
+        "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": '&copy; <a href="https://carto.com/attributions">CartoDB</a>', "overlay": False},
+        "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
+        "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)', "overlay": False},
+        "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
+        "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021", "overlay": True},
+        "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM", "overlay": True},
+        "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC", "overlay": True},
+    }
+
+def display_map_controls(container_object, key_prefix):
+    map_options = get_map_options()
+    base_maps = {k: v for k, v in map_options.items() if not v.get("overlay")}
+    overlays = {k: v for k, v in map_options.items() if v.get("overlay")}
+    
+    selected_base_map_name = container_object.selectbox("Seleccionar Mapa Base", list(base_maps.keys()), key=f"{key_prefix}_base_map")
+    default_overlays = ["Mapa de Colombia (WMS IDEAM)"]
+    selected_overlays = container_object.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()), default=default_overlays, key=f"{key_prefix}_overlays")
+    
+    return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
+
 def create_folium_map(location, zoom, base_map_config, overlays_config, fit_bounds_data=None):
     """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
     m = folium.Map(
@@ -473,11 +495,9 @@ def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations
                 folium.GeoJson(st.session_state.gdf_municipios.to_json(), name='Municipios').add_to(m)
                 marker_cluster = MarkerCluster(name='Estaciones').add_to(m)
                 
-                # <<< CORRECCIÓN CRÍTICA (Paso 1): Eliminar filas con coordenadas nulas antes de iterar
                 gdf_filtered_map = gdf_filtered.dropna(subset=[Config.LATITUDE_COL, Config.LONGITUDE_COL]).copy()
 
                 for _, row in gdf_filtered_map.iterrows():
-                    # <<< CORRECCIÓN CRÍTICA (Paso 2): Envolver en try-except para máxima robustez
                     try:
                         popup_html = f"""
                             <b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>
@@ -491,7 +511,6 @@ def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations
                             popup=popup_html
                         ).add_to(marker_cluster)
                     except Exception:
-                        # Si una fila individual falla, se omite en lugar de bloquear todo el mapa
                         continue
 
                 folium.LayerControl().add_to(m)
