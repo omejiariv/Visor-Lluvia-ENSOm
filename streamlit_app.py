@@ -25,7 +25,7 @@ from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
-import pymannkendall as mk # <--- NUEVA IMPORTACIÓN
+import pymannkendall as mk
 
 # ---
 # Constantes y Configuración Centralizada
@@ -1411,6 +1411,14 @@ def display_enso_tab(df_monthly_filtered, df_enso, gdf_filtered, stations_for_an
                 folium.LayerControl().add_to(m_enso)
                 folium_static(m_enso, height=700, width="100%")
 
+# ---
+# ... (El resto del código desde `display_trends_and_forecast_tab` hasta el final se mantiene igual,
+# excepto por la adición de la nueva pestaña en la función `main` y la llamada a `display_extremes_tab`)
+# ---
+
+# ---
+# ... (código anterior) ...
+
 def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stations_for_analysis):
     st.header("Análisis de Tendencias y Pronósticos")
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
@@ -1462,7 +1470,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         else:
             st.warning("No hay suficientes datos en el período seleccionado para calcular una tendencia.")
 
-    # <--- INICIO DEL NUEVO CÓDIGO PARA MANN-KENDALL --->
     with mann_kendall_tab:
         st.subheader("Tendencia de Precipitación Anual (Prueba de Mann-Kendall)")
         with st.expander("¿Qué es la prueba de Mann-Kendall?"):
@@ -1505,7 +1512,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
             # Visualización
             fig_mk = px.scatter(df_clean_mk, x=Config.YEAR_COL, y=Config.PRECIPITATION_COL, title="Análisis de Tendencia con Pendiente de Sen")
             
-            # Calcular línea de tendencia de Sen
             median_x = df_clean_mk[Config.YEAR_COL].median()
             median_y = df_clean_mk[Config.PRECIPITATION_COL].median()
             intercept_sen = median_y - mk_result.slope * median_x
@@ -1520,47 +1526,65 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         else:
             st.warning("No hay suficientes datos (se requieren al menos 4 puntos) para calcular la tendencia de Mann-Kendall.")
 
-    # <--- FIN DEL NUEVO CÓDIGO --->
-
     with tendencia_tabla_tab:
         st.subheader("Tabla Comparativa de Tendencias de Precipitación Anual")
+        st.info("Esta tabla resume los resultados de dos métodos de análisis de tendencia. Presione el botón para calcular los valores para todas las estaciones seleccionadas.")
+
         if st.button("Calcular Tendencias para Todas las Estaciones Seleccionadas"):
             with st.spinner("Calculando tendencias..."):
                 results = []
                 df_anual_calc = df_anual_melted.copy()
-                if st.session_state.exclude_zeros: df_anual_calc = df_anual_calc[df_anual_calc[Config.PRECIPITATION_COL] > 0]
+                if st.session_state.exclude_zeros:
+                    df_anual_calc = df_anual_calc[df_anual_calc[Config.PRECIPITATION_COL] > 0]
                 
                 for station in stations_for_analysis:
-                    station_data = df_anual_calc[df_anual_calc[Config.STATION_NAME_COL] == station].dropna(subset=[Config.PRECIPITATION_COL])
+                    station_data = df_anual_calc[df_anual_calc[Config.STATION_NAME_COL] == station].dropna(subset=[Config.PRECIPITATION_COL]).sort_values(by=Config.YEAR_COL)
+                    
+                    # Inicializar valores por defecto
+                    slope_lin, p_lin = np.nan, np.nan
+                    trend_mk, p_mk, slope_sen = "Datos insuficientes", np.nan, np.nan
+                    
+                    # Cálculo de Regresión Lineal
                     if len(station_data) > 2:
                         station_data['año_num'] = pd.to_numeric(station_data[Config.YEAR_COL])
-                        slope, _, _, p_value, _ = stats.linregress(station_data['año_num'], station_data[Config.PRECIPITATION_COL])
-                        interpretation = "Significativa (p < 0.05)" if p_value < 0.05 else "No Significativa (p ≥ 0.05)"
-                        results.append({
-                            "Estación": station, "Tendencia (mm/año)": slope, "Valor p": p_value,
-                            "Interpretación": interpretation, "Años Analizados": len(station_data)
-                        })
-                    else:
-                        results.append({
-                            "Estación": station, "Tendencia (mm/año)": np.nan, "Valor p": np.nan,
-                            "Interpretación": "Datos insuficientes", "Años Analizados": len(station_data)
-                        })
+                        slope_lin, _, _, p_lin, _ = stats.linregress(station_data['año_num'], station_data[Config.PRECIPITATION_COL])
+                    
+                    # Cálculo de Mann-Kendall
+                    if len(station_data) > 3:
+                        mk_result = mk.original_test(station_data[Config.PRECIPITATION_COL])
+                        trend_mk = mk_result.trend.capitalize()
+                        p_mk = mk_result.p
+                        slope_sen = mk_result.slope
+
+                    results.append({
+                        "Estación": station,
+                        "Años Analizados": len(station_data),
+                        "Tendencia Lineal (mm/año)": slope_lin,
+                        "Valor p (Lineal)": p_lin,
+                        "Tendencia MK": trend_mk,
+                        "Valor p (MK)": p_mk,
+                        "Pendiente de Sen (mm/año)": slope_sen,
+                    })
+
                 if results:
                     results_df = pd.DataFrame(results)
+                    
                     def style_p_value(val):
                         if pd.isna(val): return ''
                         color = 'lightgreen' if val < 0.05 else 'lightcoral'
                         return f'background-color: {color}'
                     
                     st.dataframe(results_df.style.format({
-                        "Tendencia (mm/año)": "{:.2f}",
-                        "Valor p": "{:.4f}"
-                    }).applymap(style_p_value, subset=['Valor p']), use_container_width=True)
+                        "Tendencia Lineal (mm/año)": "{:.2f}",
+                        "Valor p (Lineal)": "{:.4f}",
+                        "Valor p (MK)": "{:.4f}",
+                        "Pendiente de Sen (mm/año)": "{:.2f}",
+                    }).applymap(style_p_value, subset=['Valor p (Lineal)', 'Valor p (MK)']), use_container_width=True)
                     
                     csv_data = results_df.to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="Descargar tabla de tendencias en CSV", data=csv_data,
-                        file_name='tabla_tendencias.csv', mime='text/csv', key='download-tabla-tendencias'
+                        file_name='tabla_tendencias_comparativa.csv', mime='text/csv', key='download-tabla-tendencias'
                     )
                 else:
                     st.warning("No se pudieron calcular tendencias para las estaciones seleccionadas.")
@@ -1791,8 +1815,8 @@ def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analys
         st.info("No hay datos de precipitación anual (con >= 10 meses) para mostrar en la selección actual.")
 
 # ---
-# Cuerpo Principal del Script
-# ---
+# ... (código anterior) ...
+
 def main():
     st.set_page_config(layout="wide", page_title=Config.APP_TITLE)
     st.markdown("""
@@ -1820,7 +1844,6 @@ def main():
         uploaded_file_precip = st.file_uploader("2. Cargar archivo de precipitación mensual y ENSO (DatosPptnmes_ENSO.csv)", type="csv")
         uploaded_zip_shapefile = st.file_uploader("3. Cargar shapefile de municipios (.zip)", type="zip")
 
-        # Se intenta cargar los datos solo si no están cargados y todos los archivos están presentes
         if not st.session_state.data_loaded and all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
             with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
                 gdf_stations, gdf_municipios, df_long, df_enso = load_and_process_all_data(
@@ -1832,7 +1855,7 @@ def main():
                     st.session_state.df_long = df_long
                     st.session_state.df_enso = df_enso
                     st.session_state.data_loaded = True
-                    st.rerun() # Se recarga la app para reflejar el estado 'cargado'
+                    st.rerun()
                 else:
                     st.error("Hubo un error al procesar los archivos. Por favor, verifique que sean correctos y vuelva a intentarlo.")
         
@@ -1841,7 +1864,6 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
-    # Si los datos están cargados, se muestra la aplicación completa.
     if st.session_state.data_loaded:
         with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
             def apply_filters_to_stations(df, min_perc, altitudes, regions, municipios, celdas):
@@ -1979,14 +2001,15 @@ def main():
 
         tab_names = [
             "🏠 Bienvenida", "🗺️ Distribución Espacial", "📊 Gráficos", "✨ Mapas Avanzados", 
-            "📉 Análisis de Anomalías", "🔢 Estadísticas", "🤝 Análisis de Correlación", 
-            "🌊 Análisis ENSO", "📈 Tendencias y Pronósticos", "📥 Descargas", "📋 Tabla de Estaciones"
+            "📉 Análisis de Anomalías", "🌪️ Análisis de Extremos", "🔢 Estadísticas", 
+            "🤝 Análisis de Correlación", "🌊 Análisis ENSO", "📈 Tendencias y Pronósticos", 
+            "📥 Descargas", "📋 Tabla de Estaciones"
         ]
         
         tabs = st.tabs(tab_names)
         (
             bienvenida_tab, mapa_tab, graficos_tab, mapas_avanzados_tab, 
-            anomalias_tab, estadisticas_tab, correlacion_tab, 
+            anomalias_tab, extremes_tab, estadisticas_tab, correlacion_tab, 
             enso_tab, tendencias_tab, descargas_tab, tabla_estaciones_tab
         ) = tabs
 
@@ -2000,6 +2023,8 @@ def main():
             display_advanced_maps_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis, df_monthly_filtered)
         with anomalias_tab:
             display_anomalies_tab(st.session_state.df_long, df_monthly_filtered, stations_for_analysis)
+        with extremes_tab:
+            display_extremes_tab(df_monthly_filtered, stations_for_analysis)
         with estadisticas_tab:
             display_stats_tab(st.session_state.df_long, df_anual_melted, df_monthly_filtered, stations_for_analysis)
         with correlacion_tab:
@@ -2013,7 +2038,6 @@ def main():
         with tabla_estaciones_tab:
             display_station_table_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis)
             
-    # Si los datos NO están cargados, se muestra la bienvenida y la guía.
     else:
         display_welcome_tab()
         st.info("👋 Para comenzar, por favor cargue los 3 archivos requeridos en el panel de la izquierda.")
