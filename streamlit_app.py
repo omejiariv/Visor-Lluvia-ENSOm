@@ -366,7 +366,6 @@ def create_anomaly_chart(df_plot):
     )
     return fig
 
-# <<< CORRECCIÓN: Funciones auxiliares del mapa reinsertadas aquí
 def get_map_options():
     return {
         "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": '&copy; <a href="https://carto.com/attributions">CartoDB</a>', "overlay": False},
@@ -424,7 +423,8 @@ def display_welcome_tab():
     if os.path.exists(Config.LOGO_PATH):
         st.image(Config.LOGO_PATH, width=400, caption="Corporación Cuenca Verde")
 
-def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations_for_analysis):
+# <<< CAMBIO FASE 1: La función ahora recibe df_anual_melted para los cálculos de promedios.
+def display_spatial_distribution_tab(gdf_filtered, stations_for_analysis, df_anual_melted):
     st.header("Distribución espacial de las Estaciones de Lluvia")
     
     if len(stations_for_analysis) == 0:
@@ -434,12 +434,17 @@ def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
 
-    if not df_monthly_filtered.empty:
-        df_mean_precip = df_monthly_filtered.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().reset_index()
-        gdf_filtered = gdf_filtered.merge(df_mean_precip.rename(columns={Config.PRECIPITATION_COL: 'precip_media_mensual'}), on=Config.STATION_NAME_COL, how='left')
+    # <<< CAMBIO FASE 1: Calcular estadísticas de años válidos para los pop-ups.
+    if not df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL]).empty:
+        summary_stats = df_anual_melted.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].agg(['mean', 'count']).reset_index()
+        summary_stats.rename(columns={'mean': 'precip_media_anual', 'count': 'años_validos'}, inplace=True)
+        gdf_filtered = gdf_filtered.merge(summary_stats, on=Config.STATION_NAME_COL, how='left')
     else:
-        gdf_filtered['precip_media_mensual'] = np.nan
-    gdf_filtered['precip_media_mensual'] = gdf_filtered['precip_media_mensual'].fillna(0)
+        gdf_filtered['precip_media_anual'] = np.nan
+        gdf_filtered['años_validos'] = 0
+
+    gdf_filtered['precip_media_anual'] = gdf_filtered['precip_media_anual'].fillna(0)
+    gdf_filtered['años_validos'] = gdf_filtered['años_validos'].fillna(0).astype(int)
 
     sub_tab_mapa, sub_tab_grafico = st.tabs(["Mapa Interactivo", "Gráfico de Disponibilidad de Datos"])
 
@@ -499,11 +504,14 @@ def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations
 
                 for _, row in gdf_filtered_map.iterrows():
                     try:
+                        total_years_in_period = st.session_state.year_range[1] - st.session_state.year_range[0] + 1
+                        valid_years = row.get('años_validos', 0)
+                        
                         popup_html = f"""
                             <b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>
                             <b>Municipio:</b> {row.get(Config.MUNICIPALITY_COL, 'N/A')}<br>
-                            <b>Altitud:</b> {row.get(Config.ALTITUDE_COL, 'N/A')} m<br>
-                            <b>Ppt. Media Mensual:</b> {row.get('precip_media_mensual', 0):.0f} mm
+                            <b>Promedio Anual:</b> {row.get('precip_media_anual', 0):.0f} mm<br>
+                            <small>(Calculado con <b>{valid_years}</b> de <b>{total_years_in_period}</b> años del período)</small>
                         """
                         folium.Marker(
                             location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]],
@@ -579,7 +587,8 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
         with anual_graf_tab:
             if not df_anual_melted.empty:
                 st.subheader("Precipitación Anual (mm)")
-                chart_anual = alt.Chart(df_anual_melted).mark_line(point=True).encode(
+                st.info("Solo se muestran los años con 10 o más meses de datos.")
+                chart_anual = alt.Chart(df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL])).mark_line(point=True).encode(
                     x=alt.X(f'{Config.YEAR_COL}:O', title='Año'),
                     y=alt.Y(f'{Config.PRECIPITATION_COL}:Q', title='Precipitación (mm)'),
                     color=f'{Config.STATION_NAME_COL}:N',
@@ -1409,10 +1418,10 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                 df_to_analyze = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL] == station_to_analyze]
                 title_for_download = station_to_analyze.replace(" ","_")
 
-        if df_to_analyze is not None and len(df_to_analyze) > 2:
+        if df_to_analyze is not None and len(df_to_analyze.dropna(subset=[Config.PRECIPITATION_COL])) > 2:
             df_to_analyze['año_num'] = pd.to_numeric(df_to_analyze[Config.YEAR_COL])
-            df_to_analyze.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
-            slope, intercept, r_value, p_value, std_err = stats.linregress(df_to_analyze['año_num'], df_to_analyze[Config.PRECIPITATION_COL])
+            df_clean = df_to_analyze.dropna(subset=[Config.PRECIPITATION_COL])
+            slope, intercept, r_value, p_value, std_err = stats.linregress(df_clean['año_num'], df_clean[Config.PRECIPITATION_COL])
             tendencia_texto = "aumentando" if slope > 0 else "disminuyendo"
             significancia_texto = "**estadísticamente significativa**" if p_value < 0.05 else "no es estadísticamente significativa"
             
@@ -1439,11 +1448,10 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
             with st.spinner("Calculando tendencias..."):
                 results = []
                 df_anual_calc = df_anual_melted.copy()
-                df_anual_calc.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
                 if st.session_state.exclude_zeros: df_anual_calc = df_anual_calc[df_anual_calc[Config.PRECIPITATION_COL] > 0]
                 
                 for station in stations_for_analysis:
-                    station_data = df_anual_calc[df_anual_calc[Config.STATION_NAME_COL] == station]
+                    station_data = df_anual_calc[df_anual_calc[Config.STATION_NAME_COL] == station].dropna(subset=[Config.PRECIPITATION_COL])
                     if len(station_data) > 2:
                         station_data['año_num'] = pd.to_numeric(station_data[Config.YEAR_COL])
                         slope, _, _, p_value, _ = stats.linregress(station_data['año_num'], station_data[Config.PRECIPITATION_COL])
@@ -1700,7 +1708,7 @@ def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analys
         df_info_table = df_info_table.merge(df_mean_precip, on=Config.STATION_NAME_COL, how='left')
         st.dataframe(df_info_table)
     else:
-        st.info("No hay datos de precipitación anual para mostrar en la selección actual.")
+        st.info("No hay datos de precipitación anual (con >= 10 meses) para mostrar en la selección actual.")
 
 # ---
 # Cuerpo Principal del Script
@@ -1842,12 +1850,27 @@ def main():
     stations_for_analysis = selected_stations if selected_stations else st.session_state.gdf_filtered[Config.STATION_NAME_COL].unique()
     st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
 
-    df_annual = st.session_state.df_long.groupby([Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, Config.LATITUDE_COL, Config.ALTITUDE_COL, Config.YEAR_COL])[Config.PRECIPITATION_COL].sum().reset_index()
-    df_anual_melted = df_annual[
-        (df_annual[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
-        (df_annual[Config.YEAR_COL] >= year_range[0]) &
-        (df_annual[Config.YEAR_COL] <= year_range[1])
+    # <<< CAMBIO FASE 1: Lógica de cálculo anual robusta.
+    annual_data = st.session_state.df_long[
+        (st.session_state.df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+        (st.session_state.df_long[Config.YEAR_COL] >= year_range[0]) &
+        (st.session_state.df_long[Config.YEAR_COL] <= year_range[1])
     ].copy()
+
+    annual_agg = annual_data.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).agg(
+        precipitation_sum=(Config.PRECIPITATION_COL, 'sum'),
+        meses_validos=(Config.PRECIPITATION_COL, 'count')
+    ).reset_index()
+
+    annual_agg.loc[annual_agg['meses_validos'] < 10, 'precipitation_sum'] = np.nan
+    
+    metadata_cols = [
+        Config.STATION_NAME_COL, Config.MUNICIPALITY_COL, Config.LONGITUDE_COL, 
+        Config.LATITUDE_COL, Config.ALTITUDE_COL
+    ]
+    station_metadata = st.session_state.df_long[metadata_cols].drop_duplicates(subset=[Config.STATION_NAME_COL])
+    df_anual_melted = pd.merge(annual_agg, station_metadata, on=Config.STATION_NAME_COL, how='left')
+    df_anual_melted.rename(columns={'precipitation_sum': Config.PRECIPITATION_COL}, inplace=True)
     
     if st.session_state.df_long is not None:
         if analysis_mode == "Completar series (interpolación)":
@@ -1896,7 +1919,7 @@ def main():
     with bienvenida_tab:
         display_welcome_tab()
     with mapa_tab:
-        display_spatial_distribution_tab(st.session_state.gdf_filtered, df_monthly_filtered, stations_for_analysis)
+        display_spatial_distribution_tab(st.session_state.gdf_filtered, stations_for_analysis, df_anual_melted)
     with graficos_tab:
         display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis)
     with mapas_avanzados_tab:
