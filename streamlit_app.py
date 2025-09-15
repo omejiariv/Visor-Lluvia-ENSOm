@@ -24,7 +24,7 @@ from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
- 
+
 # ---
 # Constantes y Configuración Centralizada
 # ---
@@ -1150,7 +1150,7 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
             )
 
             # Usar un componente de Streamlit con overflow para permitir el scroll
-            st.write(fig_heatmap)
+            st.plotly_chart(fig_heatmap, use_container_width=True)
         
         else:
             st.info("No hay datos para mostrar en la matriz con la selección actual.")
