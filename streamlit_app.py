@@ -1327,7 +1327,7 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
                         st.success("La correlación es estadísticamente significativa (p < 0.05).")
                     else:
                         st.warning("La correlación no es estadísticamente significativa (p ≥ 0.05).")
- 
+                    
                     fig_scatter_indices = px.scatter(
                         df_merged_indices, x=index_col_name, y=Config.PRECIPITATION_COL, trendline='ols',
                         title=f'Dispersión: {selected_index} vs. Precipitación de {selected_station_corr}',
