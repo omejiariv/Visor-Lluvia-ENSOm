@@ -24,7 +24,7 @@ from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
-
+ 
 # ---
 # Constantes y Configuración Centralizada
 # ---
@@ -44,16 +44,16 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-
+    
     # Índices climáticos leídos del archivo principal
     SOI_COL = 'soi'
     IOD_COL = 'iod'
-
+    
     # Rutas de Archivos
     LOGO_PATH = "CuencaVerdeLogo_V1.JPG"
     LOGO_DROP_PATH = "CuencaVerdeGoticaLogo.JPG"
     GIF_PATH = "PPAM.gif"
-
+    
     # Mensajes de la UI
     APP_TITLE = "Sistema de información de las lluvias y el Clima en el norte de la región Andina"
     WELCOME_TEXT = """
@@ -77,7 +77,7 @@ class Config:
     
     ¡Esperamos que esta herramienta le sea de gran utilidad para sus análisis climáticos!
     """
-
+    
     @staticmethod
     def initialize_session_state():
         """Inicializa todas las variables necesarias en el estado de la sesión de Streamlit."""
@@ -165,8 +165,8 @@ def load_shapefile(file_uploader_object):
             gdf = gpd.read_file(shp_path)
             gdf.columns = gdf.columns.str.strip().str.lower()
             
+            # Asumimos el CRS por defecto sin mostrar advertencia
             if gdf.crs is None:
-                st.warning("El shapefile no tiene un sistema de coordenadas de referencia (CRS) definido. Asumiendo MAGNA-SIRGAS (EPSG:9377).")
                 gdf.set_crs("EPSG:9377", inplace=True)
             return gdf.to_crs("EPSG:4326")
     except Exception as e:
@@ -1125,16 +1125,38 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=50)
             with metric_col: st.metric(label=title_text, value=f"{avg_availability:.1f}%" if not np.isnan(avg_availability) else "N/A")
             
+            # Aumentar el tamaño de la fuente en el texto de la matriz
             fig_heatmap = px.imshow(
                 heatmap_df,
-                text_auto='.1f',
+                text_auto=True,  # Usar text_auto para que Plotly maneje el texto
                 aspect="auto",
                 color_continuous_scale=color_scale,
                 labels=dict(x="Año", y="Estación", color="% Datos"),
                 title=title_text
             )
-            fig_heatmap.update_layout(height=max(400, len(stations_for_analysis) * 40))
-            st.plotly_chart(fig_heatmap, use_container_width=True)
+            
+            # Personalizar la fuente de los números dentro de la matriz
+            fig_heatmap.update_traces(textfont=dict(size=14, color='white'))
+
+            # Asegurar que los encabezados permanezcan visibles
+            fig_heatmap.update_layout(
+                xaxis_showgrid=False,
+                yaxis_showgrid=False,
+                xaxis_title_font=dict(size=14),
+                yaxis_title_font=dict(size=14),
+                xaxis_tickfont=dict(size=12),
+                yaxis_tickfont=dict(size=12),
+                height=max(400, len(stations_for_analysis) * 40)
+            )
+
+            # Para mantener los encabezados de las filas visibles
+            st.markdown(
+                f"<div style='overflow-x: auto; overflow-y: scroll; height: {max(400, len(stations_for_analysis) * 40)}px;'>"
+                f"{fig_heatmap.to_html(full_html=False, include_plotlyjs='cdn')}"
+                "</div>",
+                unsafe_allow_html=True
+            )
+
         else:
             st.info("No hay datos para mostrar en la matriz con la selección actual.")
     
