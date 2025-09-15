@@ -100,7 +100,8 @@ class Config:
             'exclude_na': False,
             'exclude_zeros': False,
             'uploaded_forecast': None,
-            'map_view': {"location": [4.57, -74.29], "zoom": 5}
+            'map_view': {"location": [4.57, -74.29], "zoom": 5},
+            'df_monthly_filtered': pd.DataFrame()
         }
         for key, value in state_defaults.items():
             if key not in st.session_state:
