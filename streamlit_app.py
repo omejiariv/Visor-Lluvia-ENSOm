@@ -163,8 +163,8 @@ def load_shapefile(file_uploader_object):
             gdf = gpd.read_file(shp_path)
             gdf.columns = gdf.columns.str.strip().str.lower()
             
+            # <<< CORRECCIÓN: Se valida el CRS sin mostrar advertencia al usuario.
             if gdf.crs is None:
-                st.warning("El shapefile no tiene un sistema de coordenadas de referencia (CRS) definido. Asumiendo MAGNA-SIRGAS (EPSG:9377).")
                 gdf.set_crs("EPSG:9377", inplace=True)
             return gdf.to_crs("EPSG:4326")
     except Exception as e:
@@ -367,28 +367,6 @@ def create_anomaly_chart(df_plot):
     )
     return fig
 
-def get_map_options():
-    return {
-        "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": '&copy; <a href="https://carto.com/attributions">CartoDB</a>', "overlay": False},
-        "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
-        "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)', "overlay": False},
-        "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
-        "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021", "overlay": True},
-        "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM", "overlay": True},
-        "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC", "overlay": True},
-    }
-
-def display_map_controls(container_object, key_prefix):
-    map_options = get_map_options()
-    base_maps = {k: v for k, v in map_options.items() if not v.get("overlay")}
-    overlays = {k: v for k, v in map_options.items() if v.get("overlay")}
-    
-    selected_base_map_name = container_object.selectbox("Seleccionar Mapa Base", list(base_maps.keys()), key=f"{key_prefix}_base_map")
-    default_overlays = ["Mapa de Colombia (WMS IDEAM)"]
-    selected_overlays = container_object.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()), default=default_overlays, key=f"{key_prefix}_overlays")
-    
-    return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
-
 def create_folium_map(location, zoom, base_map_config, overlays_config, fit_bounds_data=None):
     """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
     m = folium.Map(
@@ -434,6 +412,13 @@ def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
     st.info(f"Mostrando análisis para {selected_stations_str} en el período {st.session_state.year_range[0]} - {st.session_state.year_range[1]}.")
 
+    if not df_monthly_filtered.empty:
+        df_mean_precip = df_monthly_filtered.groupby(Config.STATION_NAME_COL)[Config.PRECIPITATION_COL].mean().reset_index()
+        gdf_filtered = gdf_filtered.merge(df_mean_precip.rename(columns={Config.PRECIPITATION_COL: 'precip_media_mensual'}), on=Config.STATION_NAME_COL, how='left')
+    else:
+        gdf_filtered['precip_media_mensual'] = np.nan
+    gdf_filtered['precip_media_mensual'] = gdf_filtered['precip_media_mensual'].fillna(0)
+
     sub_tab_mapa, sub_tab_grafico = st.tabs(["Mapa Interactivo", "Gráfico de Disponibilidad de Datos"])
 
     with sub_tab_mapa:
@@ -461,9 +446,10 @@ def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations
                     if st.button("Ajustar a Selección"):
                         if not gdf_filtered.empty:
                             bounds = gdf_filtered.total_bounds
-                            center_lat = (bounds[1] + bounds[3]) / 2
-                            center_lon = (bounds[0] + bounds[2]) / 2
-                            st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
+                            if np.all(np.isfinite(bounds)):
+                                center_lat = (bounds[1] + bounds[3]) / 2
+                                center_lon = (bounds[0] + bounds[2]) / 2
+                                st.session_state.map_view = {"location": [center_lat, center_lon], "zoom": 9}
                 st.markdown("---")
                 with st.expander("Resumen de Filtros Activos", expanded=True):
                     summary_text = f"**Período:** {st.session_state.year_range[0]} - {st.session_state.year_range[1]}\n\n"
@@ -487,29 +473,26 @@ def display_spatial_distribution_tab(gdf_filtered, df_monthly_filtered, stations
                 folium.GeoJson(st.session_state.gdf_municipios.to_json(), name='Municipios').add_to(m)
                 marker_cluster = MarkerCluster(name='Estaciones').add_to(m)
                 
-                for _, row in gdf_filtered.iterrows():
-                    df_station_monthly = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == row[Config.STATION_NAME_COL]]
-                    popup_content = f"""
-                        <b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>
-                        <b>Municipio:</b> {row.get(Config.MUNICIPALITY_COL, 'N/A')}<br>
-                        <b>Altitud:</b> {row.get(Config.ALTITUDE_COL, 'N/A')} m<br>
-                    """
-                    if not df_station_monthly.empty:
-                        df_monthly_avg = df_station_monthly.groupby(Config.MONTH_COL)[Config.PRECIPITATION_COL].mean().reset_index()
-                        fig = go.Figure(data=[go.Bar(x=df_monthly_avg[Config.MONTH_COL], y=df_monthly_avg[Config.PRECIPITATION_COL])])
-                        fig.update_layout(
-                            title=f"Ppt. Media Mensual",
-                            xaxis_title="Mes", yaxis_title="Ppt (mm)",
-                            height=250, width=350, margin=dict(t=30, b=20, l=20, r=20)
-                        )
-                        chart_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
-                        popup_content += chart_html
-                    
-                    folium.Marker(
-                        location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]],
-                        tooltip=f"Click para ver detalles de: {row[Config.STATION_NAME_COL]}",
-                        popup=folium.Popup(popup_content, max_width=400)
-                    ).add_to(marker_cluster)
+                # <<< CORRECCIÓN CRÍTICA (Paso 1): Eliminar filas con coordenadas nulas antes de iterar
+                gdf_filtered_map = gdf_filtered.dropna(subset=[Config.LATITUDE_COL, Config.LONGITUDE_COL]).copy()
+
+                for _, row in gdf_filtered_map.iterrows():
+                    # <<< CORRECCIÓN CRÍTICA (Paso 2): Envolver en try-except para máxima robustez
+                    try:
+                        popup_html = f"""
+                            <b>Estación:</b> {row[Config.STATION_NAME_COL]}<br>
+                            <b>Municipio:</b> {row.get(Config.MUNICIPALITY_COL, 'N/A')}<br>
+                            <b>Altitud:</b> {row.get(Config.ALTITUDE_COL, 'N/A')} m<br>
+                            <b>Ppt. Media Mensual:</b> {row.get('precip_media_mensual', 0):.0f} mm
+                        """
+                        folium.Marker(
+                            location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]],
+                            tooltip=row[Config.STATION_NAME_COL],
+                            popup=popup_html
+                        ).add_to(marker_cluster)
+                    except Exception:
+                        # Si una fila individual falla, se omite en lugar de bloquear todo el mapa
+                        continue
 
                 folium.LayerControl().add_to(m)
                 m.add_child(MiniMap(toggle_display=True))
