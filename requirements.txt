@@ -19,3 +19,4 @@ statsmodels
 scikit-learn
 pymannkendall
 kaleido
+climate-indices
