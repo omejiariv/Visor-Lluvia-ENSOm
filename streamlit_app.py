@@ -163,7 +163,6 @@ def load_shapefile(file_uploader_object):
             gdf = gpd.read_file(shp_path)
             gdf.columns = gdf.columns.str.strip().str.lower()
             
-            # --- CORRECCIÓN: Asumir CRS sin mostrar el mensaje de advertencia ---
             if gdf.crs is None:
                 gdf.set_crs("EPSG:9377", inplace=True)
             return gdf.to_crs("EPSG:4326")
@@ -371,8 +370,9 @@ def display_map_controls(container_object, key_prefix):
     return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
 
 # ---
-# --- INICIO DEL BLOQUE DE FUNCIONES RESTAURADO ---
+# Lógica de Visualización
 # ---
+
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
     st.markdown(Config.WELCOME_TEXT, unsafe_allow_html=True)
@@ -848,7 +848,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                 df_anual_melted, x=Config.PRECIPITATION_COL, y=Config.STATION_NAME_COL,
                 animation_frame=Config.YEAR_COL, orientation='h', text=Config.PRECIPITATION_COL,
                 labels={Config.PRECIPITATION_COL: 'Precipitación Anual (mm)', Config.STATION_NAME_COL: 'Estación'},
-                title=f"Evolución de Precipitación Anual por Estación ({st.session_state.year_range[0]} - {st.session_state.year_range[1]})",
                 category_orders={Config.STATION_NAME_COL: station_order}
             )
             fig_racing.update_traces(texttemplate='%{x:.0f}', textposition='outside')
@@ -899,7 +898,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         if not df_anual_melted.empty and len(df_anual_melted[Config.YEAR_COL].unique()) > 0:
             control_col, map_col1, map_col2 = st.columns([1, 2, 2])
             with control_col:
-                st.markdown("##### Controles de Mapa")
+                st.markdown("##### Controles del Mapa")
                 selected_base_map_config, selected_overlays_config = display_map_controls(st, "compare")
                 min_year, max_year = int(df_anual_melted[Config.YEAR_COL].min()), int(df_anual_melted[Config.YEAR_COL].max())
                 year1 = st.slider("Seleccione el año para el Mapa 1", min_year, max_year, max_year, key="compare_year1")
@@ -1645,7 +1644,6 @@ def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_ana
     csv_mensual = convert_df_to_csv(df_monthly_filtered)
     st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv', key='download-mensual')
 
-    # --- MEJORA: AÑADIR BOTÓN DE DESCARGA DE SERIES COMPLETADAS ---
     st.markdown("**Datos de Precipitación Mensual (Series Completadas)**")
     if analysis_mode == "Completar series (interpolación)":
         df_completed_filtered = st.session_state.df_monthly_processed[st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)]
@@ -1708,26 +1706,24 @@ def display_sidebar_controls():
         st.stop()
 
     with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
-        min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, st.session_state.min_data_perc_slider, key='min_data_perc_slider')
+        min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, st.session_state.get('min_data_perc_slider', 0), key='min_data_perc_slider')
         
         altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
-        selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges, default=st.session_state.altitude_multiselect, key='altitude_multiselect')
+        selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges, default=st.session_state.get('altitude_multiselect', []), key='altitude_multiselect')
 
         regions_list = sorted(st.session_state.gdf_stations[Config.REGION_COL].dropna().unique())
-        selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list, default=st.session_state.regions_multiselect, key='regions_multiselect')
+        selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list, default=st.session_state.get('regions_multiselect', []), key='regions_multiselect')
         
-        # Filtro en cascada para municipios
         stations_temp_filtered = st.session_state.gdf_stations.copy()
         if selected_regions:
             stations_temp_filtered = stations_temp_filtered[stations_temp_filtered[Config.REGION_COL].isin(selected_regions)]
         municipios_list = sorted(stations_temp_filtered[Config.MUNICIPALITY_COL].dropna().unique())
-        selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list, default=st.session_state.municipios_multiselect, key='municipios_multiselect')
+        selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list, default=st.session_state.get('municipios_multiselect', []), key='municipios_multiselect')
 
-        # Filtro en cascada para celdas
         if selected_municipios:
             stations_temp_filtered = stations_temp_filtered[stations_temp_filtered[Config.MUNICIPALITY_COL].isin(selected_municipios)]
         celdas_list = sorted(stations_temp_filtered[Config.CELL_COL].dropna().unique())
-        selected_celdas = st.multiselect('Filtrar por Celda_XY', options=celdas_list, default=st.session_state.celdas_multiselect, key='celdas_multiselect')
+        selected_celdas = st.multiselect('Filtrar por Celda_XY', options=celdas_list, default=st.session_state.get('celdas_multiselect', []), key='celdas_multiselect')
 
         if st.button("🧹 Limpiar Filtros"):
             st.session_state.min_data_perc_slider = 0
@@ -1770,7 +1766,7 @@ def display_sidebar_controls():
         analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"), key="analysis_mode_radio")
         exclude_na = st.checkbox("Excluir datos nulos (NaN)", value=st.session_state.exclude_na, key='exclude_na_checkbox')
         exclude_zeros = st.checkbox("Excluir valores cero (0)", value=st.session_state.exclude_zeros, key='exclude_zeros_checkbox')
-
+    
     return min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas, selected_stations, year_range, meses_numeros, analysis_mode
 
 def get_filtered_data(min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas, stations_for_analysis, year_range, meses_numeros, analysis_mode):
@@ -1838,10 +1834,8 @@ def get_filtered_data(min_data_perc, selected_altitudes, selected_regions, selec
     return gdf_filtered, df_anual_melted, df_monthly_filtered, stations_for_analysis, df_long, df_monthly_processed
 
 # ---
-# Lógica de Visualización (sin cambios)
+# Lógica de Visualización
 # ---
-
-# ... (todas las funciones display_..._tab se mantienen igual) ...
 
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
@@ -2318,7 +2312,6 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                 df_anual_melted, x=Config.PRECIPITATION_COL, y=Config.STATION_NAME_COL,
                 animation_frame=Config.YEAR_COL, orientation='h', text=Config.PRECIPITATION_COL,
                 labels={Config.PRECIPITATION_COL: 'Precipitación Anual (mm)', Config.STATION_NAME_COL: 'Estación'},
-                title=f"Evolución de Precipitación Anual por Estación ({st.session_state.year_range[0]} - {st.session_state.year_range[1]})",
                 category_orders={Config.STATION_NAME_COL: station_order}
             )
             fig_racing.update_traces(texttemplate='%{x:.0f}', textposition='outside')
@@ -2369,7 +2362,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         if not df_anual_melted.empty and len(df_anual_melted[Config.YEAR_COL].unique()) > 0:
             control_col, map_col1, map_col2 = st.columns([1, 2, 2])
             with control_col:
-                st.markdown("##### Controles de Mapa")
+                st.markdown("##### Controles del Mapa")
                 selected_base_map_config, selected_overlays_config = display_map_controls(st, "compare")
                 min_year, max_year = int(df_anual_melted[Config.YEAR_COL].min()), int(df_anual_melted[Config.YEAR_COL].max())
                 year1 = st.slider("Seleccione el año para el Mapa 1", min_year, max_year, max_year, key="compare_year1")
@@ -2970,7 +2963,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         st.subheader("Análisis de Autocorrelación (ACF) y Autocorrelación Parcial (PACF)")
         st.markdown("Estos gráficos ayudan a entender la dependencia de la precipitación con sus valores pasados (rezagos). Las barras que superan el área azul sombreada indican una correlación estadísticamente significativa.")
 
-        # Función para calcular y graficar ACF
         def plot_autocorrelation(data, title, max_lag):
             acf_values = [data.autocorr(lag=i) for i in range(max_lag + 1)]
             conf_interval = 1.96 / np.sqrt(len(data))
@@ -3115,7 +3107,6 @@ def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_ana
     csv_mensual = convert_df_to_csv(df_monthly_filtered)
     st.download_button("Descargar CSV Mensual", csv_mensual, 'precipitacion_mensual.csv', 'text/csv', key='download-mensual')
 
-    # --- MEJORA: AÑADIR BOTÓN DE DESCARGA DE SERIES COMPLETADAS ---
     st.markdown("**Datos de Precipitación Mensual (Series Completadas)**")
     if analysis_mode == "Completar series (interpolación)":
         df_completed_filtered = st.session_state.df_monthly_processed[st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)]
@@ -3178,18 +3169,19 @@ def display_sidebar_controls():
         st.stop()
 
     with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
-        
-        min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, st.session_state.min_data_perc_slider, key='min_data_perc_slider')
+        min_data_perc = st.slider("Filtrar por % de datos mínimo:", 0, 100, st.session_state.get('min_data_perc_slider', 0), key='min_data_perc_slider')
         
         altitude_ranges = ['0-500', '500-1000', '1000-2000', '2000-3000', '>3000']
-        selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges, default=st.session_state.altitude_multiselect, key='altitude_multiselect')
+        selected_altitudes = st.multiselect('Filtrar por Altitud (m)', options=altitude_ranges, default=st.session_state.get('altitude_multiselect', []), key='altitude_multiselect')
 
         regions_list = sorted(st.session_state.gdf_stations[Config.REGION_COL].dropna().unique())
-        selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list, default=st.session_state.regions_multiselect, key='regions_multiselect')
+        selected_regions = st.multiselect('Filtrar por Depto/Región', options=regions_list, default=st.session_state.get('regions_multiselect', []), key='regions_multiselect')
         
-        # Filtro en cascada para municipios
         stations_temp_filtered = st.session_state.gdf_stations.copy()
         if selected_regions:
             stations_temp_filtered = stations_temp_filtered[stations_temp_filtered[Config.REGION_COL].isin(selected_regions)]
         municipios_list = sorted(stations_temp_filtered[Config.MUNICIPALITY_COL].dropna().unique())
-        selected_municipios = st
+        selected_municipios = st.multiselect('Filtrar por Municipio', options=municipios_list, default=st.session_state.get('municipios_multiselect', []), key='municipios_multiselect')
+
+        if selected_municipios:
+            stations_temp_filtered = stations
