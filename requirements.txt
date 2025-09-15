@@ -17,3 +17,4 @@ Pillow
 rioxarray
 statsmodels
 scikit-learn
+pymannkendall
