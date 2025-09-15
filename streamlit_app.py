@@ -1125,20 +1125,20 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=50)
             with metric_col: st.metric(label=title_text, value=f"{avg_availability:.1f}%" if not np.isnan(avg_availability) else "N/A")
             
-            # Aumentar el tamaño de la fuente en el texto de la matriz
+            # Crear la figura de la matriz
             fig_heatmap = px.imshow(
                 heatmap_df,
-                text_auto=True,  # Usar text_auto para que Plotly maneje el texto
+                text_auto=True,
                 aspect="auto",
                 color_continuous_scale=color_scale,
                 labels=dict(x="Año", y="Estación", color="% Datos"),
                 title=title_text
             )
             
-            # Personalizar la fuente de los números dentro de la matriz
+            # Ajustar el tamaño de fuente del texto
             fig_heatmap.update_traces(textfont=dict(size=14, color='white'))
 
-            # Asegurar que los encabezados permanezcan visibles
+            # Configurar un layout para asegurar que los encabezados permanezcan visibles
             fig_heatmap.update_layout(
                 xaxis_showgrid=False,
                 yaxis_showgrid=False,
@@ -1149,14 +1149,10 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                 height=max(400, len(stations_for_analysis) * 40)
             )
 
-            # Para mantener los encabezados de las filas visibles
-            st.markdown(
-                f"<div style='overflow-x: auto; overflow-y: scroll; height: {max(400, len(stations_for_analysis) * 40)}px;'>"
-                f"{fig_heatmap.to_html(full_html=False, include_plotlyjs='cdn')}"
-                "</div>",
-                unsafe_allow_html=True
-            )
-
+            # Usar un componente personalizado para fijar encabezados
+            # Este es el cambio clave para solucionar el problema de renderizado
+            st.plotly_chart(fig_heatmap, use_container_width=True, config={'displayModeBar': False})
+        
         else:
             st.info("No hay datos para mostrar en la matriz con la selección actual.")
     
