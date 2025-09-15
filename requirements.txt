@@ -18,3 +18,4 @@ rioxarray
 statsmodels
 scikit-learn
 pymannkendall
+kaleido
