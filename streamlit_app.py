@@ -1099,19 +1099,30 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                     heatmap_df = pd.DataFrame()
         
         if not heatmap_df.empty:
-            avg_availability = heatmap_df.stack().mean()
+            # Calcular el promedio de disponibilidad anual solo para las estaciones seleccionadas
+            num_years = len(heatmap_df.columns)
+            total_data_points = num_years * len(heatmap_df.index)
+            available_data_points = heatmap_df.sum().sum() / 100 * 12 # Convertir porcentaje a puntos de datos
+            avg_availability = (available_data_points / total_data_points) * 100 if total_data_points > 0 else 0
+            
             logo_col, metric_col = st.columns([1, 5])
             with logo_col:
                 if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=50)
             with metric_col: st.metric(label=title_text, value=f"{avg_availability:.1f}%")
             
-            styled_df = heatmap_df.style.background_gradient(cmap=color_scale, axis=None, vmin=0, vmax=100).format("{:.0f}%", na_rep="-").set_table_styles([
-                {'selector': 'th', 'props': [('background-color', '#333'), ('color', 'white'), ('font-size', '14px')]},
-                {'selector': 'td', 'props': [('text-align', 'center')]}])
-            st.dataframe(styled_df, use_container_width=True)
+            fig_heatmap = px.imshow(
+                heatmap_df,
+                text_auto='.1f',
+                aspect="auto",
+                color_continuous_scale=color_scale,
+                labels=dict(x="Año", y="Estación", color="% Datos"),
+                title=title_text
+            )
+            fig_heatmap.update_layout(height=max(400, len(stations_for_analysis) * 40))
+            st.plotly_chart(fig_heatmap, use_container_width=True)
         else:
             st.info("No hay datos para mostrar en la matriz con la selección actual.")
-
+    
     with resumen_mensual_tab:
         st.subheader("Resumen de Estadísticas Mensuales por Estación")
         if not df_monthly_filtered.empty:
@@ -1662,9 +1673,12 @@ def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_ana
  
     if st.session_state.analysis_mode == "Completar series (interpolación)":
         st.markdown("**Datos de Precipitación Mensual (Series Completadas y Filtradas)**")
-        df_completed_filtered = st.session_state.df_monthly_filtered[st.session_state.df_monthly_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-        csv_completado = convert_df_to_csv(df_completed_filtered)
-        st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
+        df_completed_filtered = st.session_state.df_monthly_filtered.copy()
+        if not df_completed_filtered.empty:
+            csv_completado = convert_df_to_csv(df_completed_filtered)
+            st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
+        else:
+            st.info("No hay datos de series completadas para la selección actual.")
     else:
         st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
  
