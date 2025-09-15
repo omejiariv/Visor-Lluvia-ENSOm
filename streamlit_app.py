@@ -333,7 +333,8 @@ def add_plotly_download_buttons(fig, file_prefix):
 def add_folium_download_button(map_object, file_name):
     """Muestra un botón de descarga para un mapa de Folium (HTML)."""
     st.markdown("---")
-    map_buffer = io.StringIO()
+    # CORRECCIÓN: Se usa BytesIO en lugar de StringIO para manejar datos binarios.
+    map_buffer = io.BytesIO()
     map_object.save(map_buffer, close_file=False)
     st.download_button(
         label="📥 Descargar Mapa (HTML)",
