@@ -18,6 +18,7 @@ import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
 from scipy import stats
+from scipy.stats import gamma  # <--- NUEVA IMPORTACIÓN
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import pacf
@@ -26,6 +27,7 @@ from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
 import pymannkendall as mk
+import climate_indices.spi as spi # <--- NUEVA IMPORTACIÓN
 
 # ---
 # Constantes y Configuración Centralizada
@@ -333,7 +335,6 @@ def add_plotly_download_buttons(fig, file_prefix):
 def add_folium_download_button(map_object, file_name):
     """Muestra un botón de descarga para un mapa de Folium (HTML)."""
     st.markdown("---")
-    # CORRECCIÓN: Se usa BytesIO en lugar de StringIO para manejar datos binarios.
     map_buffer = io.BytesIO()
     map_object.save(map_buffer, close_file=False)
     st.download_button(
