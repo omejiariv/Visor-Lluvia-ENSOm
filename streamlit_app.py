@@ -1861,6 +1861,7 @@ def main():
     )
     df_anual_melted = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL].isin(stations_for_analysis)]
     
+    # Lógica para procesar los datos mensuales basada en el modo de análisis
     if st.session_state.df_long is not None:
         if analysis_mode == "Completar series (interpolación)":
             df_monthly_processed = complete_series(st.session_state.df_long.copy())
