@@ -1135,7 +1135,7 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                 title=title_text
             )
             
-            # Ajustar el tamaño de fuente del texto
+            # Personalizar la fuente de los números dentro de la matriz
             fig_heatmap.update_traces(textfont=dict(size=14, color='white'))
 
             # Configurar un layout para asegurar que los encabezados permanezcan visibles
@@ -1149,9 +1149,8 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
                 height=max(400, len(stations_for_analysis) * 40)
             )
 
-            # Usar un componente personalizado para fijar encabezados
-            # Este es el cambio clave para solucionar el problema de renderizado
-            st.plotly_chart(fig_heatmap, use_container_width=True, config={'displayModeBar': False})
+            # Usar un componente de Streamlit con overflow para permitir el scroll
+            st.write(fig_heatmap)
         
         else:
             st.info("No hay datos para mostrar en la matriz con la selección actual.")
