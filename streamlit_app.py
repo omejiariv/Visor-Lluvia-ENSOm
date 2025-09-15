@@ -24,7 +24,7 @@ from prophet import Prophet
 from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
- 
+
 # ---
 # Constantes y Configuración Centralizada
 # ---
@@ -44,16 +44,16 @@ class Config:
     REGION_COL = 'depto_region'
     PERCENTAGE_COL = 'porc_datos'
     CELL_COL = 'celda_xy'
-    
+
     # Índices climáticos leídos del archivo principal
     SOI_COL = 'soi'
     IOD_COL = 'iod'
-    
+
     # Rutas de Archivos
     LOGO_PATH = "CuencaVerdeLogo_V1.JPG"
     LOGO_DROP_PATH = "CuencaVerdeGoticaLogo.JPG"
     GIF_PATH = "PPAM.gif"
-    
+
     # Mensajes de la UI
     APP_TITLE = "Sistema de información de las lluvias y el Clima en el norte de la región Andina"
     WELCOME_TEXT = """
@@ -77,7 +77,7 @@ class Config:
     
     ¡Esperamos que esta herramienta le sea de gran utilidad para sus análisis climáticos!
     """
-    
+
     @staticmethod
     def initialize_session_state():
         """Inicializa todas las variables necesarias en el estado de la sesión de Streamlit."""
