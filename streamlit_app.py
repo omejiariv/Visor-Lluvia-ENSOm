@@ -27,7 +27,7 @@ from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
 import pymannkendall as mk
-# La librería climate_indices ha sido eliminada por problemas de compatibilidad.
+# La librería climate_indices fue eliminada y reemplazada por una función interna.
 
 # ---
 # Constantes y Configuración Centralizada
