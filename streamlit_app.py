@@ -27,7 +27,6 @@ from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
 import pymannkendall as mk
-# La librería climate_indices fue eliminada y reemplazada por una función interna.
 
 # ---
 # Constantes y Configuración Centralizada
@@ -300,7 +299,7 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     return gdf_stations, gdf_municipios, df_long, df_enso
 
 # ---
-# Funciones para Gráficos y Mapas
+# Funciones para Gráficos, Mapas y Descargas
 # ---
 def add_plotly_download_buttons(fig, file_prefix):
     """Muestra botones de descarga para un gráfico Plotly (HTML y PNG)."""
@@ -319,7 +318,6 @@ def add_plotly_download_buttons(fig, file_prefix):
         )
     with col2:
         try:
-            # Asegúrate de tener kaleido instalado: pip install kaleido
             img_bytes = fig.to_image(format="png", width=1200, height=700, scale=2)
             st.download_button(
                 label="📥 Descargar Gráfico (PNG)",
@@ -360,7 +358,6 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
         return None
 
     # 2. Ajuste de la distribución Gamma a los datos de precipitación
-    # Se ajusta para cada mes del año por separado para mantener la estacionalidad
     spi_values = pd.Series(index=rolling_sum.index, dtype=float)
     
     for month in range(1, 13):
@@ -369,30 +366,24 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
         if monthly_data.empty:
             continue
 
-        # Separar valores cero de los no-cero
         monthly_data_fit = monthly_data[monthly_data > 0]
         
-        if len(monthly_data_fit) < 20:  # Muestra mínima para un ajuste robusto
+        if len(monthly_data_fit) < 20:
             continue
 
-        # Ajustar la distribución Gamma a los datos > 0
         shape, loc, scale = gamma.fit(monthly_data_fit, floc=0)
         
-        # Calcular la probabilidad acumulada (CDF) para todos los datos del mes
         cdf_non_zero = gamma.cdf(monthly_data, a=shape, loc=loc, scale=scale)
         
-        # Contabilizar la probabilidad de ceros
         prob_zeros = (monthly_data == 0).sum() / len(monthly_data)
         
-        # Ajustar la CDF para incluir los ceros
         final_cdf = prob_zeros + (1 - prob_zeros) * cdf_non_zero
         final_cdf[monthly_data == 0] = prob_zeros
         
-        # Acotar los valores para evitar infinitos en la transformación inversa
         final_cdf[final_cdf > 0.99999] = 0.99999
         final_cdf[final_cdf < 0.00001] = 0.00001
 
-        # 3. Transformación a la distribución normal estándar (Z-score)
+        # 3. Transformación a la distribución normal estándar
         spi_month = norm.ppf(final_cdf)
         spi_values.loc[spi_month.index] = spi_month
 
