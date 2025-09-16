@@ -18,7 +18,7 @@ import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
 from scipy import stats
-from scipy.stats import gamma  # <--- NUEVA IMPORTACIÓN
+from scipy.stats import gamma
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import pacf
