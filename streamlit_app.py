@@ -521,10 +521,8 @@ def create_folium_map(location, zoom, base_map_config, overlays_config, fit_boun
        
    return m
 
-# ---
 # Funciones para las Pestañas de la UI
 # ---
-
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
     st.markdown(Config.WELCOME_TEXT, unsafe_allow_html=True)
@@ -1282,6 +1280,131 @@ def display_extremes_tab(df_monthly_filtered, stations_for_analysis):
         with col2:
             st.markdown(f"#### Eventos Secos ({len(df_dry_events)} meses)")
             st.dataframe(df_dry_events[[Config.DATE_COL, Config.PRECIPITATION_COL]].sort_values(by=Config.PRECIPITATION_COL, ascending=True).round(1), use_container_width=True)
+
+def display_spi_tab(df_monthly_processed, stations_for_analysis):
+    st.header("Análisis de Sequías (Índice de Precipitación Estandarizado - SPI)")
+
+    with st.expander("¿Qué es el SPI y cómo interpretarlo?"):
+        st.markdown("""
+        El **Índice de Precipitación Estandarizado (SPI)** es uno de los indicadores de sequía más utilizados a nivel mundial. Transforma la precipitación acumulada en un período de tiempo en una medida estandarizada, permitiendo comparar la desviación de la normal en diferentes climas.
+
+        - **Escala de Tiempo**: El SPI se calcula para diferentes escalas (ej. 3, 6, 12 meses).
+            - **SPI-3 (3 meses)**: Refleja condiciones de humedad a corto plazo, importantes para la agricultura.
+            - **SPI-6 (6 meses)**: Indica tendencias de precipitación a mediano plazo.
+            - **SPI-12 (12 meses)**: Se relaciona con caudales de ríos y niveles de embalses a largo plazo.
+
+        - **Interpretación de los Valores**:
+            - **SPI > 0**: Condiciones más húmedas que la media.
+            - **SPI < 0**: Condiciones más secas que la media.
+        
+        | Valor SPI         | Categoría                |
+        |-------------------|--------------------------|
+        | 2.0 o más         | Extremadamente Húmedo    |
+        | 1.5 a 1.99        | Muy Húmedo               |
+        | 1.0 a 1.49        | Moderadamente Húmedo     |
+        | -0.99 a 0.99      | Cercano a lo Normal      |
+        | -1.0 a -1.49      | Sequía Moderada          |
+        | -1.5 a -1.99      | Sequía Severa            |
+        | -2.0 o menos      | Sequía Extrema           |
+        """)
+
+    if st.session_state.analysis_mode != "Completar series (interpolación)":
+        st.warning("**Advertencia:** El cálculo del SPI es más preciso y robusto cuando se utiliza la opción **'Completar series (interpolación)'** en el panel de preprocesamiento de datos, ya que requiere una serie de tiempo continua.")
+
+    if not stations_for_analysis.any():
+        st.info("Por favor, seleccione al menos una estación en el panel lateral para comenzar.")
+        return
+
+    col1, col2 = st.columns(2)
+    with col1:
+        station_to_analyze = st.selectbox(
+            "Seleccione una estación para analizar:",
+            options=sorted(stations_for_analysis),
+            key="spi_station_select"
+        )
+    with col2:
+        timescale = st.selectbox(
+            "Seleccione la escala de tiempo del SPI (meses):",
+            options=[3, 6, 9, 12, 24],
+            index=1,
+            key="spi_timescale_select"
+        )
+    
+    if not station_to_analyze:
+        return
+
+    # Preparar los datos para el cálculo
+    df_station = df_monthly_processed[df_monthly_processed[Config.STATION_NAME_COL] == station_to_analyze].copy()
+    df_station.set_index(Config.DATE_COL, inplace=True)
+    precip_series = df_station[Config.PRECIPITATION_COL].sort_index()
+
+    if len(precip_series.dropna()) < 36: # Requiere una serie de datos razonablemente larga
+        st.error(f"No hay suficientes datos para la estación {station_to_analyze} para realizar un cálculo de SPI confiable. Se recomienda un mínimo de 30 años de datos.")
+        return
+        
+    with st.spinner(f"Calculando SPI-{timescale} para {station_to_analyze}..."):
+        spi_series = calculate_spi(precip_series, timescale)
+
+        if spi_series is None or spi_series.dropna().empty:
+            st.error(f"No se pudo calcular el SPI para la estación {station_to_analyze}. Verifique la calidad y longitud de los datos.")
+            return
+
+        df_spi = pd.DataFrame(spi_series)
+        df_spi['Clasificación'] = df_spi[f'SPI-{timescale}'].apply(classify_spi)
+        
+        tab1, tab2 = st.tabs(["📊 Gráfico de SPI", "📋 Resumen de Categorías"])
+
+        with tab1:
+            st.subheader(f"Evolución del SPI-{timescale} para {station_to_analyze}")
+            
+            color_map = {
+                "Extremadamente Húmedo": "#0033FF",
+                "Muy Húmedo": "#0099FF",
+                "Moderadamente Húmedo": "#99CCFF",
+                "Cercano a lo Normal": "grey",
+                "Sequía Moderada": "#FFCC99",
+                "Sequía Severa": "#FF6600",
+                "Sequía Extrema": "#CC0000",
+                "Sin Datos": "white"
+            }
+            df_spi['color'] = df_spi['Clasificación'].map(color_map)
+
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=df_spi.index,
+                y=df_spi[f'SPI-{timescale}'],
+                marker_color=df_spi['color'],
+                name="SPI"
+            ))
+
+            fig.update_layout(
+                title=f"Índice de Precipitación Estandarizado (SPI-{timescale})",
+                xaxis_title="Fecha",
+                yaxis_title="Valor SPI",
+                height=600,
+                legend_title_text='Categoría'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            add_plotly_download_buttons(fig, f"spi_{timescale}_{station_to_analyze.replace(' ','_')}")
+
+        with tab2:
+            st.subheader("Distribución de Categorías de SPI")
+            category_counts = df_spi['Clasificación'].value_counts().reset_index()
+            category_counts.columns = ['Categoría', 'Número de Meses']
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.dataframe(category_counts, use_container_width=True)
+            with col2:
+                fig_pie = px.pie(
+                    category_counts,
+                    names='Categoría',
+                    values='Número de Meses',
+                    title="Porcentaje de Tiempo en cada Categoría",
+                    color='Categoría',
+                    color_discrete_map=color_map
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
 
 def display_anomalies_tab(df_long, df_monthly_filtered, stations_for_analysis):
     st.header("Análisis de Anomalías de Precipitación")
