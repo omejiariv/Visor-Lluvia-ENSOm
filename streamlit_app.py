@@ -351,6 +351,10 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
     Utiliza un método manual basado en la distribución Gamma.
     """
     # 1. Calcular la suma acumulada (rolling sum) para la escala de tiempo
+    # Se asegura que la serie de entrada tenga índice de tiempo para el rolling sum
+    if not isinstance(precip_series.index, pd.DatetimeIndex):
+        raise ValueError("La serie de entrada para SPI debe tener un DatetimeIndex.")
+        
     rolling_sum = precip_series.rolling(window=timescale, min_periods=timescale).sum()
     rolling_sum = rolling_sum.dropna()
 
@@ -1173,28 +1177,43 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
             "Seleccionar Escala de Tiempo (meses):", 
             options=[1, 3, 6, 12, 24], 
             index=2, # SPI-6 por defecto
+            key="spi_timescale_select",
             help="Determina el período de agregación de la precipitación (ej: SPI-6 usa los últimos 6 meses)."
         )
     with col2:
         classification_scheme = st.radio("Esquema de Clasificación:", ["Sequía/Humedad"], disabled=True)
         
     df_station = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == station_to_analyze].copy()
-    df_station.set_index(Config.DATE_COL, inplace=True)
     
-    if len(df_station) < (timescale * 2) + 12:
-        st.warning(f"Se necesitan más datos históricos (al menos {timescale * 2 + 12} meses) para calcular el SPI-{timescale} de forma robusta.")
+    # Se necesita un índice de tiempo para el cálculo del SPI
+    df_station.set_index(Config.DATE_COL, inplace=True)
+    df_station = df_station.asfreq('MS') # Asegura un índice de tiempo continuo
+    
+    # Se verifica que haya suficientes datos (mínimo 20 años de datos para el ajuste, o al menos 2.5 * timescale)
+    min_data_required = max(20 * 12, timescale * 2.5 + 12)
+    
+    if len(df_station.dropna(subset=[Config.PRECIPITATION_COL])) < min_data_required:
+        st.warning(f"Se necesitan más datos históricos (se recomiendan al menos {min_data_required:.0f} meses o 20 años) para calcular el SPI-{timescale} de forma robusta.")
         return
 
+    # Extracción de la serie de precipitación (es una Serie de Pandas con índice de fecha)
+    precip_series = df_station[Config.PRECIPITATION_COL].dropna()
+
+    if precip_series.empty:
+         st.warning("No hay datos de precipitación válidos para el cálculo del SPI en esta estación.")
+         return
+         
     # Cálculo del SPI
     with st.spinner(f"Calculando SPI-{timescale}..."):
         try:
-            spi_series = calculate_spi(df_station[Config.PRECIPITATION_COL], timescale)
+            # CORRECCIÓN CLAVE: Pasamos la Serie de Pandas (incluyendo el índice)
+            spi_series = calculate_spi(precip_series, timescale)
         except Exception as e:
             st.error(f"Error al calcular el SPI: {e}")
             return
 
     if spi_series is None or spi_series.empty:
-        st.warning("El cálculo del SPI no produjo resultados válidos. Asegúrese de tener suficientes datos para el período seleccionado.")
+        st.warning("El cálculo del SPI no produjo resultados válidos.")
         return
 
     spi_df = spi_series.to_frame(name=f"SPI-{timescale}")
@@ -1203,7 +1222,7 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
     # Mapeo de colores para la clasificación SPI
     color_map = {
         "Sequía Extrema": 'rgb(120,0,0)', "Sequía Severa": 'rgb(180,0,0)', "Sequía Moderada": 'rgb(255,100,100)',
-        "Cercano a lo Normal": 'rgb(200,200,200)',
+        "Cercano a lo Normal": 'rgb(150,150,150)',
         "Moderadamente Húmedo": 'rgb(100,100,255)', "Muy Húmedo": 'rgb(0,0,180)', "Extremadamente Húmedo": 'rgb(0,0,120)',
         "Sin Datos": 'rgb(255,255,255)'
     }
@@ -1333,14 +1352,15 @@ def display_percentile_analysis_subtab(df_monthly_filtered, station_to_analyze):
         st.markdown(f"##### Eventos Secos ({len(df_dry_events)} meses)")
         if not df_dry_events.empty:
             df_dry_events['Déficit (mm)'] = (dry_threshold - df_dry_events[Config.PRECIPITATION_COL]).round(1)
-            st.dataframe(df_dry_events[[Config.DATE_COL, Config.PRECIPITATION_COL, 'Déficit (mm)']].sort_values(by=Config.PRECIPITATION_COL, ascending=True).round(1), use_container_width=True)
+            df_dry_events['Fecha'] = df_dry_events[Config.DATE_COL].dt.strftime('%Y-%m') # Formatear para visualización
+            st.dataframe(df_dry_events[['Fecha', Config.PRECIPITATION_COL, 'Déficit (mm)']].sort_values(by=Config.PRECIPITATION_COL, ascending=True).round(1), use_container_width=True)
         else:
             st.info("No se identificaron eventos secos con el umbral actual.")
 
 
 def display_drought_analysis_tab(df_monthly_filtered, stations_for_analysis):
     st.header("Análisis de Sequías y Eventos Extremos Hidrológicos")
-    st.markdown("Esta sección unificada ofrece dos metodologías de análisis: el Índice de Precipitación Estandarizado (SPI) para sequías y el análisis de percentiles para extremos puntuales.")
+    st.markdown("Esta sección unificada ofrece dos metodologías de análisis: el **Índice de Precipitación Estandarizado (SPI)** para sequías y el **análisis de percentiles** para extremos puntuales.")
 
     if len(stations_for_analysis) == 0:
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
