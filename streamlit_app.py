@@ -350,14 +350,12 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
     Calcula el SPI para una serie de precipitación dada y una escala de tiempo.
     Utiliza un método manual basado en la distribución Gamma.
     """
-    # 1. Agregación de la precipitación en la escala de tiempo
     rolling_sum = precip_series.rolling(window=timescale, min_periods=timescale).sum()
     rolling_sum = rolling_sum.dropna()
 
     if rolling_sum.empty:
         return None
 
-    # 2. Ajuste de la distribución Gamma a los datos de precipitación
     spi_values = pd.Series(index=rolling_sum.index, dtype=float)
     
     for month in range(1, 13):
@@ -383,7 +381,6 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
         final_cdf[final_cdf > 0.99999] = 0.99999
         final_cdf[final_cdf < 0.00001] = 0.00001
 
-        # 3. Transformación a la distribución normal estándar
         spi_month = norm.ppf(final_cdf)
         spi_values.loc[spi_month.index] = spi_month
 
@@ -446,33 +443,6 @@ def create_enso_chart(enso_data):
         height=600, title="Fases del Fenómeno ENSO y Anomalía ONI",
         yaxis_title="Anomalía ONI (°C)", xaxis_title="Fecha", showlegend=True,
         legend_title_text='Fase', yaxis_range=y_range
-    )
-    return fig
-
-def create_anomaly_chart(df_plot):
-    if df_plot.empty:
-        return go.Figure()
-    df_plot['color'] = np.where(df_plot['anomalia'] < 0, 'red', 'blue')
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=df_plot[Config.DATE_COL], y=df_plot['anomalia'],
-        marker_color=df_plot['color'], name='Anomalía de Precipitación'
-    ))
-    if Config.ENSO_ONI_COL in df_plot.columns:
-        df_plot_enso = df_plot.dropna(subset=[Config.ENSO_ONI_COL])
-        nino_periods = df_plot_enso[df_plot_enso[Config.ENSO_ONI_COL] >= 0.5]
-        for _, row in nino_periods.iterrows():
-            fig.add_vrect(x0=row[Config.DATE_COL] - pd.DateOffset(days=15), x1=row[Config.DATE_COL] + pd.DateOffset(days=15),
-                          fillcolor="red", opacity=0.15, layer="below", line_width=0)
-        nina_periods = df_plot_enso[df_plot_enso[Config.ENSO_ONI_COL] <= -0.5]
-        for _, row in nina_periods.iterrows():
-            fig.add_vrect(x0=row[Config.DATE_COL] - pd.DateOffset(days=15), x1=row[Config.DATE_COL] + pd.DateOffset(days=15),
-                          fillcolor="blue", opacity=0.15, layer="below", line_width=0)
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(255, 0, 0, 0.3)'), name='Fase El Niño'))
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(0, 0, 255, 0.3)'), name='Fase La Niña'))
-    fig.update_layout(
-        height=600, title="Anomalías Mensuales de Precipitación y Fases ENSO",
-        yaxis_title="Anomalía de Precipitación (mm)", xaxis_title="Fecha", showlegend=True
     )
     return fig
 
