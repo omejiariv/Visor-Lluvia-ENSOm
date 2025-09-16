@@ -27,7 +27,8 @@ from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
 import pymannkendall as mk
-import climate_indices.spi as spi # <--- NUEVA IMPORTACIÓN
+import climate_indices
+from climate_indices import spi
 
 # ---
 # Constantes y Configuración Centralizada
