@@ -1206,7 +1206,7 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
     # Cálculo del SPI
     with st.spinner(f"Calculando SPI-{timescale}..."):
         try:
-            # CORRECCIÓN: Se asegura que la serie de pandas sea pasada, no un numpy array.
+            # Se asegura que la serie de pandas sea pasada, no un numpy array.
             spi_series = calculate_spi(precip_series, timescale)
         except Exception as e:
             st.error(f"Error al calcular el SPI: {e}")
@@ -1465,27 +1465,41 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
 
     with matriz_tab:
         st.subheader("Matriz de Disponibilidad de Datos Anual")
-        original_data_counts = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-        original_data_counts = original_data_counts.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
-        original_data_counts['porc_original'] = (original_data_counts['count'] / 12) * 100
-        heatmap_original_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original')
         
-        heatmap_df = heatmap_original_df
-        color_scale = "Greens"
-        title_text = "Disponibilidad Promedio de Datos Originales"
+        # Lógica para calcular la matriz de disponibilidad (Original vs. Completado)
+        df_base = st.session_state.df_monthly_processed if st.session_state.analysis_mode == "Completar series (interpolación)" else df_long
+        df_base_filtered = df_base[df_base[Config.STATION_NAME_COL].isin(stations_for_analysis)]
         
+        # Contar el número de meses con datos
+        monthly_counts = df_base_filtered.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).agg(
+            count_total=(Config.PRECIPITATION_COL, 'count')
+        ).reset_index()
+        
+        # Lógica para datos COMPLETADOS
         if st.session_state.analysis_mode == "Completar series (interpolación)":
-            view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Completados"), horizontal=True)
-            if view_mode == "Porcentaje de Datos Completados":
-                completed_data = st.session_state.df_monthly_processed[(st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) & (st.session_state.df_monthly_processed[Config.ORIGIN_COL] == 'Completado')]
-                if not completed_data.empty:
-                    completed_counts = completed_data.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count')
-                    completed_counts['porc_completado'] = (completed_counts['count'] / 12) * 100
-                    heatmap_df = completed_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_completado')
-                    color_scale = "Reds"
-                    title_text = "Disponibilidad Promedio de Datos Completados"
-                else: heatmap_df = pd.DataFrame()
+            # Si estamos en modo 'Completar series', el conteo total es 12 por año y la matriz muestra % de datos totales
+            monthly_counts['porc_total'] = (monthly_counts['count_total'] / 12) * 100
+            heatmap_df = monthly_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_total').fillna(0)
+            
+            view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Totales (Original + Completado)"), horizontal=True)
+            
+            if view_mode == "Porcentaje de Datos Totales (Original + Completado)":
+                color_scale = "Blues"
+                title_text = "Disponibilidad Promedio de Datos Totales (Originales + Completados)"
+            else: # Porcentaje de Datos Originales (se vuelve a calcular solo con datos originales)
+                df_original_filtered = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+                original_data_counts = df_original_filtered.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_original')
+                original_data_counts['porc_original'] = (original_data_counts['count_original'] / 12) * 100
+                heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original').fillna(0)
+                color_scale = "Greens"
+                title_text = "Disponibilidad Promedio de Datos Originales"
         
+        else: # Usar datos originales
+            monthly_counts['porc_original'] = (monthly_counts['count_total'] / 12) * 100
+            heatmap_df = monthly_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original').fillna(0)
+            color_scale = "Greens"
+            title_text = "Disponibilidad Promedio de Datos Originales"
+
         if not heatmap_df.empty:
             avg_availability = heatmap_df.stack().mean()
             logo_col, metric_col = st.columns([1, 5])
@@ -2131,7 +2145,20 @@ def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_ana
 
     if st.session_state.analysis_mode == "Completar series (interpolación)":
         st.markdown("**Datos de Precipitación Mensual (Series Completadas y Filtradas)**")
-        df_completed_filtered = st.session_state.df_monthly_filtered[st.session_state.df_monthly_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        # Se usa df_monthly_processed que contiene la interpolación
+        df_completed_filtered = st.session_state.df_monthly_processed[
+            (st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+            (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) &
+            (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year <= st.session_state.year_range[1]) &
+            (st.session_state.df_monthly_processed[Config.DATE_COL].dt.month.isin(st.session_state.meses_numeros))
+        ].copy()
+        
+        # Opcionalmente, se pueden eliminar filas con NaN o 0 si el usuario lo seleccionó
+        if st.session_state.exclude_na:
+            df_completed_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+        if st.session_state.exclude_zeros:
+            df_completed_filtered = df_completed_filtered[df_completed_filtered[Config.PRECIPITATION_COL] > 0]
+        
         csv_completado = convert_df_to_csv(df_completed_filtered)
         st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
     else:
