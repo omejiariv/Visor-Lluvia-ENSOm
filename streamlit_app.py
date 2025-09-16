@@ -318,7 +318,6 @@ def add_plotly_download_buttons(fig, file_prefix):
         )
     with col2:
         try:
-            # Asegúrate de tener kaleido instalado: pip install kaleido
             img_bytes = fig.to_image(format="png", width=1200, height=700, scale=2)
             st.download_button(
                 label="📥 Descargar Gráfico (PNG)",
@@ -351,14 +350,12 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
     Calcula el SPI para una serie de precipitación dada y una escala de tiempo.
     Utiliza un método manual basado en la distribución Gamma.
     """
-    # 1. Agregación de la precipitación en la escala de tiempo
     rolling_sum = precip_series.rolling(window=timescale, min_periods=timescale).sum()
     rolling_sum = rolling_sum.dropna()
 
     if rolling_sum.empty:
         return None
 
-    # 2. Ajuste de la distribución Gamma a los datos de precipitación
     spi_values = pd.Series(index=rolling_sum.index, dtype=float)
     
     for month in range(1, 13):
@@ -384,7 +381,6 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
         final_cdf[final_cdf > 0.99999] = 0.99999
         final_cdf[final_cdf < 0.00001] = 0.00001
 
-        # 3. Transformación a la distribución normal estándar
         spi_month = norm.ppf(final_cdf)
         spi_values.loc[spi_month.index] = spi_month
 
@@ -477,10 +473,57 @@ def create_anomaly_chart(df_plot):
     )
     return fig
 
+def get_map_options():
+    return {
+        "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": '&copy; <a href="https://carto.com/attributions">CartoDB</a>', "overlay": False},
+        "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
+        "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)', "overlay": False},
+        "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
+        "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021", "overlay": True},
+        "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM", "overlay": True},
+        "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC", "overlay": True},
+    }
+
+def display_map_controls(container_object, key_prefix):
+    map_options = get_map_options()
+    base_maps = {k: v for k, v in map_options.items() if not v.get("overlay")}
+    overlays = {k: v for k, v in map_options.items() if v.get("overlay")}
+    
+    selected_base_map_name = container_object.selectbox("Seleccionar Mapa Base", list(base_maps.keys()), key=f"{key_prefix}_base_map")
+    default_overlays = ["Mapa de Colombia (WMS IDEAM)"]
+    selected_overlays = container_object.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()), default=default_overlays, key=f"{key_prefix}_overlays")
+    
+    return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
+
+def create_folium_map(location, zoom, base_map_config, overlays_config, fit_bounds_data=None):
+   """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
+   m = folium.Map(
+       location=location,
+       zoom_start=zoom,
+       tiles=base_map_config.get("tiles", "OpenStreetMap"),
+       attr=base_map_config.get("attr", None)
+   )
+   if fit_bounds_data is not None and not fit_bounds_data.empty:
+       bounds = fit_bounds_data.total_bounds
+       if np.all(np.isfinite(bounds)):
+           m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+
+   for layer_config in overlays_config:
+       WmsTileLayer(
+           url=layer_config["url"],
+           layers=layer_config["layers"],
+           fmt='image/png',
+           transparent=layer_config.get("transparent", False),
+           overlay=True,
+           control=True,
+           name=layer_config.get("attr", "Overlay")
+       ).add_to(m)
+       
+   return m
+
 # ---
 # Funciones para las Pestañas de la UI
 # ---
-
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
     st.markdown(Config.WELCOME_TEXT, unsafe_allow_html=True)
@@ -2015,8 +2058,8 @@ def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analys
         st.info("No hay datos de precipitación anual (con >= 10 meses) para mostrar en la selección actual.")
 
 # ---
-# ... (código anterior) ...
-
+# Cuerpo Principal del Script
+# ---
 def main():
     st.set_page_config(layout="wide", page_title=Config.APP_TITLE)
     st.markdown("""
@@ -2044,6 +2087,7 @@ def main():
         uploaded_file_precip = st.file_uploader("2. Cargar archivo de precipitación mensual y ENSO (DatosPptnmes_ENSO.csv)", type="csv")
         uploaded_zip_shapefile = st.file_uploader("3. Cargar shapefile de municipios (.zip)", type="zip")
 
+        # Se intenta cargar los datos solo si no están cargados y todos los archivos están presentes
         if not st.session_state.data_loaded and all([uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile]):
             with st.spinner("Procesando archivos y cargando datos... Esto puede tomar un momento."):
                 gdf_stations, gdf_municipios, df_long, df_enso = load_and_process_all_data(
@@ -2055,7 +2099,7 @@ def main():
                     st.session_state.df_long = df_long
                     st.session_state.df_enso = df_enso
                     st.session_state.data_loaded = True
-                    st.rerun()
+                    st.rerun() # Se recarga la app para reflejar el estado 'cargado'
                 else:
                     st.error("Hubo un error al procesar los archivos. Por favor, verifique que sean correctos y vuelva a intentarlo.")
         
@@ -2064,6 +2108,7 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
+    # Si los datos están cargados, se muestra la aplicación completa.
     if st.session_state.data_loaded:
         with st.sidebar.expander("**1. Filtros Geográficos y de Datos**", expanded=True):
             def apply_filters_to_stations(df, min_perc, altitudes, regions, municipios, celdas):
@@ -2201,15 +2246,14 @@ def main():
 
         tab_names = [
             "🏠 Bienvenida", "🗺️ Distribución Espacial", "📊 Gráficos", "✨ Mapas Avanzados", 
-            "📉 Análisis de Anomalías", "🌪️ Análisis de Extremos", "🔢 Estadísticas", 
-            "🤝 Análisis de Correlación", "🌊 Análisis ENSO", "📈 Tendencias y Pronósticos", 
-            "📥 Descargas", "📋 Tabla de Estaciones"
+            "📉 Análisis de Anomalías", "🔢 Estadísticas", "🤝 Análisis de Correlación", 
+            "🌊 Análisis ENSO", "📈 Tendencias y Pronósticos", "📥 Descargas", "📋 Tabla de Estaciones"
         ]
         
         tabs = st.tabs(tab_names)
         (
             bienvenida_tab, mapa_tab, graficos_tab, mapas_avanzados_tab, 
-            anomalias_tab, extremes_tab, estadisticas_tab, correlacion_tab, 
+            anomalias_tab, estadisticas_tab, correlacion_tab, 
             enso_tab, tendencias_tab, descargas_tab, tabla_estaciones_tab
         ) = tabs
 
@@ -2223,8 +2267,6 @@ def main():
             display_advanced_maps_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis, df_monthly_filtered)
         with anomalias_tab:
             display_anomalies_tab(st.session_state.df_long, df_monthly_filtered, stations_for_analysis)
-        with extremes_tab:
-            display_extremes_tab(df_monthly_filtered, stations_for_analysis)
         with estadisticas_tab:
             display_stats_tab(st.session_state.df_long, df_anual_melted, df_monthly_filtered, stations_for_analysis)
         with correlacion_tab:
@@ -2238,6 +2280,7 @@ def main():
         with tabla_estaciones_tab:
             display_station_table_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis)
             
+    # Si los datos NO están cargados, se muestra la bienvenida y la guía.
     else:
         display_welcome_tab()
         st.info("👋 Para comenzar, por favor cargue los 3 archivos requeridos en el panel de la izquierda.")
