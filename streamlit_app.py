@@ -82,128 +82,128 @@ class Config:
     
     @staticmethod
     def initialize_session_state():
-        """Inicializa todas las variables necesarias en el estado de la sesión de Streamlit."""
-        state_defaults = {
-            'data_loaded': False,
-            'analysis_mode': "Usar datos originales",
-            'select_all_stations_state': False,
-            'df_monthly_processed': pd.DataFrame(),
-            'gdf_stations': None,
-            'df_precip_anual': None,
-            'gdf_municipios': None,
-             'df_long': None,
-             'df_enso': None,
-            'min_data_perc_slider': 0,
-            'altitude_multiselect': [],
-            'regions_multiselect': [],
-            'municipios_multiselect': [],
-            'celdas_multiselect': [],
-            'station_multiselect': [],
-            'exclude_na': False,
-            'exclude_zeros': False,
-            'uploaded_forecast': None
-        }
-        for key, value in state_defaults.items():
-            if key not in st.session_state:
-                st.session_state[key] = value
+       """Inicializa todas las variables necesarias en el estado de la sesión de Streamlit."""
+       state_defaults = {
+           'data_loaded': False,
+           'analysis_mode': "Usar datos originales",
+           'select_all_stations_state': False,
+           'df_monthly_processed': pd.DataFrame(),
+           'gdf_stations': None,
+           'df_precip_anual': None,
+           'gdf_municipios': None,
+            'df_long': None,
+            'df_enso': None,
+           'min_data_perc_slider': 0,
+           'altitude_multiselect': [],
+           'regions_multiselect': [],
+           'municipios_multiselect': [],
+           'celdas_multiselect': [],
+           'station_multiselect': [],
+           'exclude_na': False,
+           'exclude_zeros': False,
+           'uploaded_forecast': None
+       }
+       for key, value in state_defaults.items():
+           if key not in st.session_state:
+               st.session_state[key] = value
 
 # ---
 # Funciones de Carga y Preprocesamiento
 # ---
 @st.cache_data
 def parse_spanish_dates(date_series):
-    """Convierte abreviaturas de meses en español a inglés."""
-    months_es_to_en = {'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec'}
-    date_series_str = date_series.astype(str).str.lower()
-    for es, en in months_es_to_en.items():
-        date_series_str = date_series_str.str.replace(es, en, regex=False)
-    return pd.to_datetime(date_series_str, format='%b-%y', errors='coerce')
+   """Convierte abreviaturas de meses en español a inglés."""
+   months_es_to_en = {'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec'}
+   date_series_str = date_series.astype(str).str.lower()
+   for es, en in months_es_to_en.items():
+       date_series_str = date_series_str.str.replace(es, en, regex=False)
+   return pd.to_datetime(date_series_str, format='%b-%y', errors='coerce')
 
 @st.cache_data
 def load_csv_data(file_uploader_object, sep=';', lower_case=True):
-    """Carga y decodifica un archivo CSV de manera robusta desde un objeto de Streamlit."""
-    if file_uploader_object is None:
-        return None
-    try:
-        content = file_uploader_object.getvalue()
-        if not content.strip():
-            st.error(f"El archivo '{file_uploader_object.name}' parece estar vacío.")
-            return None
-    except Exception as e:
-        st.error(f"Error al leer el archivo '{file_uploader_object.name}': {e}")
-        return None
+   """Carga y decodifica un archivo CSV de manera robusta desde un objeto de Streamlit."""
+   if file_uploader_object is None:
+       return None
+   try:
+       content = file_uploader_object.getvalue()
+       if not content.strip():
+           st.error(f"El archivo '{file_uploader_object.name}' parece estar vacío.")
+           return None
+   except Exception as e:
+       st.error(f"Error al leer el archivo '{file_uploader_object.name}': {e}")
+       return None
 
-    encodings_to_try = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
-    for encoding in encodings_to_try:
-        try:
-            df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding)
-            df.columns = df.columns.str.strip().str.replace(';', '')
-            if lower_case:
-                df.columns = df.columns.str.lower()
-            return df
-        except Exception:
-            continue
-    st.error(f"No se pudo decodificar el archivo '{file_uploader_object.name}' con las codificaciones probadas.")
-    return None
+   encodings_to_try = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+   for encoding in encodings_to_try:
+       try:
+           df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding)
+           df.columns = df.columns.str.strip().str.replace(';', '')
+           if lower_case:
+               df.columns = df.columns.str.lower()
+           return df
+       except Exception:
+           continue
+   st.error(f"No se pudo decodificar el archivo '{file_uploader_object.name}' con las codificaciones probadas.")
+   return None
 
 @st.cache_data
 def load_shapefile(file_uploader_object):
-    """Procesa y carga un shapefile desde un archivo .zip subido a Streamlit."""
-    if file_uploader_object is None:
-        return None
-    try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with zipfile.ZipFile(file_uploader_object, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-            
-            shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
-            if not shp_files:
-                st.error("No se encontró un archivo .shp en el archivo .zip.")
-                return None
-            
-            shp_path = os.path.join(temp_dir, shp_files[0])
-            gdf = gpd.read_file(shp_path)
-            gdf.columns = gdf.columns.str.strip().str.lower()
-            
-            if gdf.crs is None:
-                gdf.set_crs("EPSG:9377", inplace=True)
-            return gdf.to_crs("EPSG:4326")
-    except Exception as e:
-        st.error(f"Error al procesar el shapefile: {e}")
-        return None
+   """Procesa y carga un shapefile desde un archivo .zip subido a Streamlit."""
+   if file_uploader_object is None:
+       return None
+   try:
+       with tempfile.TemporaryDirectory() as temp_dir:
+           with zipfile.ZipFile(file_uploader_object, 'r') as zip_ref:
+               zip_ref.extractall(temp_dir)
+           
+           shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
+           if not shp_files:
+               st.error("No se encontró un archivo .shp en el archivo .zip.")
+               return None
+           
+           shp_path = os.path.join(temp_dir, shp_files[0])
+           gdf = gpd.read_file(shp_path)
+           gdf.columns = gdf.columns.str.strip().str.lower()
+           
+           if gdf.crs is None:
+               gdf.set_crs("EPSG:9377", inplace=True)
+           return gdf.to_crs("EPSG:4326")
+   except Exception as e:
+       st.error(f"Error al procesar el shapefile: {e}")
+       return None
 
 @st.cache_data
 def complete_series(_df):
-    """Completa las series de tiempo de precipitación usando interpolación lineal temporal."""
-    all_completed_dfs = []
-    station_list = _df[Config.STATION_NAME_COL].unique()
-    progress_bar = st.progress(0, text="Completando todas las series...")
-    
-    for i, station in enumerate(station_list):
-        df_station = _df[_df[Config.STATION_NAME_COL] == station].copy()
-        df_station[Config.DATE_COL] = pd.to_datetime(df_station[Config.DATE_COL])
-        df_station.set_index(Config.DATE_COL, inplace=True)
-        
-        if not df_station.index.is_unique:
-            df_station = df_station[~df_station.index.duplicated(keep='first')]
+   """Completa las series de tiempo de precipitación usando interpolación lineal temporal."""
+   all_completed_dfs = []
+   station_list = _df[Config.STATION_NAME_COL].unique()
+   progress_bar = st.progress(0, text="Completando todas las series...")
+   
+   for i, station in enumerate(station_list):
+       df_station = _df[_df[Config.STATION_NAME_COL] == station].copy()
+       df_station[Config.DATE_COL] = pd.to_datetime(df_station[Config.DATE_COL])
+       df_station.set_index(Config.DATE_COL, inplace=True)
+       
+       if not df_station.index.is_unique:
+           df_station = df_station[~df_station.index.duplicated(keep='first')]
 
-        date_range = pd.date_range(start=df_station.index.min(), end=df_station.index.max(), freq='MS')
-        df_resampled = df_station.reindex(date_range)
-        
-        df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
-        
-        df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
-        df_resampled[Config.STATION_NAME_COL] = station
-        df_resampled[Config.YEAR_COL] = df_resampled.index.year
-        df_resampled[Config.MONTH_COL] = df_resampled.index.month
-        df_resampled.reset_index(inplace=True)
-        df_resampled.rename(columns={'index': Config.DATE_COL}, inplace=True)
-        all_completed_dfs.append(df_resampled)
-        
-        progress_bar.progress((i + 1) / len(station_list), text=f"Completando series... Estación: {station}")
-    
-    progress_bar.empty()
-    return pd.concat(all_completed_dfs, ignore_index=True)
+       date_range = pd.date_range(start=df_station.index.min(), end=df_station.index.max(), freq='MS')
+       df_resampled = df_station.reindex(date_range)
+       
+       df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
+       
+       df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
+       df_resampled[Config.STATION_NAME_COL] = station
+       df_resampled[Config.YEAR_COL] = df_resampled.index.year
+       df_resampled[Config.MONTH_COL] = df_resampled.index.month
+       df_resampled.reset_index(inplace=True)
+       df_resampled.rename(columns={'index': Config.DATE_COL}, inplace=True)
+       all_completed_dfs.append(df_resampled)
+       
+       progress_bar.progress((i + 1) / len(station_list), text=f"Completando series... Estación: {station}")
+   
+   progress_bar.empty()
+   return pd.concat(all_completed_dfs, ignore_index=True)
 
 @st.cache_data
 def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
@@ -229,8 +229,8 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     df_stations_raw.dropna(subset=[lon_col, lat_col], inplace=True)
 
     gdf_stations = gpd.GeoDataFrame(df_stations_raw,
-                                     geometry=gpd.points_from_xy(df_stations_raw[lon_col], df_stations_raw[lat_col]),
-                                     crs="EPSG:9377").to_crs("EPSG:4326")
+                                    geometry=gpd.points_from_xy(df_stations_raw[lon_col], df_stations_raw[lat_col]),
+                                    crs="EPSG:9377").to_crs("EPSG:4326")
     gdf_stations[Config.LONGITUDE_COL] = gdf_stations.geometry.x
     gdf_stations[Config.LATITUDE_COL] = gdf_stations.geometry.y
     if Config.ALTITUDE_COL in gdf_stations.columns:
@@ -244,7 +244,7 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
 
     id_vars = [col for col in df_precip_raw.columns if not col.isdigit()]
     df_long = df_precip_raw.melt(id_vars=id_vars, value_vars=station_id_cols, 
-                                 var_name='id_estacion', value_name=Config.PRECIPITATION_COL)
+                                var_name='id_estacion', value_name=Config.PRECIPITATION_COL)
 
     cols_to_numeric = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media', Config.PRECIPITATION_COL, Config.SOI_COL, Config.IOD_COL]
     for col in cols_to_numeric:
@@ -350,50 +350,40 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
     Calcula el SPI para una serie de precipitación dada y una escala de tiempo.
     Utiliza un método manual basado en la distribución Gamma.
     """
-    # 1. Calcular la suma acumulada (rolling sum) para la escala de tiempo
-    # Se asegura que la serie de entrada tenga índice de tiempo para el rolling sum
-    if not isinstance(precip_series.index, pd.DatetimeIndex):
-        raise ValueError("La serie de entrada para SPI debe tener un DatetimeIndex.")
-        
+    # 1. Agregación de la precipitación en la escala de tiempo
     rolling_sum = precip_series.rolling(window=timescale, min_periods=timescale).sum()
     rolling_sum = rolling_sum.dropna()
 
     if rolling_sum.empty:
         return None
 
+    # 2. Ajuste de la distribución Gamma a los datos de precipitación
     spi_values = pd.Series(index=rolling_sum.index, dtype=float)
     
-    # 2. Iterar por mes (para capturar estacionalidad)
     for month in range(1, 13):
         monthly_data = rolling_sum[rolling_sum.index.month == month]
         
         if monthly_data.empty:
             continue
 
-        # 3. Ajustar la distribución Gamma (solo a valores > 0)
         monthly_data_fit = monthly_data[monthly_data > 0]
         
-        # Se requiere un mínimo de datos para un ajuste robusto
         if len(monthly_data_fit) < 20:
             continue
 
-        # Ajuste de parámetros de la distribución Gamma
         shape, loc, scale = gamma.fit(monthly_data_fit, floc=0)
         
-        # 4. Calcular la CDF para los datos (excluyendo ceros en el ajuste, pero incluyendo en el cálculo)
         cdf_non_zero = gamma.cdf(monthly_data, a=shape, loc=loc, scale=scale)
         
-        # 5. Ajustar por la probabilidad de cero (si existen ceros)
         prob_zeros = (monthly_data == 0).sum() / len(monthly_data)
         
         final_cdf = prob_zeros + (1 - prob_zeros) * cdf_non_zero
         final_cdf[monthly_data == 0] = prob_zeros
         
-        # 6. Mapeo a la distribución normal (SPI)
-        # Limitar valores extremos para evitar errores en norm.ppf
         final_cdf[final_cdf > 0.99999] = 0.99999
         final_cdf[final_cdf < 0.00001] = 0.00001
 
+        # 3. Transformación a la distribución normal estándar
         spi_month = norm.ppf(final_cdf)
         spi_values.loc[spi_month.index] = spi_month
 
@@ -509,34 +499,36 @@ def display_map_controls(container_object, key_prefix):
     return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
 
 def create_folium_map(location, zoom, base_map_config, overlays_config, fit_bounds_data=None):
-    """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
-    m = folium.Map(
-        location=location,
-        zoom_start=zoom,
-        tiles=base_map_config.get("tiles", "OpenStreetMap"),
-        attr=base_map_config.get("attr", None)
-    )
-    if fit_bounds_data is not None and not fit_bounds_data.empty:
-        bounds = fit_bounds_data.total_bounds
-        if np.all(np.isfinite(bounds)):
-            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+   """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
+   m = folium.Map(
+       location=location,
+       zoom_start=zoom,
+       tiles=base_map_config.get("tiles", "OpenStreetMap"),
+       attr=base_map_config.get("attr", None)
+   )
+   if fit_bounds_data is not None and not fit_bounds_data.empty:
+       bounds = fit_bounds_data.total_bounds
+       if np.all(np.isfinite(bounds)):
+           m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-    for layer_config in overlays_config:
-        WmsTileLayer(
-            url=layer_config["url"],
-            layers=layer_config["layers"],
-            fmt='image/png',
-            transparent=layer_config.get("transparent", False),
-            overlay=True,
-            control=True,
-            name=layer_config.get("attr", "Overlay")
-        ).add_to(m)
-        
-    return m
+   for layer_config in overlays_config:
+       WmsTileLayer(
+           url=layer_config["url"],
+           layers=layer_config["layers"],
+           fmt='image/png',
+           transparent=layer_config.get("transparent", False),
+           overlay=True,
+           control=True,
+           name=layer_config.get("attr", "Overlay")
+       ).add_to(m)
+       
+   return m
 
 # ---
 # Funciones para las Pestañas de la UI
 # ---
+
+# (Este bloque contiene todas las funciones `display_..._tab` necesarias)
 
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
@@ -671,9 +663,9 @@ def display_spatial_distribution_tab(gdf_filtered, stations_for_analysis, df_anu
                         var_name='Tipo de Dato', value_name='Porcentaje')
                     
                     fig_comp = px.bar(df_plot, x=Config.STATION_NAME_COL, y='Porcentaje', color='Tipo de Dato',
-                                     title='Composición de Datos por Estación',
-                                     labels={Config.STATION_NAME_COL: 'Estación', 'Porcentaje': '% del Período'},
-                                     color_discrete_map={'% Original': '#1f77b4', '% Completado': '#ff7f0e'}, text_auto='.1f')
+                                      title='Composición de Datos por Estación',
+                                      labels={Config.STATION_NAME_COL: 'Estación', 'Porcentaje': '% del Período'},
+                                      color_discrete_map={'% Original': '#1f77b4', '% Completado': '#ff7f0e'}, text_auto='.1f')
                     fig_comp.update_layout(height=600, xaxis={'categoryorder': 'trace'})
                     st.plotly_chart(fig_comp, use_container_width=True)
             else:
@@ -681,7 +673,7 @@ def display_spatial_distribution_tab(gdf_filtered, stations_for_analysis, df_anu
                 sort_order_disp = st.radio("Ordenar estaciones por:", ["% Datos (Mayor a Menor)", "% Datos (Menor a Mayor)", "Alfabético"], horizontal=True, key="sort_disp")
                 df_chart = gdf_filtered.copy()
                 if "% Datos (Mayor a Menor)" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=False)
-                elif "% Datos (Menor a Mayor" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=True)
+                elif "% Datos (Menor a Mayor)" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=True)
                 else: df_chart = df_chart.sort_values(Config.STATION_NAME_COL, ascending=True)
                 
                 fig_disp = px.bar(df_chart, x=Config.STATION_NAME_COL, y=Config.PERCENTAGE_COL,
