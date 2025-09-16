@@ -2182,9 +2182,9 @@ def main():
             meses_numeros = [meses_dict[m] for m in meses_nombres]
 
         with st.sidebar.expander("Opciones de Preprocesamiento de Datos", expanded=False):
-            analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"), key="analysis_mode_radio")
-            exclude_na = st.checkbox("Excluir datos nulos (NaN)", value=st.session_state.exclude_na, key='exclude_na_checkbox')
-            exclude_zeros = st.checkbox("Excluir valores cero (0)", value=st.session_state.exclude_zeros, key='exclude_zeros_checkbox')
+            analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"), key="analysis_mode")
+            exclude_na = st.checkbox("Excluir datos nulos (NaN)", value=st.session_state.exclude_na, key='exclude_na')
+            exclude_zeros = st.checkbox("Excluir valores cero (0)", value=st.session_state.exclude_zeros, key='exclude_zeros')
 
         st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
         
@@ -2245,15 +2245,15 @@ def main():
 
         tab_names = [
             "🏠 Bienvenida", "🗺️ Distribución Espacial", "📊 Gráficos", "✨ Mapas Avanzados", 
-            "📉 Análisis de Anomalías", "🌪️ Análisis de Extremos", "🔢 Estadísticas", 
-            "🤝 Análisis de Correlación", "🌊 Análisis ENSO", "📈 Tendencias y Pronósticos", 
-            "📥 Descargas", "📋 Tabla de Estaciones"
+            "📉 Análisis de Anomalías", "🌪️ Análisis de Extremos", "💧 Análisis de Sequías (SPI)", 
+            "🔢 Estadísticas", "🤝 Análisis de Correlación", "🌊 Análisis ENSO", 
+            "📈 Tendencias y Pronósticos", "📥 Descargas", "📋 Tabla de Estaciones"
         ]
         
         tabs = st.tabs(tab_names)
         (
             bienvenida_tab, mapa_tab, graficos_tab, mapas_avanzados_tab, 
-            anomalias_tab, extremes_tab, estadisticas_tab, correlacion_tab, 
+            anomalias_tab, extremes_tab, spi_tab, estadisticas_tab, correlacion_tab, 
             enso_tab, tendencias_tab, descargas_tab, tabla_estaciones_tab
         ) = tabs
 
@@ -2269,6 +2269,8 @@ def main():
             display_anomalies_tab(st.session_state.df_long, df_monthly_filtered, stations_for_analysis)
         with extremes_tab:
             display_extremes_tab(df_monthly_filtered, stations_for_analysis)
+        with spi_tab:
+            display_spi_tab(st.session_state.df_monthly_processed, stations_for_analysis)
         with estadisticas_tab:
             display_stats_tab(st.session_state.df_long, df_anual_melted, df_monthly_filtered, stations_for_analysis)
         with correlacion_tab:
