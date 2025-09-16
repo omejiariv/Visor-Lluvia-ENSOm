@@ -18,7 +18,7 @@ import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
 from scipy import stats
-from scipy.stats import gamma
+from scipy.stats import gamma, norm  # <--- norm AÑADIDO
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import pacf
@@ -27,8 +27,7 @@ from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
 import pymannkendall as mk
-import climate_indices
-from climate_indices import spi
+# La librería climate_indices ha sido eliminada por problemas de compatibilidad.
 
 # ---
 # Constantes y Configuración Centralizada
