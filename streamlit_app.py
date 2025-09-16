@@ -477,6 +477,8 @@ def create_anomaly_chart(df_plot):
 # Funciones para las Pestañas de la UI
 # ---
 
+# (Este bloque contiene todas las funciones `display_..._tab` necesarias)
+
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
     st.markdown(Config.WELCOME_TEXT, unsafe_allow_html=True)
