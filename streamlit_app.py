@@ -1206,7 +1206,7 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
     # Cálculo del SPI
     with st.spinner(f"Calculando SPI-{timescale}..."):
         try:
-            # CORRECCIÓN CLAVE: Pasamos la Serie de Pandas (incluyendo el índice)
+            # CORRECCIÓN: Se asegura que la serie de pandas sea pasada, no un numpy array.
             spi_series = calculate_spi(precip_series, timescale)
         except Exception as e:
             st.error(f"Error al calcular el SPI: {e}")
@@ -2262,11 +2262,17 @@ def main():
             stations_master_list = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
             stations_options = sorted(stations_master_list[Config.STATION_NAME_COL].unique())
             
+            # CORRECCIÓN: Limpiar el `default` si los valores seleccionados ya no están en `options`
+            current_selection = st.session_state.get('station_multiselect', [])
+            valid_selection = [s for s in current_selection if s in stations_options]
+            st.session_state['station_multiselect'] = valid_selection 
+            
             select_all = st.checkbox("Seleccionar/Deseleccionar todas las estaciones", key='select_all_checkbox')
             if select_all:
                 selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=stations_options, key='station_multiselect')
             else:
-                selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=st.session_state.get('station_multiselect', []), key='station_multiselect')
+                # Usar la selección validada como default
+                selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=st.session_state['station_multiselect'], key='station_multiselect')
 
             years_with_data_in_selection = sorted(st.session_state.df_long[Config.YEAR_COL].unique()) if not st.session_state.df_long.empty else []
             if not years_with_data_in_selection:
