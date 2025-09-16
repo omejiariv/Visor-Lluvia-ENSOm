@@ -350,6 +350,7 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
     Calcula el SPI para una serie de precipitación dada y una escala de tiempo.
     Utiliza un método manual basado en la distribución Gamma.
     """
+    # 1. Calcular la suma acumulada (rolling sum) para la escala de tiempo
     rolling_sum = precip_series.rolling(window=timescale, min_periods=timescale).sum()
     rolling_sum = rolling_sum.dropna()
 
@@ -358,26 +359,34 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
 
     spi_values = pd.Series(index=rolling_sum.index, dtype=float)
     
+    # 2. Iterar por mes (para capturar estacionalidad)
     for month in range(1, 13):
         monthly_data = rolling_sum[rolling_sum.index.month == month]
         
         if monthly_data.empty:
             continue
 
+        # 3. Ajustar la distribución Gamma (solo a valores > 0)
         monthly_data_fit = monthly_data[monthly_data > 0]
         
+        # Se requiere un mínimo de datos para un ajuste robusto
         if len(monthly_data_fit) < 20:
             continue
 
+        # Ajuste de parámetros de la distribución Gamma
         shape, loc, scale = gamma.fit(monthly_data_fit, floc=0)
         
+        # 4. Calcular la CDF para los datos (excluyendo ceros en el ajuste, pero incluyendo en el cálculo)
         cdf_non_zero = gamma.cdf(monthly_data, a=shape, loc=loc, scale=scale)
         
+        # 5. Ajustar por la probabilidad de cero (si existen ceros)
         prob_zeros = (monthly_data == 0).sum() / len(monthly_data)
         
         final_cdf = prob_zeros + (1 - prob_zeros) * cdf_non_zero
         final_cdf[monthly_data == 0] = prob_zeros
         
+        # 6. Mapeo a la distribución normal (SPI)
+        # Limitar valores extremos para evitar errores en norm.ppf
         final_cdf[final_cdf > 0.99999] = 0.99999
         final_cdf[final_cdf < 0.00001] = 0.00001
 
@@ -668,7 +677,7 @@ def display_spatial_distribution_tab(gdf_filtered, stations_for_analysis, df_anu
                 sort_order_disp = st.radio("Ordenar estaciones por:", ["% Datos (Mayor a Menor)", "% Datos (Menor a Mayor)", "Alfabético"], horizontal=True, key="sort_disp")
                 df_chart = gdf_filtered.copy()
                 if "% Datos (Mayor a Menor)" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=False)
-                elif "% Datos (Menor a Mayor)" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=True)
+                elif "% Datos (Menor a Mayor" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=True)
                 else: df_chart = df_chart.sort_values(Config.STATION_NAME_COL, ascending=True)
                 
                 fig_disp = px.bar(df_chart, x=Config.STATION_NAME_COL, y=Config.PERCENTAGE_COL,
@@ -1147,49 +1156,119 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
         else:
             st.warning("No hay datos para realizar la interpolación.")
 
-# <--- INICIO DE LA FUNCIÓN DE ANÁLISIS DE SEQUÍAS/EXTREMOS --->
-def display_drought_analysis_tab(df_monthly_filtered, stations_for_analysis):
-    st.header("Análisis de Sequías y Eventos Extremos de Precipitación")
-    st.markdown("Esta sección permite identificar los meses con precipitación extremadamente alta (húmedos) o baja (secos) basándose en umbrales de percentiles definidos por el usuario.")
+## Análisis de Sequías (SPI)
+# ---
 
-    if len(stations_for_analysis) == 0:
-        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
+    st.subheader("Análisis de Sequías por Índice de Precipitación Estandarizado (SPI)")
+    st.markdown("""
+    El **Índice de Precipitación Estandarizado (SPI)** es una métrica clave para la detección de sequías.
+    Mide la desviación de la precipitación con respecto a la media histórica, en términos de desviación estándar.
+    """)
+
+    # Controles
+    col1, col2 = st.columns(2)
+    with col1:
+        timescale = st.selectbox(
+            "Seleccionar Escala de Tiempo (meses):", 
+            options=[1, 3, 6, 12, 24], 
+            index=2, # SPI-6 por defecto
+            help="Determina el período de agregación de la precipitación (ej: SPI-6 usa los últimos 6 meses)."
+        )
+    with col2:
+        classification_scheme = st.radio("Esquema de Clasificación:", ["Sequía/Humedad"], disabled=True)
+        
+    df_station = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == station_to_analyze].copy()
+    df_station.set_index(Config.DATE_COL, inplace=True)
+    
+    if len(df_station) < (timescale * 2) + 12:
+        st.warning(f"Se necesitan más datos históricos (al menos {timescale * 2 + 12} meses) para calcular el SPI-{timescale} de forma robusta.")
         return
 
-    station_to_analyze = st.selectbox(
-        "Seleccione una estación para el análisis de extremos:",
-        options=sorted(stations_for_analysis),
-        key="extremes_station_select"
+    # Cálculo del SPI
+    with st.spinner(f"Calculando SPI-{timescale}..."):
+        try:
+            spi_series = calculate_spi(df_station[Config.PRECIPITATION_COL], timescale)
+        except Exception as e:
+            st.error(f"Error al calcular el SPI: {e}")
+            return
+
+    if spi_series is None or spi_series.empty:
+        st.warning("El cálculo del SPI no produjo resultados válidos. Asegúrese de tener suficientes datos para el período seleccionado.")
+        return
+
+    spi_df = spi_series.to_frame(name=f"SPI-{timescale}")
+    spi_df['Clasificación'] = spi_df[f"SPI-{timescale}"].apply(classify_spi)
+    
+    # Mapeo de colores para la clasificación SPI
+    color_map = {
+        "Sequía Extrema": 'rgb(120,0,0)', "Sequía Severa": 'rgb(180,0,0)', "Sequía Moderada": 'rgb(255,100,100)',
+        "Cercano a lo Normal": 'rgb(200,200,200)',
+        "Moderadamente Húmedo": 'rgb(100,100,255)', "Muy Húmedo": 'rgb(0,0,180)', "Extremadamente Húmedo": 'rgb(0,0,120)',
+        "Sin Datos": 'rgb(255,255,255)'
+    }
+    spi_df['Color'] = spi_df['Clasificación'].map(color_map)
+
+    # Gráfico de serie de tiempo SPI
+    fig_spi = go.Figure()
+    fig_spi.add_trace(go.Bar(
+        x=spi_df.index,
+        y=spi_df[f"SPI-{timescale}"],
+        marker_color=spi_df['Color'],
+        name=f"SPI-{timescale}"
+    ))
+    
+    # Añadir líneas de umbral de sequía/humedad
+    fig_spi.add_hline(y=0.0, line_dash="solid", line_color="grey")
+    fig_spi.add_hline(y=1.0, line_dash="dash", line_color="blue", annotation_text="Húmedo Moderado")
+    fig_spi.add_hline(y=-1.0, line_dash="dash", line_color="red", annotation_text="Sequía Moderada")
+    
+    fig_spi.update_layout(
+        title=f"Índice de Precipitación Estandarizado (SPI-{timescale}) para {station_to_analyze}",
+        xaxis_title="Fecha",
+        yaxis_title=f"Valor de SPI-{timescale}",
+        height=600
     )
+    st.plotly_chart(fig_spi, use_container_width=True)
+    
+    # Tabla de resumen
+    st.markdown("#### Resumen de Eventos de Sequía y Humedad")
+    summary = spi_df['Clasificación'].value_counts().reindex(color_map.keys(), fill_value=0).to_frame(name='Recuento de Meses')
+    total_meses = len(spi_df)
+    summary['Porcentaje'] = (summary['Recuento de Meses'] / total_meses * 100).round(1).astype(str) + '%'
+    st.dataframe(summary.drop('Sin Datos'), use_container_width=True)
 
-    if not station_to_analyze:
-        st.info("Seleccione una estación para comenzar.")
-        return
+## Análisis de Extremos (Percentiles)
+# ---
 
-    st.markdown("---")
-    st.subheader("Definición de Umbrales de Eventos Extremos")
-
+def display_percentile_analysis_subtab(df_monthly_filtered, station_to_analyze):
+    st.subheader("Análisis de Eventos Extremos por Umbrales de Percentiles")
+    st.markdown("Esta sección identifica meses con precipitación extremadamente alta (húmedos) o baja (secos) basándose en **percentiles** definidos por el usuario sobre los datos históricos.")
+    
+    # Controles de Percentiles
     col1, col2 = st.columns(2)
     with col1:
         wet_percentile = st.slider(
             "Percentil para Evento Húmedo (superior a):",
             min_value=75, max_value=99, value=90, step=1,
+            key="wet_perc_slider",
             help="Un valor de 90 significa que se consideran 'húmedos' los meses cuya precipitación está en el 10% más alto de todos los registros."
         )
     with col2:
         dry_percentile = st.slider(
             "Percentil para Evento Seco (inferior a):",
             min_value=1, max_value=25, value=10, step=1,
+            key="dry_perc_slider",
             help="Un valor de 10 significa que se consideran 'secos' los meses cuya precipitación está en el 10% más bajo de todos los registros (excluyendo ceros)."
         )
 
     df_station = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == station_to_analyze].copy()
     
-    if len(df_station) < 12:
-        st.warning("Se necesitan al menos 12 meses de datos para un análisis de percentiles significativo.")
+    if len(df_station) < 30:
+        st.warning("Se necesitan al menos 30 meses de datos para un análisis de percentiles significativo.")
         return
 
-    # Para el umbral seco, calculamos el percentil solo sobre los valores > 0
+    # Cálculo de Umbrales
     precip_data_for_dry_threshold = df_station[df_station[Config.PRECIPITATION_COL] > 0][Config.PRECIPITATION_COL]
     
     if precip_data_for_dry_threshold.empty:
@@ -1199,90 +1278,94 @@ def display_drought_analysis_tab(df_monthly_filtered, stations_for_analysis):
     wet_threshold = df_station[Config.PRECIPITATION_COL].quantile(wet_percentile / 100)
     dry_threshold = precip_data_for_dry_threshold.quantile(dry_percentile / 100)
 
+    # Métricas de Umbrales
     col1, col2 = st.columns(2)
-    col1.metric(f"Umbral Húmedo (Percentil {wet_percentile})", f"> {wet_threshold:.1f} mm")
-    col2.metric(f"Umbral Seco (Percentil {dry_percentile})", f"< {dry_threshold:.1f} mm")
+    col1.metric(f"Umbral Húmedo (P{wet_percentile})", f"> {wet_threshold:.1f} mm")
+    col2.metric(f"Umbral Seco (P{dry_percentile})", f"< {dry_threshold:.1f} mm")
     
     df_wet_events = df_station[df_station[Config.PRECIPITATION_COL] > wet_threshold]
     df_dry_events = df_station[df_station[Config.PRECIPITATION_COL] < dry_threshold]
 
-    st.markdown("---")
+    # Visualización Temporal
+    st.markdown("#### Distribución Temporal de Eventos Extremos")
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df_station[Config.DATE_COL],
+        y=df_station[Config.PRECIPITATION_COL],
+        name='Precipitación Mensual',
+        marker_color='lightblue'
+    ))
     
-    tab1, tab2, tab3 = st.tabs(["📊 Visualización Temporal", "🗓️ Frecuencia Anual", "📋 Tabla de Datos"])
-
-    with tab1:
-        st.subheader("Distribución Temporal de Eventos Extremos")
-        fig = go.Figure()
-        # Serie base
-        fig.add_trace(go.Bar(
-            x=df_station[Config.DATE_COL],
-            y=df_station[Config.PRECIPITATION_COL],
-            name='Precipitación Mensual',
-            marker_color='lightblue'
+    if not df_wet_events.empty:
+        fig.add_trace(go.Scatter(
+            x=df_wet_events[Config.DATE_COL], y=df_wet_events[Config.PRECIPITATION_COL],
+            mode='markers', name='Eventos Húmedos', marker=dict(color='blue', size=10, symbol='circle')
         ))
-        # Eventos Húmedos
+    if not df_dry_events.empty:
+        fig.add_trace(go.Scatter(
+            x=df_dry_events[Config.DATE_COL], y=df_dry_events[Config.PRECIPITATION_COL],
+            mode='markers', name='Eventos Secos', marker=dict(color='red', size=10, symbol='circle')
+        ))
+        
+    fig.add_hline(y=wet_threshold, line_dash="dash", line_color="blue", annotation_text=f"Umbral Húmedo ({wet_threshold:.1f} mm)")
+    fig.add_hline(y=dry_threshold, line_dash="dash", line_color="red", annotation_text=f"Umbral Seco ({dry_threshold:.1f} mm)")
+
+    fig.update_layout(
+        title=f"Precipitación y Eventos Extremos para la Estación: {station_to_analyze}",
+        xaxis_title="Fecha", yaxis_title="Precipitación (mm)", height=600
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Tabla de Eventos
+    st.markdown("---")
+    st.markdown("#### Tabla de Eventos Extremos Identificados")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"##### Eventos Húmedos ({len(df_wet_events)} meses)")
         if not df_wet_events.empty:
-            fig.add_trace(go.Scatter(
-                x=df_wet_events[Config.DATE_COL],
-                y=df_wet_events[Config.PRECIPITATION_COL],
-                mode='markers',
-                name='Eventos Húmedos',
-                marker=dict(color='blue', size=10, symbol='circle')
-            ))
-        # Eventos Secos
-        if not df_dry_events.empty:
-            fig.add_trace(go.Scatter(
-                x=df_dry_events[Config.DATE_COL],
-                y=df_dry_events[Config.PRECIPITATION_COL],
-                mode='markers',
-                name='Eventos Secos',
-                marker=dict(color='red', size=10, symbol='circle')
-            ))
-            
-        # Líneas de umbral
-        fig.add_hline(y=wet_threshold, line_dash="dash", line_color="blue", annotation_text=f"Umbral Húmedo ({wet_threshold:.1f} mm)")
-        fig.add_hline(y=dry_threshold, line_dash="dash", line_color="red", annotation_text=f"Umbral Seco ({dry_threshold:.1f} mm)")
-
-        fig.update_layout(
-            title=f"Eventos Extremos para la Estación: {station_to_analyze}",
-            xaxis_title="Fecha",
-            yaxis_title="Precipitación (mm)",
-            height=600
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    with tab2:
-        st.subheader("Frecuencia Anual de Eventos Extremos")
-        if df_wet_events.empty and df_dry_events.empty:
-            st.info("No se identificaron eventos extremos con los umbrales seleccionados.")
+            df_wet_events['Exceso (mm)'] = (df_wet_events[Config.PRECIPITATION_COL] - wet_threshold).round(1)
+            st.dataframe(df_wet_events[[Config.DATE_COL, Config.PRECIPITATION_COL, 'Exceso (mm)']].sort_values(by=Config.PRECIPITATION_COL, ascending=False).round(1), use_container_width=True)
         else:
-            wet_counts = df_wet_events.groupby(Config.YEAR_COL).size().rename("Eventos Húmedos")
-            dry_counts = df_dry_events.groupby(Config.YEAR_COL).size().rename("Eventos Secos")
+            st.info("No se identificaron eventos húmedos con el umbral actual.")
             
-            df_counts = pd.concat([wet_counts, dry_counts], axis=1).fillna(0).reset_index()
-            
-            fig_freq = px.bar(
-                df_counts,
-                x=Config.YEAR_COL,
-                y=["Eventos Húmedos", "Eventos Secos"],
-                title=f"Número de Meses Extremos por Año para {station_to_analyze}",
-                labels={Config.YEAR_COL: "Año", "value": "Número de Meses"},
-                color_discrete_map={"Eventos Húmedos": "blue", "Eventos Secos": "red"},
-                barmode='group'
-            )
-            fig_freq.update_layout(height=600)
-            st.plotly_chart(fig_freq, use_container_width=True)
+    with col2:
+        st.markdown(f"##### Eventos Secos ({len(df_dry_events)} meses)")
+        if not df_dry_events.empty:
+            df_dry_events['Déficit (mm)'] = (dry_threshold - df_dry_events[Config.PRECIPITATION_COL]).round(1)
+            st.dataframe(df_dry_events[[Config.DATE_COL, Config.PRECIPITATION_COL, 'Déficit (mm)']].sort_values(by=Config.PRECIPITATION_COL, ascending=True).round(1), use_container_width=True)
+        else:
+            st.info("No se identificaron eventos secos con el umbral actual.")
 
-    with tab3:
-        st.subheader("Datos de los Eventos Extremos Identificados")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"#### Eventos Húmedos ({len(df_wet_events)} meses)")
-            st.dataframe(df_wet_events[[Config.DATE_COL, Config.PRECIPITATION_COL]].sort_values(by=Config.PRECIPITATION_COL, ascending=False).round(1), use_container_width=True)
-        with col2:
-            st.markdown(f"#### Eventos Secos ({len(df_dry_events)} meses)")
-            st.dataframe(df_dry_events[[Config.DATE_COL, Config.PRECIPITATION_COL]].sort_values(by=Config.PRECIPITATION_COL, ascending=True).round(1), use_container_width=True)
-# <--- FIN DE LA FUNCIÓN DE ANÁLISIS DE SEQUÍAS/EXTREMOS --->
+
+def display_drought_analysis_tab(df_monthly_filtered, stations_for_analysis):
+    st.header("Análisis de Sequías y Eventos Extremos Hidrológicos")
+    st.markdown("Esta sección unificada ofrece dos metodologías de análisis: el Índice de Precipitación Estandarizado (SPI) para sequías y el análisis de percentiles para extremos puntuales.")
+
+    if len(stations_for_analysis) == 0:
+        st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
+        return
+
+    station_to_analyze = st.selectbox(
+        "Seleccione una estación para el análisis:",
+        options=sorted(stations_for_analysis),
+        key="drought_station_select",
+        help="Los cálculos de SPI y percentiles se realizan a nivel de estación."
+    )
+
+    if not station_to_analyze:
+        st.info("Seleccione una estación para comenzar el análisis.")
+        return
+
+    # Subpestañas
+    spi_tab, percentile_tab = st.tabs(["💧 Índice de Sequía (SPI)", "📈 Extremos por Percentil"])
+
+    with spi_tab:
+        display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze)
+
+    with percentile_tab:
+        display_percentile_analysis_subtab(df_monthly_filtered, station_to_analyze)
+
 
 def display_anomalies_tab(df_long, df_monthly_filtered, stations_for_analysis):
     st.header("Análisis de Anomalías de Precipitación")
@@ -2262,7 +2345,7 @@ def main():
             display_advanced_maps_tab(st.session_state.gdf_filtered, df_anual_melted, stations_for_analysis, df_monthly_filtered)
         with anomalias_tab:
             display_anomalies_tab(st.session_state.df_long, df_monthly_filtered, stations_for_analysis)
-        with drought_analysis_tab: # CORRECCIÓN: Llamada a la nueva función de análisis de sequías
+        with drought_analysis_tab: 
             display_drought_analysis_tab(df_monthly_filtered, stations_for_analysis)
         with estadisticas_tab:
             display_stats_tab(st.session_state.df_long, df_anual_melted, df_monthly_filtered, stations_for_analysis)
