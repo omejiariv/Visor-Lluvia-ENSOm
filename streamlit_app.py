@@ -477,84 +477,10 @@ def create_anomaly_chart(df_plot):
     )
     return fig
 
-def create_anomaly_chart(df_plot):
-    if df_plot.empty:
-        return go.Figure()
-    df_plot['color'] = np.where(df_plot['anomalia'] < 0, 'red', 'blue')
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=df_plot[Config.DATE_COL], y=df_plot['anomalia'],
-        marker_color=df_plot['color'], name='Anomalía de Precipitación'
-    ))
-    if Config.ENSO_ONI_COL in df_plot.columns:
-        df_plot_enso = df_plot.dropna(subset=[Config.ENSO_ONI_COL])
-        nino_periods = df_plot_enso[df_plot_enso[Config.ENSO_ONI_COL] >= 0.5]
-        for _, row in nino_periods.iterrows():
-            fig.add_vrect(x0=row[Config.DATE_COL] - pd.DateOffset(days=15), x1=row[Config.DATE_COL] + pd.DateOffset(days=15),
-                          fillcolor="red", opacity=0.15, layer="below", line_width=0)
-        nina_periods = df_plot_enso[df_plot_enso[Config.ENSO_ONI_COL] <= -0.5]
-        for _, row in nina_periods.iterrows():
-            fig.add_vrect(x0=row[Config.DATE_COL] - pd.DateOffset(days=15), x1=row[Config.DATE_COL] + pd.DateOffset(days=15),
-                          fillcolor="blue", opacity=0.15, layer="below", line_width=0)
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(255, 0, 0, 0.3)'), name='Fase El Niño'))
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(symbol='square', color='rgba(0, 0, 255, 0.3)'), name='Fase La Niña'))
-    fig.update_layout(
-        height=600, title="Anomalías Mensuales de Precipitación y Fases ENSO",
-        yaxis_title="Anomalía de Precipitación (mm)", xaxis_title="Fecha", showlegend=True
-    )
-    return fig
-
-def get_map_options():
-    return {
-        "CartoDB Positron (Predeterminado)": {"tiles": "cartodbpositron", "attr": '&copy; <a href="https://carto.com/attributions">CartoDB</a>', "overlay": False},
-        "OpenStreetMap": {"tiles": "OpenStreetMap", "attr": '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
-        "Topografía (OpenTopoMap)": {"tiles": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "attr": 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)', "overlay": False},
-        "Relieve (Stamen Terrain)": {"tiles": "Stamen Terrain", "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', "overlay": False},
-        "Relieve y Océanos (GEBCO)": {"url": "https://www.gebco.net/data_and_products/gebco_web_services/web_map_service/web_map_service.php", "layers": "GEBCO_2021_Surface", "transparent": False, "attr": "GEBCO 2021", "overlay": True},
-        "Mapa de Colombia (WMS IDEAM)": {"url": "https://geoservicios.ideam.gov.co/geoserver/ideam/wms", "layers": "ideam:col_admin", "transparent": True, "attr": "IDEAM", "overlay": True},
-        "Cobertura de la Tierra (WMS IGAC)": {"url": "https://servicios.igac.gov.co/server/services/IDEAM/IDEAM_Cobertura_Corine/MapServer/WMSServer", "layers": "IDEAM_Cobertura_Corine_Web", "transparent": True, "attr": "IGAC", "overlay": True},
-    }
-
-def display_map_controls(container_object, key_prefix):
-    map_options = get_map_options()
-    base_maps = {k: v for k, v in map_options.items() if not v.get("overlay")}
-    overlays = {k: v for k, v in map_options.items() if v.get("overlay")}
-    
-    selected_base_map_name = container_object.selectbox("Seleccionar Mapa Base", list(base_maps.keys()), key=f"{key_prefix}_base_map")
-    default_overlays = ["Mapa de Colombia (WMS IDEAM)"]
-    selected_overlays = container_object.multiselect("Seleccionar Capas Adicionales", list(overlays.keys()), default=default_overlays, key=f"{key_prefix}_overlays")
-    
-    return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
-
-def create_folium_map(location, zoom, base_map_config, overlays_config, fit_bounds_data=None):
-   """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
-   m = folium.Map(
-       location=location,
-       zoom_start=zoom,
-       tiles=base_map_config.get("tiles", "OpenStreetMap"),
-       attr=base_map_config.get("attr", None)
-   )
-   if fit_bounds_data is not None and not fit_bounds_data.empty:
-       bounds = fit_bounds_data.total_bounds
-       if np.all(np.isfinite(bounds)):
-           m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-
-   for layer_config in overlays_config:
-       WmsTileLayer(
-           url=layer_config["url"],
-           layers=layer_config["layers"],
-           fmt='image/png',
-           transparent=layer_config.get("transparent", False),
-           overlay=True,
-           control=True,
-           name=layer_config.get("attr", "Overlay")
-       ).add_to(m)
-       
-   return m
-
 # ---
 # Funciones para las Pestañas de la UI
 # ---
+
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
     st.markdown(Config.WELCOME_TEXT, unsafe_allow_html=True)
