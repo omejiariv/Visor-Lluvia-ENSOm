@@ -18,7 +18,7 @@ import io
 import numpy as np
 from pykrige.ok import OrdinaryKriging
 from scipy import stats
-from scipy.stats import gamma, norm  # <--- norm AÑADIDO
+from scipy.stats import gamma, norm
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import pacf
@@ -345,6 +345,78 @@ def add_folium_download_button(map_object, file_name):
         key=f"dl_map_{file_name.replace('.', '_')}",
         use_container_width=True
     )
+
+@st.cache_data
+def calculate_spi(precip_series: pd.Series, timescale: int):
+    """
+    Calcula el SPI para una serie de precipitación dada y una escala de tiempo.
+    Utiliza un método manual basado en la distribución Gamma.
+    """
+    # 1. Agregación de la precipitación en la escala de tiempo
+    rolling_sum = precip_series.rolling(window=timescale, min_periods=timescale).sum()
+    rolling_sum = rolling_sum.dropna()
+
+    if rolling_sum.empty:
+        return None
+
+    # 2. Ajuste de la distribución Gamma a los datos de precipitación
+    # Se ajusta para cada mes del año por separado para mantener la estacionalidad
+    spi_values = pd.Series(index=rolling_sum.index, dtype=float)
+    
+    for month in range(1, 13):
+        monthly_data = rolling_sum[rolling_sum.index.month == month]
+        
+        if monthly_data.empty:
+            continue
+
+        # Separar valores cero de los no-cero
+        monthly_data_fit = monthly_data[monthly_data > 0]
+        
+        if len(monthly_data_fit) < 20:  # Muestra mínima para un ajuste robusto
+            continue
+
+        # Ajustar la distribución Gamma a los datos > 0
+        shape, loc, scale = gamma.fit(monthly_data_fit, floc=0)
+        
+        # Calcular la probabilidad acumulada (CDF) para todos los datos del mes
+        cdf_non_zero = gamma.cdf(monthly_data, a=shape, loc=loc, scale=scale)
+        
+        # Contabilizar la probabilidad de ceros
+        prob_zeros = (monthly_data == 0).sum() / len(monthly_data)
+        
+        # Ajustar la CDF para incluir los ceros
+        final_cdf = prob_zeros + (1 - prob_zeros) * cdf_non_zero
+        final_cdf[monthly_data == 0] = prob_zeros
+        
+        # Acotar los valores para evitar infinitos en la transformación inversa
+        final_cdf[final_cdf > 0.99999] = 0.99999
+        final_cdf[final_cdf < 0.00001] = 0.00001
+
+        # 3. Transformación a la distribución normal estándar (Z-score)
+        spi_month = norm.ppf(final_cdf)
+        spi_values.loc[spi_month.index] = spi_month
+
+    return spi_values.rename(f"SPI-{timescale}")
+
+def classify_spi(spi_value):
+    if pd.isna(spi_value):
+        return "Sin Datos"
+    elif spi_value >= 2.0:
+        return "Extremadamente Húmedo"
+    elif 1.5 <= spi_value < 2.0:
+        return "Muy Húmedo"
+    elif 1.0 <= spi_value < 1.5:
+        return "Moderadamente Húmedo"
+    elif -1.0 < spi_value < 1.0:
+        return "Cercano a lo Normal"
+    elif -1.5 < spi_value <= -1.0:
+        return "Sequía Moderada"
+    elif -2.0 < spi_value <= -1.5:
+        return "Sequía Severa"
+    elif spi_value <= -2.0:
+        return "Sequía Extrema"
+    else:
+        return "Cercano a lo Normal"
 
 def create_enso_chart(enso_data):
     if enso_data.empty or Config.ENSO_ONI_COL not in enso_data.columns:
