@@ -82,128 +82,128 @@ class Config:
     
     @staticmethod
     def initialize_session_state():
-       """Inicializa todas las variables necesarias en el estado de la sesión de Streamlit."""
-       state_defaults = {
-           'data_loaded': False,
-           'analysis_mode': "Usar datos originales",
-           'select_all_stations_state': False,
-           'df_monthly_processed': pd.DataFrame(),
-           'gdf_stations': None,
-           'df_precip_anual': None,
-           'gdf_municipios': None,
-            'df_long': None,
-            'df_enso': None,
-           'min_data_perc_slider': 0,
-           'altitude_multiselect': [],
-           'regions_multiselect': [],
-           'municipios_multiselect': [],
-           'celdas_multiselect': [],
-           'station_multiselect': [],
-           'exclude_na': False,
-           'exclude_zeros': False,
-           'uploaded_forecast': None
-       }
-       for key, value in state_defaults.items():
-           if key not in st.session_state:
-               st.session_state[key] = value
+        """Inicializa todas las variables necesarias en el estado de la sesión de Streamlit."""
+        state_defaults = {
+            'data_loaded': False,
+            'analysis_mode': "Usar datos originales",
+            'select_all_stations_state': False,
+            'df_monthly_processed': pd.DataFrame(),
+            'gdf_stations': None,
+            'df_precip_anual': None,
+            'gdf_municipios': None,
+             'df_long': None,
+             'df_enso': None,
+            'min_data_perc_slider': 0,
+            'altitude_multiselect': [],
+            'regions_multiselect': [],
+            'municipios_multiselect': [],
+            'celdas_multiselect': [],
+            'station_multiselect': [],
+            'exclude_na': False,
+            'exclude_zeros': False,
+            'uploaded_forecast': None
+        }
+        for key, value in state_defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = value
 
 # ---
 # Funciones de Carga y Preprocesamiento
 # ---
 @st.cache_data
 def parse_spanish_dates(date_series):
-   """Convierte abreviaturas de meses en español a inglés."""
-   months_es_to_en = {'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec'}
-   date_series_str = date_series.astype(str).str.lower()
-   for es, en in months_es_to_en.items():
-       date_series_str = date_series_str.str.replace(es, en, regex=False)
-   return pd.to_datetime(date_series_str, format='%b-%y', errors='coerce')
+    """Convierte abreviaturas de meses en español a inglés."""
+    months_es_to_en = {'ene': 'Jan', 'abr': 'Apr', 'ago': 'Aug', 'dic': 'Dec'}
+    date_series_str = date_series.astype(str).str.lower()
+    for es, en in months_es_to_en.items():
+        date_series_str = date_series_str.str.replace(es, en, regex=False)
+    return pd.to_datetime(date_series_str, format='%b-%y', errors='coerce')
 
 @st.cache_data
 def load_csv_data(file_uploader_object, sep=';', lower_case=True):
-   """Carga y decodifica un archivo CSV de manera robusta desde un objeto de Streamlit."""
-   if file_uploader_object is None:
-       return None
-   try:
-       content = file_uploader_object.getvalue()
-       if not content.strip():
-           st.error(f"El archivo '{file_uploader_object.name}' parece estar vacío.")
-           return None
-   except Exception as e:
-       st.error(f"Error al leer el archivo '{file_uploader_object.name}': {e}")
-       return None
+    """Carga y decodifica un archivo CSV de manera robusta desde un objeto de Streamlit."""
+    if file_uploader_object is None:
+        return None
+    try:
+        content = file_uploader_object.getvalue()
+        if not content.strip():
+            st.error(f"El archivo '{file_uploader_object.name}' parece estar vacío.")
+            return None
+    except Exception as e:
+        st.error(f"Error al leer el archivo '{file_uploader_object.name}': {e}")
+        return None
 
-   encodings_to_try = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
-   for encoding in encodings_to_try:
-       try:
-           df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding)
-           df.columns = df.columns.str.strip().str.replace(';', '')
-           if lower_case:
-               df.columns = df.columns.str.lower()
-           return df
-       except Exception:
-           continue
-   st.error(f"No se pudo decodificar el archivo '{file_uploader_object.name}' con las codificaciones probadas.")
-   return None
+    encodings_to_try = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+    for encoding in encodings_to_try:
+        try:
+            df = pd.read_csv(io.BytesIO(content), sep=sep, encoding=encoding)
+            df.columns = df.columns.str.strip().str.replace(';', '')
+            if lower_case:
+                df.columns = df.columns.str.lower()
+            return df
+        except Exception:
+            continue
+    st.error(f"No se pudo decodificar el archivo '{file_uploader_object.name}' con las codificaciones probadas.")
+    return None
 
 @st.cache_data
 def load_shapefile(file_uploader_object):
-   """Procesa y carga un shapefile desde un archivo .zip subido a Streamlit."""
-   if file_uploader_object is None:
-       return None
-   try:
-       with tempfile.TemporaryDirectory() as temp_dir:
-           with zipfile.ZipFile(file_uploader_object, 'r') as zip_ref:
-               zip_ref.extractall(temp_dir)
-           
-           shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
-           if not shp_files:
-               st.error("No se encontró un archivo .shp en el archivo .zip.")
-               return None
-           
-           shp_path = os.path.join(temp_dir, shp_files[0])
-           gdf = gpd.read_file(shp_path)
-           gdf.columns = gdf.columns.str.strip().str.lower()
-           
-           if gdf.crs is None:
-               gdf.set_crs("EPSG:9377", inplace=True)
-           return gdf.to_crs("EPSG:4326")
-   except Exception as e:
-       st.error(f"Error al procesar el shapefile: {e}")
-       return None
+    """Procesa y carga un shapefile desde un archivo .zip subido a Streamlit."""
+    if file_uploader_object is None:
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with zipfile.ZipFile(file_uploader_object, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+            
+            shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
+            if not shp_files:
+                st.error("No se encontró un archivo .shp en el archivo .zip.")
+                return None
+            
+            shp_path = os.path.join(temp_dir, shp_files[0])
+            gdf = gpd.read_file(shp_path)
+            gdf.columns = gdf.columns.str.strip().str.lower()
+            
+            if gdf.crs is None:
+                gdf.set_crs("EPSG:9377", inplace=True)
+            return gdf.to_crs("EPSG:4326")
+    except Exception as e:
+        st.error(f"Error al procesar el shapefile: {e}")
+        return None
 
 @st.cache_data
 def complete_series(_df):
-   """Completa las series de tiempo de precipitación usando interpolación lineal temporal."""
-   all_completed_dfs = []
-   station_list = _df[Config.STATION_NAME_COL].unique()
-   progress_bar = st.progress(0, text="Completando todas las series...")
-   
-   for i, station in enumerate(station_list):
-       df_station = _df[_df[Config.STATION_NAME_COL] == station].copy()
-       df_station[Config.DATE_COL] = pd.to_datetime(df_station[Config.DATE_COL])
-       df_station.set_index(Config.DATE_COL, inplace=True)
-       
-       if not df_station.index.is_unique:
-           df_station = df_station[~df_station.index.duplicated(keep='first')]
+    """Completa las series de tiempo de precipitación usando interpolación lineal temporal."""
+    all_completed_dfs = []
+    station_list = _df[Config.STATION_NAME_COL].unique()
+    progress_bar = st.progress(0, text="Completando todas las series...")
+    
+    for i, station in enumerate(station_list):
+        df_station = _df[_df[Config.STATION_NAME_COL] == station].copy()
+        df_station[Config.DATE_COL] = pd.to_datetime(df_station[Config.DATE_COL])
+        df_station.set_index(Config.DATE_COL, inplace=True)
+        
+        if not df_station.index.is_unique:
+            df_station = df_station[~df_station.index.duplicated(keep='first')]
 
-       date_range = pd.date_range(start=df_station.index.min(), end=df_station.index.max(), freq='MS')
-       df_resampled = df_station.reindex(date_range)
-       
-       df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
-       
-       df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
-       df_resampled[Config.STATION_NAME_COL] = station
-       df_resampled[Config.YEAR_COL] = df_resampled.index.year
-       df_resampled[Config.MONTH_COL] = df_resampled.index.month
-       df_resampled.reset_index(inplace=True)
-       df_resampled.rename(columns={'index': Config.DATE_COL}, inplace=True)
-       all_completed_dfs.append(df_resampled)
-       
-       progress_bar.progress((i + 1) / len(station_list), text=f"Completando series... Estación: {station}")
-   
-   progress_bar.empty()
-   return pd.concat(all_completed_dfs, ignore_index=True)
+        date_range = pd.date_range(start=df_station.index.min(), end=df_station.index.max(), freq='MS')
+        df_resampled = df_station.reindex(date_range)
+        
+        df_resampled[Config.PRECIPITATION_COL] = df_resampled[Config.PRECIPITATION_COL].interpolate(method='time')
+        
+        df_resampled[Config.ORIGIN_COL] = df_resampled[Config.ORIGIN_COL].fillna('Completado')
+        df_resampled[Config.STATION_NAME_COL] = station
+        df_resampled[Config.YEAR_COL] = df_resampled.index.year
+        df_resampled[Config.MONTH_COL] = df_resampled.index.month
+        df_resampled.reset_index(inplace=True)
+        df_resampled.rename(columns={'index': Config.DATE_COL}, inplace=True)
+        all_completed_dfs.append(df_resampled)
+        
+        progress_bar.progress((i + 1) / len(station_list), text=f"Completando series... Estación: {station}")
+    
+    progress_bar.empty()
+    return pd.concat(all_completed_dfs, ignore_index=True)
 
 @st.cache_data
 def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded_zip_shapefile):
@@ -229,8 +229,8 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
     df_stations_raw.dropna(subset=[lon_col, lat_col], inplace=True)
 
     gdf_stations = gpd.GeoDataFrame(df_stations_raw,
-                                    geometry=gpd.points_from_xy(df_stations_raw[lon_col], df_stations_raw[lat_col]),
-                                    crs="EPSG:9377").to_crs("EPSG:4326")
+                                     geometry=gpd.points_from_xy(df_stations_raw[lon_col], df_stations_raw[lat_col]),
+                                     crs="EPSG:9377").to_crs("EPSG:4326")
     gdf_stations[Config.LONGITUDE_COL] = gdf_stations.geometry.x
     gdf_stations[Config.LATITUDE_COL] = gdf_stations.geometry.y
     if Config.ALTITUDE_COL in gdf_stations.columns:
@@ -244,7 +244,7 @@ def load_and_process_all_data(uploaded_file_mapa, uploaded_file_precip, uploaded
 
     id_vars = [col for col in df_precip_raw.columns if not col.isdigit()]
     df_long = df_precip_raw.melt(id_vars=id_vars, value_vars=station_id_cols, 
-                                var_name='id_estacion', value_name=Config.PRECIPITATION_COL)
+                                 var_name='id_estacion', value_name=Config.PRECIPITATION_COL)
 
     cols_to_numeric = [Config.ENSO_ONI_COL, 'temp_sst', 'temp_media', Config.PRECIPITATION_COL, Config.SOI_COL, Config.IOD_COL]
     for col in cols_to_numeric:
@@ -350,40 +350,50 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
     Calcula el SPI para una serie de precipitación dada y una escala de tiempo.
     Utiliza un método manual basado en la distribución Gamma.
     """
-    # 1. Agregación de la precipitación en la escala de tiempo
+    # 1. Calcular la suma acumulada (rolling sum) para la escala de tiempo
+    # Se asegura que la serie de entrada tenga índice de tiempo para el rolling sum
+    if not isinstance(precip_series.index, pd.DatetimeIndex):
+        raise ValueError("La serie de entrada para SPI debe tener un DatetimeIndex.")
+        
     rolling_sum = precip_series.rolling(window=timescale, min_periods=timescale).sum()
     rolling_sum = rolling_sum.dropna()
 
     if rolling_sum.empty:
         return None
 
-    # 2. Ajuste de la distribución Gamma a los datos de precipitación
     spi_values = pd.Series(index=rolling_sum.index, dtype=float)
     
+    # 2. Iterar por mes (para capturar estacionalidad)
     for month in range(1, 13):
         monthly_data = rolling_sum[rolling_sum.index.month == month]
         
         if monthly_data.empty:
             continue
 
+        # 3. Ajustar la distribución Gamma (solo a valores > 0)
         monthly_data_fit = monthly_data[monthly_data > 0]
         
+        # Se requiere un mínimo de datos para un ajuste robusto
         if len(monthly_data_fit) < 20:
             continue
 
+        # Ajuste de parámetros de la distribución Gamma
         shape, loc, scale = gamma.fit(monthly_data_fit, floc=0)
         
+        # 4. Calcular la CDF para los datos (excluyendo ceros en el ajuste, pero incluyendo en el cálculo)
         cdf_non_zero = gamma.cdf(monthly_data, a=shape, loc=loc, scale=scale)
         
+        # 5. Ajustar por la probabilidad de cero (si existen ceros)
         prob_zeros = (monthly_data == 0).sum() / len(monthly_data)
         
         final_cdf = prob_zeros + (1 - prob_zeros) * cdf_non_zero
         final_cdf[monthly_data == 0] = prob_zeros
         
+        # 6. Mapeo a la distribución normal (SPI)
+        # Limitar valores extremos para evitar errores en norm.ppf
         final_cdf[final_cdf > 0.99999] = 0.99999
         final_cdf[final_cdf < 0.00001] = 0.00001
 
-        # 3. Transformación a la distribución normal estándar
         spi_month = norm.ppf(final_cdf)
         spi_values.loc[spi_month.index] = spi_month
 
@@ -499,36 +509,34 @@ def display_map_controls(container_object, key_prefix):
     return base_maps[selected_base_map_name], [overlays[k] for k in selected_overlays]
 
 def create_folium_map(location, zoom, base_map_config, overlays_config, fit_bounds_data=None):
-   """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
-   m = folium.Map(
-       location=location,
-       zoom_start=zoom,
-       tiles=base_map_config.get("tiles", "OpenStreetMap"),
-       attr=base_map_config.get("attr", None)
-   )
-   if fit_bounds_data is not None and not fit_bounds_data.empty:
-       bounds = fit_bounds_data.total_bounds
-       if np.all(np.isfinite(bounds)):
-           m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+    """Crea un mapa base de Folium con las capas y configuraciones especificadas."""
+    m = folium.Map(
+        location=location,
+        zoom_start=zoom,
+        tiles=base_map_config.get("tiles", "OpenStreetMap"),
+        attr=base_map_config.get("attr", None)
+    )
+    if fit_bounds_data is not None and not fit_bounds_data.empty:
+        bounds = fit_bounds_data.total_bounds
+        if np.all(np.isfinite(bounds)):
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-   for layer_config in overlays_config:
-       WmsTileLayer(
-           url=layer_config["url"],
-           layers=layer_config["layers"],
-           fmt='image/png',
-           transparent=layer_config.get("transparent", False),
-           overlay=True,
-           control=True,
-           name=layer_config.get("attr", "Overlay")
-       ).add_to(m)
-       
-   return m
+    for layer_config in overlays_config:
+        WmsTileLayer(
+            url=layer_config["url"],
+            layers=layer_config["layers"],
+            fmt='image/png',
+            transparent=layer_config.get("transparent", False),
+            overlay=True,
+            control=True,
+            name=layer_config.get("attr", "Overlay")
+        ).add_to(m)
+        
+    return m
 
 # ---
 # Funciones para las Pestañas de la UI
 # ---
-
-# (Este bloque contiene todas las funciones `display_..._tab` necesarias)
 
 def display_welcome_tab():
     st.header("Bienvenido al Sistema de Información de Lluvias y Clima")
@@ -663,9 +671,9 @@ def display_spatial_distribution_tab(gdf_filtered, stations_for_analysis, df_anu
                         var_name='Tipo de Dato', value_name='Porcentaje')
                     
                     fig_comp = px.bar(df_plot, x=Config.STATION_NAME_COL, y='Porcentaje', color='Tipo de Dato',
-                                      title='Composición de Datos por Estación',
-                                      labels={Config.STATION_NAME_COL: 'Estación', 'Porcentaje': '% del Período'},
-                                      color_discrete_map={'% Original': '#1f77b4', '% Completado': '#ff7f0e'}, text_auto='.1f')
+                                     title='Composición de Datos por Estación',
+                                     labels={Config.STATION_NAME_COL: 'Estación', 'Porcentaje': '% del Período'},
+                                     color_discrete_map={'% Original': '#1f77b4', '% Completado': '#ff7f0e'}, text_auto='.1f')
                     fig_comp.update_layout(height=600, xaxis={'categoryorder': 'trace'})
                     st.plotly_chart(fig_comp, use_container_width=True)
             else:
@@ -673,7 +681,7 @@ def display_spatial_distribution_tab(gdf_filtered, stations_for_analysis, df_anu
                 sort_order_disp = st.radio("Ordenar estaciones por:", ["% Datos (Mayor a Menor)", "% Datos (Menor a Mayor)", "Alfabético"], horizontal=True, key="sort_disp")
                 df_chart = gdf_filtered.copy()
                 if "% Datos (Mayor a Menor)" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=False)
-                elif "% Datos (Menor a Mayor)" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=True)
+                elif "% Datos (Menor a Mayor" in sort_order_disp: df_chart = df_chart.sort_values(Config.PERCENTAGE_COL, ascending=True)
                 else: df_chart = df_chart.sort_values(Config.STATION_NAME_COL, ascending=True)
                 
                 fig_disp = px.bar(df_chart, x=Config.STATION_NAME_COL, y=Config.PERCENTAGE_COL,
@@ -1198,7 +1206,7 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
     # Cálculo del SPI
     with st.spinner(f"Calculando SPI-{timescale}..."):
         try:
-            # Se asegura que la serie de pandas sea pasada, no un numpy array.
+            # CORRECCIÓN: Se asegura que la serie de pandas sea pasada, no un numpy array.
             spi_series = calculate_spi(precip_series, timescale)
         except Exception as e:
             st.error(f"Error al calcular el SPI: {e}")
@@ -1458,37 +1466,43 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
     with matriz_tab:
         st.subheader("Matriz de Disponibilidad de Datos Anual")
         
-        # Lógica para calcular la matriz de disponibilidad (Original vs. Completado)
+        # Determinar el DataFrame base según el modo de análisis
         df_base = st.session_state.df_monthly_processed if st.session_state.analysis_mode == "Completar series (interpolación)" else df_long
-        df_base_filtered = df_base[df_base[Config.STATION_NAME_COL].isin(stations_for_analysis)]
+        df_base_filtered = df_base[df_base[Config.STATION_NAME_COL].isin(stations_for_analysis)].copy()
         
+        # Eliminar NaN o 0 si el usuario lo seleccionó
+        if st.session_state.exclude_na:
+            df_base_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+        if st.session_state.exclude_zeros:
+            df_base_filtered = df_base_filtered[df_base_filtered[Config.PRECIPITATION_COL] > 0]
+
         # Contar el número de meses con datos
         monthly_counts = df_base_filtered.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).agg(
             count_total=(Config.PRECIPITATION_COL, 'count')
         ).reset_index()
         
-        # Lógica para datos COMPLETADOS
+        # Asignar vista y colores basados en la selección de modo
         if st.session_state.analysis_mode == "Completar series (interpolación)":
-            # Si estamos en modo 'Completar series', el conteo total es 12 por año y la matriz muestra % de datos totales
-            monthly_counts['porc_total'] = (monthly_counts['count_total'] / 12) * 100
-            heatmap_df = monthly_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_total').fillna(0)
             
             view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Totales (Original + Completado)"), horizontal=True)
             
             if view_mode == "Porcentaje de Datos Totales (Original + Completado)":
+                monthly_counts['porc_value'] = (monthly_counts['count_total'] / 12) * 100
+                heatmap_df = monthly_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
                 color_scale = "Blues"
                 title_text = "Disponibilidad Promedio de Datos Totales (Originales + Completados)"
-            else: # Porcentaje de Datos Originales (se vuelve a calcular solo con datos originales)
+            
+            else: # Porcentaje de Datos Originales
                 df_original_filtered = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
                 original_data_counts = df_original_filtered.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_original')
-                original_data_counts['porc_original'] = (original_data_counts['count_original'] / 12) * 100
-                heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original').fillna(0)
+                original_data_counts['porc_value'] = (original_data_counts['count_original'] / 12) * 100
+                heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
                 color_scale = "Greens"
                 title_text = "Disponibilidad Promedio de Datos Originales"
         
         else: # Usar datos originales
-            monthly_counts['porc_original'] = (monthly_counts['count_total'] / 12) * 100
-            heatmap_df = monthly_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_original').fillna(0)
+            monthly_counts['porc_value'] = (monthly_counts['count_total'] / 12) * 100
+            heatmap_df = monthly_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
             color_scale = "Greens"
             title_text = "Disponibilidad Promedio de Datos Originales"
 
@@ -1681,7 +1695,7 @@ def display_correlation_tab(df_monthly_filtered, stations_for_analysis):
                     fig_scatter_indices = px.scatter(
                         df_merged_indices, x=index_col_name, y=Config.PRECIPITATION_COL, trendline='ols',
                         title=f'Dispersión: {selected_index} vs. Precipitación de {selected_station_corr}',
-                        labels={index_col_name: f'Valor del Índice {selected_index}', Config.PRECIPITATION_COL: 'Precipitación Mensual (mm)'}
+                        labels={index_col_name: 'Valor del Índice {selected_index}', Config.PRECIPITATION_COL: 'Precipitación Mensual (mm)'}
                     )
                     st.plotly_chart(fig_scatter_indices, use_container_width=True)
                 else:
@@ -2137,24 +2151,24 @@ def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_ana
 
     if st.session_state.analysis_mode == "Completar series (interpolación)":
         st.markdown("**Datos de Precipitación Mensual (Series Completadas y Filtradas)**")
-        # Se usa df_monthly_processed que contiene la interpolación
-        df_completed_filtered = st.session_state.df_monthly_processed[
+        
+        df_completed_to_download = st.session_state.df_monthly_processed[
             (st.session_state.df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
             (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year >= st.session_state.year_range[0]) &
             (st.session_state.df_monthly_processed[Config.DATE_COL].dt.year <= st.session_state.year_range[1]) &
             (st.session_state.df_monthly_processed[Config.DATE_COL].dt.month.isin(st.session_state.meses_numeros))
         ].copy()
         
-        # Opcionalmente, se pueden eliminar filas con NaN o 0 si el usuario lo seleccionó
+        # Aplicar los filtros de exclusión (NaN/Ceros) al DataFrame de descarga
         if st.session_state.exclude_na:
-            df_completed_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+            df_completed_to_download.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
         if st.session_state.exclude_zeros:
-            df_completed_filtered = df_completed_filtered[df_completed_filtered[Config.PRECIPITATION_COL] > 0]
+            df_completed_to_download = df_completed_to_download[df_completed_to_download[Config.PRECIPITATION_COL] > 0]
         
-        csv_completado = convert_df_to_csv(df_completed_filtered)
-        st.download_button("Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
+        csv_completado = convert_df_to_csv(df_completed_to_download)
+        st.download_button("📥 Descargar CSV con Series Completadas", csv_completado, 'precipitacion_mensual_completada.csv', 'text/csv', key='download-completado')
     else:
-        st.info("Para descargar las series completadas, seleccione la opción 'Completar series (interpolación)' en el panel lateral.")
+        st.info("Para descargar las series completadas, seleccione la opción **Completar series (interpolación)** en el panel lateral.")
 
 def display_station_table_tab(gdf_filtered, df_anual_melted, stations_for_analysis):
     st.header("Información Detallada de las Estaciones")
@@ -2290,8 +2304,13 @@ def main():
             if select_all:
                 selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=stations_options, key='station_multiselect')
             else:
-                # Usar la selección validada como default
-                selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=st.session_state['station_multiselect'], key='station_multiselect')
+                # CORRECCIÓN: Si no hay selección manual, y no hay selección previa válida, SELECCIONAR TODAS.
+                if not valid_selection and stations_options:
+                     st.session_state['station_multiselect'] = stations_options
+                     selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=stations_options, key='station_multiselect')
+                else:
+                    selected_stations = st.multiselect('Seleccionar Estaciones', options=stations_options, default=st.session_state['station_multiselect'], key='station_multiselect')
+                # La línea anterior garantiza que si no se seleccionó nada, pero hay opciones, se usen las opciones válidas.
 
             years_with_data_in_selection = sorted(st.session_state.df_long[Config.YEAR_COL].unique()) if not st.session_state.df_long.empty else []
             if not years_with_data_in_selection:
@@ -2304,22 +2323,60 @@ def main():
             meses_numeros = [meses_dict[m] for m in meses_nombres]
 
         with st.sidebar.expander("Opciones de Preprocesamiento de Datos", expanded=False):
-            analysis_mode = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"), key="analysis_mode_radio")
+            # Usamos el modo de análisis directamente del widget
+            analysis_mode_selection = st.radio("Análisis de Series Mensuales", ("Usar datos originales", "Completar series (interpolación)"), key="analysis_mode_radio")
             exclude_na = st.checkbox("Excluir datos nulos (NaN)", value=st.session_state.exclude_na, key='exclude_na_checkbox')
             exclude_zeros = st.checkbox("Excluir valores cero (0)", value=st.session_state.exclude_zeros, key='exclude_zeros_checkbox')
+            
+            # Actualizar el analysis_mode en el estado de sesión para el resto del script
+            st.session_state.analysis_mode = analysis_mode_selection
 
         st.session_state.gdf_filtered = apply_filters_to_stations(st.session_state.gdf_stations, min_data_perc, selected_altitudes, selected_regions, selected_municipios, selected_celdas)
         
         stations_for_analysis = selected_stations if selected_stations else st.session_state.gdf_filtered[Config.STATION_NAME_COL].unique()
         st.session_state.gdf_filtered = st.session_state.gdf_filtered[st.session_state.gdf_filtered[Config.STATION_NAME_COL].isin(stations_for_analysis)]
 
-        annual_data = st.session_state.df_long[
+        # --- LÓGICA CENTRAL DE PREPROCESAMIENTO ---
+        
+        # 1. Procesar data mensual (Interpolación)
+        if st.session_state.df_long is not None:
+            if st.session_state.analysis_mode == "Completar series (interpolación)":
+                # La interpolación se ejecuta SOLO cuando se selecciona la opción
+                df_monthly_processed = complete_series(st.session_state.df_long.copy())
+            else:
+                # Si no se selecciona, usamos los datos originales como datos procesados
+                df_monthly_processed = st.session_state.df_long.copy()
+            
+            st.session_state.df_monthly_processed = df_monthly_processed
+            
+            # 2. Aplicar filtros temporales y de estación a la data PROCESADA/Original
+            df_monthly_filtered = df_monthly_processed[
+                (df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
+                (df_monthly_processed[Config.DATE_COL].dt.year >= year_range[0]) &
+                (df_monthly_processed[Config.DATE_COL].dt.year <= year_range[1]) &
+                (df_monthly_processed[Config.DATE_COL].dt.month.isin(meses_numeros))
+            ].copy()
+        else:
+            df_monthly_filtered = pd.DataFrame()
+            st.session_state.df_monthly_processed = pd.DataFrame()
+
+        # 3. Aplicar filtros de exclusión (NaN/Ceros)
+        # La data anual siempre se calcula sobre los DATOS ORIGINALES, pero FILTRADOS por la selección
+        annual_data_filtered = st.session_state.df_long[
             (st.session_state.df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
             (st.session_state.df_long[Config.YEAR_COL] >= year_range[0]) &
             (st.session_state.df_long[Config.YEAR_COL] <= year_range[1])
         ].copy()
 
-        annual_agg = annual_data.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).agg(
+        if exclude_na:
+            df_monthly_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+            annual_data_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
+        if exclude_zeros:
+            df_monthly_filtered = df_monthly_filtered[df_monthly_filtered[Config.PRECIPITATION_COL] > 0]
+            annual_data_filtered = annual_data_filtered[annual_data_filtered[Config.PRECIPITATION_COL] > 0]
+        
+        # 4. Cálculo de data Anual (basado en data ORIGINAL filtrada por año y estación)
+        annual_agg = annual_data_filtered.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).agg(
             precipitation_sum=(Config.PRECIPITATION_COL, 'sum'),
             meses_validos=(Config.PRECIPITATION_COL, 'count')
         ).reset_index()
@@ -2334,32 +2391,7 @@ def main():
         df_anual_melted = pd.merge(annual_agg, station_metadata, on=Config.STATION_NAME_COL, how='left')
         df_anual_melted.rename(columns={'precipitation_sum': Config.PRECIPITATION_COL}, inplace=True)
         
-        if st.session_state.df_long is not None:
-            if analysis_mode == "Completar series (interpolación)":
-                df_monthly_processed = complete_series(st.session_state.df_long.copy())
-            else:
-                df_monthly_processed = st.session_state.df_long.copy()
-            
-            st.session_state.df_monthly_processed = df_monthly_processed
-            
-            df_monthly_filtered = df_monthly_processed[
-                (df_monthly_processed[Config.STATION_NAME_COL].isin(stations_for_analysis)) &
-                (df_monthly_processed[Config.DATE_COL].dt.year >= year_range[0]) &
-                (df_monthly_processed[Config.DATE_COL].dt.year <= year_range[1]) &
-                (df_monthly_processed[Config.DATE_COL].dt.month.isin(meses_numeros))
-            ].copy()
-        else:
-            df_monthly_filtered = pd.DataFrame()
-            st.session_state.df_monthly_processed = pd.DataFrame()
-        
-        if exclude_na:
-            df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
-            if not df_monthly_filtered.empty:
-                df_monthly_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
-        if exclude_zeros:
-            df_anual_melted = df_anual_melted[df_anual_melted[Config.PRECIPITATION_COL] > 0]
-            if not df_monthly_filtered.empty:
-                df_monthly_filtered = df_monthly_filtered[df_monthly_filtered[Config.PRECIPITATION_COL] > 0]
+        # --- FIN LÓGICA CENTRAL ---
 
         st.session_state.year_range = year_range
         st.session_state.meses_numeros = meses_numeros
