@@ -1071,7 +1071,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
     with compare_tab:
         st.subheader("Comparación de Mapas Anuales")
         df_anual_melted_non_na = df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL])
-        if len(stations_for_analysis) < 1:
+        if len(stations_for_analysis) == 0:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         elif not df_anual_melted_non_na.empty and len(df_anual_melted_non_na[Config.YEAR_COL].unique()) > 0:
             control_col, map_col1, map_col2 = st.columns([1, 2, 2])
@@ -1188,10 +1188,11 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
     with col2:
         classification_scheme = st.radio("Esquema de Clasificación:", ["Sequía/Humedad"], disabled=True)
         
-    df_station = df_monthly_filtered[df_monthly_filtered[Config.STATION_NAME_COL] == station_to_analyze].copy()
+    df_station = st.session_state.df_monthly_processed[st.session_state.df_monthly_processed[Config.STATION_NAME_COL] == station_to_analyze].copy()
     
-    # Se necesita un índice de tiempo para el cálculo del SPI
+    # CRITICAL CORRECTION: Ensure DatetimeIndex and full time series
     df_station.set_index(Config.DATE_COL, inplace=True)
+    df_station.sort_index(inplace=True)
     df_station = df_station.asfreq('MS') # Asegura un índice de tiempo continuo
     
     # Se verifica que haya suficientes datos (mínimo 20 años de datos para el ajuste, o al menos 2.5 * timescale)
@@ -1202,6 +1203,7 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
         return
 
     # Extracción de la serie de precipitación (es una Serie de Pandas con índice de fecha)
+    # Importante: Aquí se pasa la columna de precipitación como una Serie de Pandas
     precip_series = df_station[Config.PRECIPITATION_COL].dropna()
 
     if precip_series.empty:
@@ -1214,7 +1216,7 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
             # Se asegura que la serie de pandas sea pasada, no un numpy array.
             spi_series = calculate_spi(precip_series, timescale)
         except Exception as e:
-            st.error(f"Error al calcular el SPI: {e}")
+            st.error(f"Error al calcular el SPI: {e}. Vuelva a intentarlo o seleccione una escala de tiempo diferente.")
             return
 
     if spi_series is None or spi_series.empty:
