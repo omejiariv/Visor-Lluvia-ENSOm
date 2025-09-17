@@ -2162,67 +2162,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
     
     # Lógica de Pronóstico SARIMA ya implementada arriba
     
-    # Lógica de Pronóstico Prophet ya implementada arriba
-
-    # --- Pronóstico Comparativo (Mejora 2.2) ---
-    with compare_forecast_tab:
-        st.subheader("Pronóstico Comparativo: SARIMA vs Prophet")
-        
-        if 'sarima_forecast' not in st.session_state or 'prophet_forecast' not in st.session_state or st.session_state['sarima_forecast'].empty or st.session_state['prophet_forecast'].empty:
-            st.warning("Debe generar un pronóstico **SARIMA** y un pronóstico **Prophet** en las pestañas anteriores antes de poder compararlos. Asegúrese de usar la misma estación para ambos para una comparación válida.")
-            st.stop()
-            
-        sarima_df = st.session_state['sarima_forecast'].copy()
-        prophet_df = st.session_state['prophet_forecast'].copy()
-        
-        # Usar la estación seleccionada en Prophet para mostrar los datos históricos
-        station_id_for_history = st.selectbox("Seleccione la estación para la serie histórica (debe coincidir con la usada para los pronósticos):", options=stations_for_analysis, key="compare_station_history")
-        ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_id_for_history].copy()
-        
-        if ts_data.empty:
-            st.warning("Datos históricos no encontrados para la comparación.")
-            st.stop()
-
-        # Asegurar que las fechas sean comparables
-        sarima_df['ds'] = pd.to_datetime(sarima_df['ds'])
-        prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
-        ts_data['ds'] = ts_data[Config.DATE_COL]
-        
-        # Combinar datos históricos y pronósticos (Solo los valores de predicción y la fecha)
-        df_combined = pd.merge(sarima_df[['ds', 'yhat']], prophet_df[['ds', 'yhat']], on='ds', suffixes=('_sarima', '_prophet'), how='outer')
-        df_combined = pd.merge(df_combined, ts_data[['ds', Config.PRECIPITATION_COL]], on='ds', how='left')
-        
-        # Crear el gráfico combinado
-        fig_compare = go.Figure()
-        
-        # 1. Datos Históricos
-        fig_compare.add_trace(go.Scatter(
-            x=df_combined['ds'], y=df_combined[Config.PRECIPITATION_COL], 
-            mode='lines+markers', name='Histórico', line=dict(color='gray', width=2)
-        ))
-        
-        # 2. Pronóstico SARIMA
-        fig_compare.add_trace(go.Scatter(
-            x=df_combined['ds'], y=df_combined['yhat_sarima'], 
-            mode='lines', name='Pronóstico SARIMA', line=dict(color='red', dash='dash', width=3)
-        ))
-        
-        # 3. Pronóstico Prophet
-        fig_compare.add_trace(go.Scatter(
-            x=df_combined['ds'], y=df_combined['yhat_prophet'], 
-            mode='lines', name='Pronóstico Prophet', line=dict(color='blue', dash='dash', width=3)
-        ))
-
-        fig_compare.update_layout(
-            title=f"Pronóstico Comparativo SARIMA vs Prophet para {station_id_for_history}",
-            xaxis_title="Fecha",
-            yaxis_title="Precipitación (mm)",
-            height=650,
-            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
-        )
-        st.plotly_chart(fig_compare, use_container_width=True)
-
-
 def display_downloads_tab(df_anual_melted, df_monthly_filtered, stations_for_analysis):
     st.header("Opciones de Descarga")
     if len(stations_for_analysis) == 0:
