@@ -106,7 +106,9 @@ class Config:
             'station_multiselect': [],
             'exclude_na': False,
             'exclude_zeros': False,
-            'uploaded_forecast': None
+            'uploaded_forecast': None,
+            'sarima_forecast': None, 
+            'prophet_forecast': None 
         }
         for key, value in state_defaults.items():
             if key not in st.session_state:
@@ -348,8 +350,6 @@ def add_folium_download_button(map_object, file_name):
         key=f"dl_map_{file_name.replace('.', '_')}",
         use_container_width=True
     )
-
-# SPI functions removed as requested
 
 def create_enso_chart(enso_data):
     if enso_data.empty or Config.ENSO_ONI_COL not in enso_data.columns:
@@ -635,7 +635,7 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
         st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
         return
 
-    sub_tab_anual, sub_tab_mensual, sub_tab_comparacion, sub_tab_distribucion, sub_tab_acumulada, sub_tab_altitud = st.tabs(["Análisis Anual", "Análisis Mensual", "Comparación Rápida", "Distribución", "Acumulada", "Relación Altitud"])
+    sub_tab_anual, sub_tab_mensual, sub_tab_comparacion, sub_tab_distribucion, sub_tab_acumulada, sub_tab_altitud, sub_tab_regional = st.tabs(["Análisis Anual", "Análisis Mensual", "Comparación Rápida", "Distribución", "Acumulada", "Relación Altitud", "Serie Regional"])
 
     with sub_tab_anual:
         anual_graf_tab, anual_analisis_tab = st.tabs(["Gráfico de Serie Anual", "Análisis Multianual"])
@@ -793,6 +793,100 @@ def display_graphs_tab(df_anual_melted, df_monthly_filtered, stations_for_analys
         else:
             st.info("No hay datos de altitud o precipitación disponibles para analizar la relación.")
 
+    with sub_tab_regional: 
+        st.subheader("Serie de Tiempo Promedio Regional (Múltiples Estaciones)")
+
+        if len(stations_for_analysis) == 0:
+            st.warning("Seleccione una o más estaciones en el panel lateral para calcular la serie regional.")
+            return
+
+        with st.spinner("Calculando serie de tiempo regional..."):
+            # 1. Agrupar los datos mensuales filtrados por fecha y calcular el promedio de precipitación
+            df_regional_avg = df_monthly_filtered.groupby(Config.DATE_COL)[Config.PRECIPITATION_COL].mean().reset_index()
+            df_regional_avg.rename(columns={Config.PRECIPITATION_COL: 'Precipitación Promedio Regional'}, inplace=True)
+            
+            df_regional_avg['Estación'] = 'Promedio Regional'
+
+            # 2. Preparar los datos individuales para comparación (solo si hay más de una estación)
+            if len(stations_for_analysis) > 1:
+                col_display = st.columns(1)[0]
+                show_individual = col_display.checkbox("Superponer estaciones individuales", value=False)
+                
+                if show_individual and len(stations_for_analysis) <= 6:
+                    # Combinar datos individuales y promedio regional para superposición
+                    df_plot_combined = df_monthly_filtered.copy()
+                    df_plot_combined.rename(columns={Config.PRECIPITATION_COL: 'Precipitación'}, inplace=True)
+                    df_plot_combined['Tipo'] = df_plot_combined[Config.STATION_NAME_COL]
+
+                    df_regional_avg.rename(columns={'Precipitación Promedio Regional': 'Precipitación'}, inplace=True)
+                    df_regional_avg['Tipo'] = 'Promedio Regional'
+                    
+                    df_final_plot = pd.concat([
+                        df_plot_combined[[Config.DATE_COL, 'Precipitación', 'Tipo']], 
+                        df_regional_avg[[Config.DATE_COL, 'Precipitación', 'Tipo']]
+                    ], ignore_index=True)
+
+                    fig_regional = go.Figure()
+                    
+                    # Series individuales (gris, delgada)
+                    for station in stations_for_analysis:
+                        df_s = df_final_plot[df_final_plot['Tipo'] == station]
+                        fig_regional.add_trace(go.Scatter(
+                            x=df_s[Config.DATE_COL], 
+                            y=df_s['Precipitación'], 
+                            mode='lines', 
+                            name=station, 
+                            line=dict(color='rgba(128, 128, 128, 0.5)', width=1), 
+                            showlegend=True
+                        ))
+                    
+                    # Serie regional (azul, gruesa)
+                    df_regional_trace = df_final_plot[df_final_plot['Tipo'] == 'Promedio Regional']
+                    fig_regional.add_trace(go.Scatter(
+                        x=df_regional_trace[Config.DATE_COL], 
+                        y=df_regional_trace['Precipitación'], 
+                        mode='lines', 
+                        name='Promedio Regional', 
+                        line=dict(color='#1f77b4', width=4)
+                    ))
+                    
+                    fig_regional.update_layout(
+                        title='Serie de Tiempo Regional vs. Estaciones Individuales',
+                        xaxis_title="Fecha",
+                        yaxis_title="Precipitación Mensual (mm)",
+                        height=650
+                    )
+                    st.plotly_chart(fig_regional, use_container_width=True)
+                
+                else:
+                    if show_individual:
+                        st.info("Demasiadas estaciones seleccionadas para superponer. Mostrando solo el promedio regional.")
+                        
+                    # Graficar solo el promedio regional
+                    df_regional_avg.rename(columns={'Precipitación Promedio Regional': 'Precipitación'}, inplace=True)
+                    fig_regional = px.line(df_regional_avg, x=Config.DATE_COL, y='Precipitación',
+                                           title=f'Serie de Tiempo Promedio Regional ({len(stations_for_analysis)} Estaciones)',
+                                           labels={'Precipitación': 'Precipitación Promedio (mm)'},
+                                           line_shape='linear')
+                    fig_regional.update_traces(line=dict(width=3, color='#1f77b4'))
+                    fig_regional.update_layout(height=650)
+                    st.plotly_chart(fig_regional, use_container_width=True)
+                    
+            else:
+                # Graficar solo el promedio regional si solo hay una estación o por defecto
+                df_regional_avg.rename(columns={'Precipitación Promedio Regional': 'Precipitación'}, inplace=True)
+                fig_regional = px.line(df_regional_avg, x=Config.DATE_COL, y='Precipitación',
+                                       title=f'Serie de Tiempo Promedio Regional ({len(stations_for_analysis)} Estaciones)',
+                                       labels={'Precipitación': 'Precipitación Promedio (mm)'},
+                                       line_shape='linear')
+                fig_regional.update_traces(line=dict(width=3, color='#1f77b4'))
+                fig_regional.update_layout(height=650)
+                st.plotly_chart(fig_regional, use_container_width=True)
+
+        st.markdown("#### Datos de la Serie Regional")
+        df_regional_avg.rename(columns={'Precipitación': 'Precipitación Promedio Regional'}, inplace=True) # Renombrar de vuelta si se usó la variable para plot
+        st.dataframe(df_regional_avg.round(1), use_container_width=True)
+
 def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analysis, df_monthly_filtered):
     st.header("Mapas Avanzados")
     selected_stations_str = f"{len(stations_for_analysis)} estaciones" if len(stations_for_analysis) > 1 else f"1 estación: {stations_for_analysis[0]}"
@@ -880,69 +974,68 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                         folium_static(m, height=700, width="100%")
 
     with temporal_tab:
+        st.subheader("Explorador Anual de Precipitación")
         if len(stations_for_analysis) == 0:
             st.warning("Por favor, seleccione al menos una estación para ver esta sección.")
-        else:
-            st.subheader("Explorador Anual de Precipitación")
-            if not df_anual_melted.empty:
-                df_anual_melted_non_na = df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL])
-                if not df_anual_melted_non_na.empty:
-                    all_years_int = sorted(df_anual_melted_non_na[Config.YEAR_COL].unique())
-                    selected_year = st.slider('Seleccione un Año para Explorar', min_value=min(all_years_int), max_value=max(all_years_int), value=min(all_years_int))
-                    
-                    min_precip_slider, max_precip_slider = int(df_anual_melted_non_na[Config.PRECIPITATION_COL].min()), int(df_anual_melted_non_na[Config.PRECIPITATION_COL].max())
-                    if min_precip_slider >= max_precip_slider: max_precip_slider = min_precip_slider + 1
+        elif not df_anual_melted.empty:
+            df_anual_melted_non_na = df_anual_melted.dropna(subset=[Config.PRECIPITATION_COL])
+            if not df_anual_melted_non_na.empty:
+                all_years_int = sorted(df_anual_melted_non_na[Config.YEAR_COL].unique())
+                selected_year = st.slider('Seleccione un Año para Explorar', min_value=min(all_years_int), max_value=max(all_years_int), value=min(all_years_int))
+                
+                min_precip_slider, max_precip_slider = int(df_anual_melted_non_na[Config.PRECIPITATION_COL].min()), int(df_anual_melted_non_na[Config.PRECIPITATION_COL].max())
+                if min_precip_slider >= max_precip_slider: max_precip_slider = min_precip_slider + 1
 
-                    min_precip_filter, max_precip_filter = st.slider("Filtrar por rango de Precipitación Anual (mm)",
-                                                                     min_value=min_precip_slider, max_value=max_precip_slider,
-                                                                     value=(min_precip_slider, max_precip_slider), key="precip_range_filter")
-                    
-                    controls_col, map_col = st.columns([1, 3])
-                    with controls_col:
-                        st.markdown("##### Opciones de Visualización")
-                        selected_base_map_config, selected_overlays_config = display_map_controls(st, "temporal")
-                        st.markdown(f"#### Resumen del Año: {selected_year}")
-                        df_year_filtered = df_anual_melted[
-                            (df_anual_melted[Config.YEAR_COL] == selected_year) & 
-                            (df_anual_melted[Config.PRECIPITATION_COL] >= min_precip_filter) &
-                            (df_anual_melted[Config.PRECIPITATION_COL] <= max_precip_filter)
-                        ].dropna(subset=[Config.PRECIPITATION_COL])
+                min_precip_filter, max_precip_filter = st.slider("Filtrar por rango de Precipitación Anual (mm)",
+                                                                 min_value=min_precip_slider, max_value=max_precip_slider,
+                                                                 value=(min_precip_slider, max_precip_slider), key="precip_range_filter")
+                
+                controls_col, map_col = st.columns([1, 3])
+                with controls_col:
+                    st.markdown("##### Opciones de Visualización")
+                    selected_base_map_config, selected_overlays_config = display_map_controls(st, "temporal")
+                    st.markdown(f"#### Resumen del Año: {selected_year}")
+                    df_year_filtered = df_anual_melted[
+                        (df_anual_melted[Config.YEAR_COL] == selected_year) & 
+                        (df_anual_melted[Config.PRECIPITATION_COL] >= min_precip_filter) &
+                        (df_anual_melted[Config.PRECIPITATION_COL] <= max_precip_filter)
+                    ].dropna(subset=[Config.PRECIPITATION_COL])
 
-                        logo_col, info_col = st.columns([1, 4])
-                        with logo_col:
-                            if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=40)
-                        with info_col:
-                            st.metric(f"Estaciones con Datos en {selected_year}", f"{len(df_year_filtered)} de {len(stations_for_analysis)}")
-                        if not df_year_filtered.empty:
-                            max_row = df_year_filtered.loc[df_year_filtered[Config.PRECIPITATION_COL].idxmax()]
-                            min_row = df_year_filtered.loc[df_year_filtered[Config.PRECIPITATION_COL].idxmin()]
-                            st.info(f"""
-                            **Ppt. Máxima ({selected_year}):**
-                            {max_row[Config.STATION_NAME_COL]} ({max_row[Config.PRECIPITATION_COL]:.0f} mm)
+                    logo_col, info_col = st.columns([1, 4])
+                    with logo_col:
+                        if os.path.exists(Config.LOGO_DROP_PATH): st.image(Config.LOGO_DROP_PATH, width=40)
+                    with info_col:
+                        st.metric(f"Estaciones con Datos en {selected_year}", f"{len(df_year_filtered)} de {len(stations_for_analysis)}")
+                    if not df_year_filtered.empty:
+                        max_row = df_year_filtered.loc[df_year_filtered[Config.PRECIPITATION_COL].idxmax()]
+                        min_row = df_year_filtered.loc[df_year_filtered[Config.PRECIPITATION_COL].idxmin()]
+                        st.info(f"""
+                        **Ppt. Máxima ({selected_year}):**
+                        {max_row[Config.STATION_NAME_COL]} ({max_row[Config.PRECIPITATION_COL]:.0f} mm)
 
-                            **Ppt. Mínima ({selected_year}):**
-                            {min_row[Config.STATION_NAME_COL]} ({min_row[Config.PRECIPITATION_COL]:.0f} mm)
-                            """)
-                        else:
-                            st.warning(f"No hay datos de precipitación para el año {selected_year} con los filtros aplicados.")
-                    with map_col:
-                        m_temporal = create_folium_map([6.24, -75.58], 7, selected_base_map_config, selected_overlays_config)
-                        if not df_year_filtered.empty:
-                            min_val, max_val = df_anual_melted_non_na[Config.PRECIPITATION_COL].min(), df_anual_melted_non_na[Config.PRECIPITATION_COL].max()
-                            if min_val >= max_val: max_val = min_val + 1 
+                        **Ppt. Mínima ({selected_year}):**
+                        {min_row[Config.STATION_NAME_COL]} ({min_row[Config.PRECIPITATION_COL]:.0f} mm)
+                        """)
+                    else:
+                        st.warning(f"No hay datos de precipitación para el año {selected_year} con los filtros aplicados.")
+                with map_col:
+                    m_temporal = create_folium_map([6.24, -75.58], 7, selected_base_map_config, selected_overlays_config)
+                    if not df_year_filtered.empty:
+                        min_val, max_val = df_anual_melted_non_na[Config.PRECIPITATION_COL].min(), df_anual_melted_non_na[Config.PRECIPITATION_COL].max()
+                        if min_val >= max_val: max_val = min_val + 1 
 
-                            colormap = cm.linear.YlGnBu_09.scale(vmin=min_val, vmax=max_val)
-                            for _, row in df_year_filtered.iterrows():
-                                folium.CircleMarker(
-                                    location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], radius=5,
-                                    color=colormap(row[Config.PRECIPITATION_COL]), fill=True, fill_color=colormap(row[Config.PRECIPITATION_COL]),
-                                    fill_opacity=0.8, tooltip=f"{row[Config.STATION_NAME_COL]}: {row[Config.PRECIPITATION_COL]:.0f} mm"
-                                ).add_to(m_temporal)
-                            bounds = st.session_state.gdf_stations.loc[st.session_state.gdf_stations[Config.STATION_NAME_COL].isin(df_year_filtered[Config.STATION_NAME_COL])].total_bounds
-                            if np.all(np.isfinite(bounds)):
-                                m_temporal.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-                        folium.LayerControl().add_to(m_temporal)
-                        folium_static(m_temporal, height=700, width="100%")
+                        colormap = cm.linear.YlGnBu_09.scale(vmin=min_val, vmax=max_val)
+                        for _, row in df_year_filtered.iterrows():
+                            folium.CircleMarker(
+                                location=[row[Config.LATITUDE_COL], row[Config.LONGITUDE_COL]], radius=5,
+                                color=colormap(row[Config.PRECIPITATION_COL]), fill=True, fill_color=colormap(row[Config.PRECIPITATION_COL]),
+                                fill_opacity=0.8, tooltip=f"{row[Config.STATION_NAME_COL]}: {row[Config.PRECIPITATION_COL]:.0f} mm"
+                            ).add_to(m_temporal)
+                        bounds = st.session_state.gdf_stations.loc[st.session_state.gdf_stations[Config.STATION_NAME_COL].isin(df_year_filtered[Config.STATION_NAME_COL])].total_bounds
+                        if np.all(np.isfinite(bounds)):
+                            m_temporal.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+                    folium.LayerControl().add_to(m_temporal)
+                    folium_static(m_temporal, height=700, width="100%")
 
     with race_tab:
         st.subheader("Ranking Anual de Precipitación por Estación")
@@ -1205,7 +1298,7 @@ def display_drought_analysis_tab(df_monthly_filtered, stations_for_analysis):
         "Seleccione una estación para el análisis:",
         options=sorted(stations_for_analysis),
         key="drought_station_select",
-        help="Los cálculos de percentiles se realizan a nivel de estación."
+        help="El análisis se realiza a nivel de estación."
     )
 
     if not station_to_analyze:
@@ -1655,25 +1748,25 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
     # --- Lógica de Pronóstico SARIMA (Mejora 2.1) ---
     with pronostico_sarima_tab:
         st.subheader("Pronóstico de Precipitación Mensual (Modelo SARIMA)")
-        with st.expander("¿Cómo funciona SARIMA?"):
+        with st.expander("Ajuste de Parámetros SARIMA y Descripción"):
             st.markdown("""
                 El modelo **SARIMA** (Seasonal Auto-Regressive Integrated Moving Average) utiliza datos históricos para predecir valores futuros.
-                - **Parámetros No Estacionales (p, d, q):** Se refieren a la parte no estacional de la serie.
-                - **Parámetros Estacionales (P, D, Q, s=12):** Capturan patrones que se repiten anualmente.
+                Ajuste los parámetros para optimizar el pronóstico:
+                - **(p, d, q):** Componentes no estacionales (AR, I, MA).
+                - **(P, D, Q):** Componentes estacionales (AR, I, MA). s=12 (mensual).
             """)
-        
+            col_p, col_d, col_q = st.columns(3)
+            p = col_p.slider("p (AR no estacional)", 0, 3, 1, key="sarima_p")
+            d = col_d.slider("d (I no estacional)", 0, 2, 1, key="sarima_d")
+            q = col_q.slider("q (MA no estacional)", 0, 3, 1, key="sarima_q")
+
+            col_P, col_D, col_Q = st.columns(3)
+            P = col_P.slider("P (AR estacional)", 0, 2, 1, key="sarima_P")
+            D = col_D.slider("D (I estacional)", 0, 2, 1, key="sarima_D")
+            Q = col_Q.slider("Q (MA estacional)", 0, 2, 1, key="sarima_Q")
+
         station_to_forecast = st.selectbox("Seleccione una estación para el pronóstico:", options=stations_for_analysis, key="sarima_station_select")
         forecast_horizon = st.slider("Meses a pronosticar:", 12, 36, 12, step=12, key="sarima_forecast_horizon_slider")
-
-        col_p, col_d, col_q = st.columns(3)
-        p = col_p.slider("p (AR no estacional)", 0, 3, 1)
-        d = col_d.slider("d (I no estacional)", 0, 2, 1)
-        q = col_q.slider("q (MA no estacional)", 0, 3, 1)
-
-        col_P, col_D, col_Q = st.columns(3)
-        P = col_P.slider("P (AR estacional)", 0, 2, 1)
-        D = col_D.slider("D (I estacional)", 0, 2, 1)
-        Q = col_Q.slider("Q (MA estacional)", 0, 2, 1)
 
         sarima_order = (p, d, q)
         seasonal_order = (P, D, Q, 12)
@@ -1703,7 +1796,6 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     
                     # Almacenar pronóstico SARIMA para comparación
                     st.session_state['sarima_forecast'] = forecast_mean.reset_index().rename(columns={'index': 'ds', 'predicted_mean': 'yhat'})
-                    st.session_state['sarima_ci'] = forecast_ci.reset_index().rename(columns={'index': 'ds', forecast_ci.columns[0]: 'yhat_lower', forecast_ci.columns[1]: 'yhat_upper'})
                     
                     fig_pronostico = go.Figure()
                     fig_pronostico.add_trace(go.Scatter(x=ts_data.index, y=ts_data, mode='lines', name='Datos Históricos'))
@@ -1749,7 +1841,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
                     forecast_prophet = model_prophet.predict(future)
                     
                     # Almacenar pronóstico Prophet para comparación
-                    st.session_state['prophet_forecast'] = forecast_prophet[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+                    st.session_state['prophet_forecast'] = forecast_prophet[['ds', 'yhat']].copy()
                     
                     st.success("Pronóstico generado exitosamente.")
                     fig_prophet = plot_plotly(model_prophet, forecast_prophet)
@@ -1775,7 +1867,11 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
             
         sarima_df = st.session_state['sarima_forecast'].copy()
         prophet_df = st.session_state['prophet_forecast'].copy()
-        ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_forecast].copy()
+        
+        # Usar la estación seleccionada en Prophet para mostrar los datos históricos
+        # Asumimos que el usuario generó los pronósticos para la misma estación (es la mejor práctica)
+        station_id_for_history = st.selectbox("Seleccione la estación para la serie histórica (debe coincidir con la usada para los pronósticos):", options=stations_for_analysis, key="compare_station_history")
+        ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_id_for_history].copy()
         
         if ts_data.empty:
             st.warning("Datos históricos no encontrados para la comparación.")
@@ -1786,7 +1882,7 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
         ts_data['ds'] = ts_data[Config.DATE_COL]
         
-        # Combinar datos históricos y pronósticos
+        # Combinar datos históricos y pronósticos (Solo los valores de predicción y la fecha)
         df_combined = pd.merge(sarima_df[['ds', 'yhat']], prophet_df[['ds', 'yhat']], on='ds', suffixes=('_sarima', '_prophet'), how='outer')
         df_combined = pd.merge(df_combined, ts_data[['ds', Config.PRECIPITATION_COL]], on='ds', how='left')
         
@@ -1801,18 +1897,324 @@ def display_trends_and_forecast_tab(df_anual_melted, df_monthly_to_process, stat
         
         # 2. Pronóstico SARIMA
         fig_compare.add_trace(go.Scatter(
-            x=sarima_df['ds'], y=sarima_df['yhat'], 
+            x=df_combined['ds'], y=df_combined['yhat_sarima'], 
             mode='lines', name='Pronóstico SARIMA', line=dict(color='red', dash='dash', width=3)
         ))
         
         # 3. Pronóstico Prophet
         fig_compare.add_trace(go.Scatter(
-            x=prophet_df['ds'], y=prophet_df['yhat'], 
+            x=df_combined['ds'], y=df_combined['yhat_prophet'], 
             mode='lines', name='Pronóstico Prophet', line=dict(color='blue', dash='dash', width=3)
         ))
 
         fig_compare.update_layout(
-            title=f"Pronóstico Comparativo para {station_to_forecast}",
+            title=f"Pronóstico Comparativo SARIMA vs Prophet para {station_id_for_history}",
+            xaxis_title="Fecha",
+            yaxis_title="Precipitación (mm)",
+            height=650,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+        )
+        st.plotly_chart(fig_compare, use_container_width=True)
+
+    with tendencia_individual_tab:
+        st.subheader("Tendencia de Precipitación Anual (Regresión Lineal)")
+        analysis_type = st.radio("Tipo de Análisis de Tendencia:", ["Promedio de la selección", "Estación individual"], horizontal=True, key="linear_trend_type")
+        df_to_analyze = None
+        title_for_download = "promedio"
+        if analysis_type == "Promedio de la selección":
+            df_to_analyze = df_anual_melted.groupby(Config.YEAR_COL)[Config.PRECIPITATION_COL].mean().reset_index()
+        else:
+            station_to_analyze = st.selectbox("Seleccione una estación para analizar:", options=stations_for_analysis, key="tendencia_station_select")
+            if station_to_analyze: 
+                df_to_analyze = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL] == station_to_analyze]
+                title_for_download = station_to_analyze.replace(" ","_")
+
+        if df_to_analyze is not None and len(df_to_analyze.dropna(subset=[Config.PRECIPITATION_COL])) > 2:
+            df_to_analyze['año_num'] = pd.to_numeric(df_to_analyze[Config.YEAR_COL])
+            df_clean = df_to_analyze.dropna(subset=[Config.PRECIPITATION_COL])
+            slope, intercept, r_value, p_value, std_err = stats.linregress(df_clean['año_num'], df_clean[Config.PRECIPITATION_COL])
+            tendencia_texto = "aumentando" if slope > 0 else "disminuyendo"
+            significancia_texto = "**estadísticamente significativa**" if p_value < 0.05 else "no es estadísticamente significativa"
+            
+            st.markdown(f"La tendencia de la precipitación es de **{slope:.2f} mm/año** (es decir, está {tendencia_texto}). Con un valor p de **{p_value:.3f}**, esta tendencia **{significancia_texto}**.")
+            
+            df_to_analyze['tendencia'] = slope * df_to_analyze['año_num'] + intercept
+            fig_tendencia = px.scatter(df_to_analyze, x='año_num', y=Config.PRECIPITATION_COL, title=f'Tendencia de la Precipitación Anual ({st.session_state.year_range[0]} - {st.session_state.year_range[1]})')
+            fig_tendencia.add_trace(go.Scatter(x=df_to_analyze['año_num'], y=df_to_analyze['tendencia'], mode='lines', name='Línea de Tendencia', line=dict(color='red')))
+            fig_tendencia.update_layout(xaxis_title="Año", yaxis_title="Precipitación Anual (mm)")
+            st.plotly_chart(fig_tendencia, use_container_width=True)
+            
+            csv_data = df_to_analyze.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Descargar datos de Tendencia Anual", data=csv_data,
+                file_name=f'tendencia_anual_{title_for_download}.csv', mime='text/csv',
+                key='download-anual-tendencia'
+            )
+        else:
+            st.warning("No hay suficientes datos en el período seleccionado para calcular una tendencia.")
+
+    with mann_kendall_tab:
+        st.subheader("Tendencia de Precipitación Anual (Prueba de Mann-Kendall)")
+        with st.expander("¿Qué es la prueba de Mann-Kendall?"):
+            st.markdown("""
+            La **Prueba de Mann-Kendall** es un método estadístico no paramétrico utilizado para detectar tendencias en series de tiempo. A diferencia de la regresión lineal, no asume que los datos sigan una distribución particular.
+            - **Objetivo**: Determinar si existe una tendencia monotónica (consistentemente creciente o decreciente) a lo largo del tiempo.
+            - **Resultados Clave**:
+                - **Tendencia**: Indica si es 'increasing' (creciente), 'decreasing' (decreciente) o 'no trend' (sin tendencia).
+                - **Valor p**: Si es menor a 0.05, la tendencia se considera estadísticamente significativa.
+                - **Pendiente de Sen (Sen's Slope)**: Es un método para cuantificar la magnitud de la tendencia, calculando la mediana de todas las pendientes entre pares de puntos. Es robusto frente a valores atípicos.
+            """)
+        
+        mk_analysis_type = st.radio("Tipo de Análisis de Tendencia:", ["Promedio de la selección", "Estación individual"], horizontal=True, key="mk_trend_type")
+        df_to_analyze_mk = None
+
+        if mk_analysis_type == "Promedio de la selección":
+            df_to_analyze_mk = df_anual_melted.groupby(Config.YEAR_COL)[Config.PRECIPITATION_COL].mean().reset_index()
+        else:
+            station_to_analyze_mk = st.selectbox("Seleccione una estación para analizar:", options=stations_for_analysis, key="mk_station_select")
+            if station_to_analyze_mk:
+                df_to_analyze_mk = df_anual_melted[df_anual_melted[Config.STATION_NAME_COL] == station_to_analyze_mk]
+
+        if df_to_analyze_mk is not None and len(df_to_analyze_mk.dropna(subset=[Config.PRECIPITATION_COL])) > 3:
+            df_clean_mk = df_to_analyze_mk.dropna(subset=[Config.PRECIPITATION_COL]).sort_values(by=Config.YEAR_COL)
+            
+            mk_result = mk.original_test(df_clean_mk[Config.PRECIPITATION_COL])
+            
+            st.markdown(f"#### Resultados para: {mk_analysis_type if mk_analysis_type == 'Promedio de la selección' else station_to_analyze_mk}")
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Tendencia Detectada", mk_result.trend.capitalize())
+            col2.metric("Valor p", f"{mk_result.p:.4f}")
+            col3.metric("Pendiente de Sen (mm/año)", f"{mk_result.slope:.2f}")
+
+            if mk_result.p < 0.05:
+                st.success("La tendencia es estadísticamente significativa (p < 0.05).")
+            else:
+                st.warning("La tendencia no es estadísticamente significativa (p ≥ 0.05).")
+
+            # Visualización
+            fig_mk = px.scatter(df_clean_mk, x=Config.YEAR_COL, y=Config.PRECIPITATION_COL, title="Análisis de Tendencia con Pendiente de Sen")
+            
+            median_x = df_clean_mk[Config.YEAR_COL].median()
+            median_y = df_clean_mk[Config.PRECIPITATION_COL].median()
+            intercept_sen = median_y - mk_result.slope * median_x
+            
+            x_vals = np.array(df_clean_mk[Config.YEAR_COL])
+            y_vals = mk_result.slope * x_vals + intercept_sen
+            
+            fig_mk.add_trace(go.Scatter(x=x_vals, y=y_vals, mode='lines', name="Pendiente de Sen", line=dict(color='orange')))
+            fig_mk.update_layout(xaxis_title="Año", yaxis_title="Precipitación Anual (mm)")
+            st.plotly_chart(fig_mk, use_container_width=True)
+
+        else:
+            st.warning("No hay suficientes datos (se requieren al menos 4 puntos) para calcular la tendencia de Mann-Kendall.")
+
+    with tendencia_tabla_tab:
+        st.subheader("Tabla Comparativa de Tendencias de Precipitación Anual")
+        st.info("Esta tabla resume los resultados de dos métodos de análisis de tendencia. Presione el botón para calcular los valores para todas las estaciones seleccionadas.")
+
+        if st.button("Calcular Tendencias para Todas las Estaciones Seleccionadas"):
+            with st.spinner("Calculando tendencias..."):
+                results = []
+                df_anual_calc = df_anual_melted.copy()
+                if st.session_state.exclude_zeros:
+                    df_anual_calc = df_anual_calc[df_anual_calc[Config.PRECIPITATION_COL] > 0]
+                
+                for station in stations_for_analysis:
+                    station_data = df_anual_calc[df_anual_calc[Config.STATION_NAME_COL] == station].dropna(subset=[Config.PRECIPITATION_COL]).sort_values(by=Config.YEAR_COL)
+                    
+                    # Inicializar valores por defecto
+                    slope_lin, p_lin = np.nan, np.nan
+                    trend_mk, p_mk, slope_sen = "Datos insuficientes", np.nan, np.nan
+                    
+                    # Cálculo de Regresión Lineal
+                    if len(station_data) > 2:
+                        station_data['año_num'] = pd.to_numeric(station_data[Config.YEAR_COL])
+                        slope_lin, _, _, p_lin, _ = stats.linregress(station_data['año_num'], station_data[Config.PRECIPITATION_COL])
+                    
+                    # Cálculo de Mann-Kendall
+                    if len(station_data) > 3:
+                        mk_result = mk.original_test(station_data[Config.PRECIPITATION_COL])
+                        trend_mk = mk_result.trend.capitalize()
+                        p_mk = mk.result.p
+                        slope_sen = mk_result.slope
+
+                    results.append({
+                        "Estación": station,
+                        "Años Analizados": len(station_data),
+                        "Tendencia Lineal (mm/año)": slope_lin,
+                        "Valor p (Lineal)": p_lin,
+                        "Tendencia MK": trend_mk,
+                        "Valor p (MK)": p_mk,
+                        "Pendiente de Sen (mm/año)": slope_sen,
+                    })
+
+                if results:
+                    results_df = pd.DataFrame(results)
+                    
+                    def style_p_value(val):
+                        if pd.isna(val): return ''
+                        color = 'lightgreen' if val < 0.05 else 'lightcoral'
+                        return f'background-color: {color}'
+                    
+                    st.dataframe(results_df.style.format({
+                        "Tendencia Lineal (mm/año)": "{:.2f}",
+                        "Valor p (Lineal)": "{:.4f}",
+                        "Valor p (MK)": "{:.4f}",
+                        "Pendiente de Sen (mm/año)": "{:.2f}",
+                    }).applymap(style_p_value, subset=['Valor p (Lineal)', 'Valor p (MK)']), use_container_width=True)
+                    
+                    csv_data = results_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Descargar tabla de tendencias en CSV", data=csv_data,
+                        file_name='tabla_tendencias_comparativa.csv', mime='text/csv', key='download-tabla-tendencias'
+                    )
+                else:
+                    st.warning("No se pudieron calcular tendencias para las estaciones seleccionadas.")
+    
+    with descomposicion_tab:
+        st.subheader("Descomposición de Series de Tiempo Mensual")
+        st.markdown("""
+        La **descomposición de una serie de tiempo** separa sus componentes principales:
+        - **Tendencia**: Muestra la dirección a largo plazo de los datos (ascendente o descendente).
+        - **Estacionalidad**: Revela patrones que se repiten a intervalos regulares (por ejemplo, anualmente).
+        - **Residuo**: Representa la variabilidad restante después de eliminar la tendencia y la estacionalidad.
+        """)
+        
+        station_to_decompose = st.selectbox("Seleccione una estación para la descomposición:", options=stations_for_analysis, key="decompose_station_select")
+        
+        if station_to_decompose:
+            df_station = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_decompose].copy()
+            if not df_station.empty:
+                df_station.set_index(Config.DATE_COL, inplace=True)
+                df_station = df_station.asfreq('MS')
+
+                if df_station[Config.PRECIPITATION_COL].isnull().values.any():
+                    st.info("La serie tiene datos faltantes. Se rellenarán con interpolación lineal para la descomposición.")
+                    df_station[Config.PRECIPITATION_COL] = df_station[Config.PRECIPITATION_COL].interpolate(method='time')
+                
+                try:
+                    result = seasonal_decompose(df_station[Config.PRECIPITATION_COL].dropna(), model='additive', period=12)
+                    
+                    fig_decomp = go.Figure()
+                    
+                    fig_decomp.add_trace(go.Scatter(x=df_station.index, y=df_station[Config.PRECIPITATION_COL], mode='lines', name='Original'))
+                    fig_decomp.add_trace(go.Scatter(x=result.trend.index, y=result.trend, mode='lines', name='Tendencia'))
+                    fig_decomp.add_trace(go.Scatter(x=result.seasonal.index, y=result.seasonal, mode='lines', name='Estacionalidad'))
+                    fig_decomp.add_trace(go.Scatter(x=result.resid.index, y=result.resid, mode='lines', name='Residuo'))
+                    
+                    fig_decomp.update_layout(title=f"Descomposición de la Serie de Precipitación para {station_to_decompose}",
+                                             height=600,
+                                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    
+                    st.plotly_chart(fig_decomp, use_container_width=True)
+
+                except Exception as e:
+                    st.error(f"No se pudo realizar la descomposición de la serie para la estación seleccionada. Es posible que la serie de datos sea demasiado corta o no tenga una estructura estacional clara. Error: {e}")
+            else:
+                st.warning(f"No hay datos mensuales para la estación {station_to_decompose} en el período seleccionado.")
+
+    with autocorrelacion_tab:
+        st.subheader("Análisis de Autocorrelación (ACF) y Autocorrelación Parcial (PACF)")
+        st.markdown("Estos gráficos ayudan a entender la dependencia de la precipitación con sus valores pasados (rezagos). Las barras que superan el área azul sombreada indican una correlación estadísticamente significativa.")
+        
+        station_to_analyze_acf = st.selectbox("Seleccione una estación:", options=stations_for_analysis, key="acf_station_select")
+        max_lag = st.slider("Número máximo de rezagos (meses):", min_value=12, max_value=60, value=24, step=12)
+        
+        if station_to_analyze_acf:
+            df_station_acf = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_to_analyze_acf].copy()
+            if not df_station_acf.empty:
+                df_station_acf.set_index(Config.DATE_COL, inplace=True)
+                df_station_acf = df_station_acf.asfreq('MS')
+                df_station_acf[Config.PRECIPITATION_COL] = df_station_acf[Config.PRECIPITATION_COL].interpolate(method='time').dropna()
+
+                if len(df_station_acf) > max_lag:
+                    try:
+                        acf_values = sm.tsa.acf(df_station_acf[Config.PRECIPITATION_COL], nlags=max_lag)
+                        lags = list(range(max_lag + 1))
+                        
+                        conf_interval = 1.96 / np.sqrt(len(df_station_acf))
+                        
+                        fig_acf = go.Figure(data=[
+                            go.Bar(x=lags, y=acf_values, name='ACF'),
+                            go.Scatter(x=lags, y=[conf_interval] * (max_lag + 1), mode='lines', line=dict(color='blue', dash='dash'), name='Límite de Confianza Superior'),
+                            go.Scatter(x=lags, y=[-conf_interval] * (max_lag + 1), mode='lines', line=dict(color='blue', dash='dash'), fill='tonexty', fillcolor='rgba(0,0,255,0.1)', name='Límite de Confianza Inferior')
+                        ])
+                        fig_acf.update_layout(title='Función de Autocorrelación (ACF)', xaxis_title='Rezagos (Meses)', yaxis_title='Correlación', height=400)
+                        st.plotly_chart(fig_acf, use_container_width=True)
+
+                        pacf_values = pacf(df_station_acf[Config.PRECIPITATION_COL], nlags=max_lag)
+                        
+                        fig_pacf = go.Figure(data=[
+                            go.Bar(x=lags, y=pacf_values, name='PACF'),
+                            go.Scatter(x=lags, y=[conf_interval] * (max_lag + 1), mode='lines', line=dict(color='red', dash='dash'), name='Límite de Confianza Superior'),
+                            go.Scatter(x=lags, y=[-conf_interval] * (max_lag + 1), mode='lines', line=dict(color='red', dash='dash'), fill='tonexty', fillcolor='rgba(255,0,0,0.1)', name='Límite de Confianza Inferior')
+                        ])
+                        fig_pacf.update_layout(title='Función de Autocorrelación Parcial (PACF)', xaxis_title='Rezagos (Meses)', yaxis_title='Correlación', height=400)
+                        st.plotly_chart(fig_pacf, use_container_width=True)
+
+                    except Exception as e:
+                        st.error(f"No se pudieron generar los gráficos de autocorrelación. Error: {e}")
+                else:
+                    st.warning(f"No hay suficientes datos (se requieren > {max_lag} meses) para la estación {station_to_analyze_acf} para realizar el análisis de autocorrelación.")
+            else:
+                st.warning(f"No hay datos para la estación {station_to_analyze_acf} en el período seleccionado.")
+    
+    # Lógica de Pronóstico SARIMA ya implementada arriba
+    
+    # Lógica de Pronóstico Prophet ya implementada arriba
+
+    # --- Pronóstico Comparativo (Mejora 2.2) ---
+    with compare_forecast_tab:
+        st.subheader("Pronóstico Comparativo: SARIMA vs Prophet")
+        
+        if 'sarima_forecast' not in st.session_state or 'prophet_forecast' not in st.session_state or st.session_state['sarima_forecast'].empty or st.session_state['prophet_forecast'].empty:
+            st.warning("Debe generar un pronóstico **SARIMA** y un pronóstico **Prophet** en las pestañas anteriores antes de poder compararlos. Asegúrese de usar la misma estación para ambos para una comparación válida.")
+            st.stop()
+            
+        sarima_df = st.session_state['sarima_forecast'].copy()
+        prophet_df = st.session_state['prophet_forecast'].copy()
+        
+        # Usar la estación seleccionada en Prophet para mostrar los datos históricos
+        station_id_for_history = st.selectbox("Seleccione la estación para la serie histórica (debe coincidir con la usada para los pronósticos):", options=stations_for_analysis, key="compare_station_history")
+        ts_data = df_monthly_to_process[df_monthly_to_process[Config.STATION_NAME_COL] == station_id_for_history].copy()
+        
+        if ts_data.empty:
+            st.warning("Datos históricos no encontrados para la comparación.")
+            st.stop()
+
+        # Asegurar que las fechas sean comparables
+        sarima_df['ds'] = pd.to_datetime(sarima_df['ds'])
+        prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
+        ts_data['ds'] = ts_data[Config.DATE_COL]
+        
+        # Combinar datos históricos y pronósticos (Solo los valores de predicción y la fecha)
+        df_combined = pd.merge(sarima_df[['ds', 'yhat']], prophet_df[['ds', 'yhat']], on='ds', suffixes=('_sarima', '_prophet'), how='outer')
+        df_combined = pd.merge(df_combined, ts_data[['ds', Config.PRECIPITATION_COL]], on='ds', how='left')
+        
+        # Crear el gráfico combinado
+        fig_compare = go.Figure()
+        
+        # 1. Datos Históricos
+        fig_compare.add_trace(go.Scatter(
+            x=df_combined['ds'], y=df_combined[Config.PRECIPITATION_COL], 
+            mode='lines+markers', name='Histórico', line=dict(color='gray', width=2)
+        ))
+        
+        # 2. Pronóstico SARIMA
+        fig_compare.add_trace(go.Scatter(
+            x=df_combined['ds'], y=df_combined['yhat_sarima'], 
+            mode='lines', name='Pronóstico SARIMA', line=dict(color='red', dash='dash', width=3)
+        ))
+        
+        # 3. Pronóstico Prophet
+        fig_compare.add_trace(go.Scatter(
+            x=df_combined['ds'], y=df_combined['yhat_prophet'], 
+            mode='lines', name='Pronóstico Prophet', line=dict(color='blue', dash='dash', width=3)
+        ))
+
+        fig_compare.update_layout(
+            title=f"Pronóstico Comparativo SARIMA vs Prophet para {station_id_for_history}",
             xaxis_title="Fecha",
             yaxis_title="Precipitación (mm)",
             height=650,
