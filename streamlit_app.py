@@ -355,8 +355,7 @@ def calculate_spi(precip_series: pd.Series, timescale: int):
     Calcula el SPI para una serie de precipitación dada y una escala de tiempo.
     Utiliza un método manual basado en la distribución Gamma.
     """
-    # 1. Calcular la suma acumulada (rolling sum) para la escala de tiempo
-    # Se asegura que la serie de entrada tenga índice de tiempo para el rolling sum
+    # 1. Validar la serie de entrada (asegurando índice de tiempo)
     if not isinstance(precip_series.index, pd.DatetimeIndex):
         raise ValueError("La serie de entrada para SPI debe tener un DatetimeIndex.")
         
@@ -1181,30 +1180,33 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
         timescale = st.selectbox(
             "Seleccionar Escala de Tiempo (meses):", 
             options=[1, 3, 6, 12, 24], 
-            index=2, # SPI-6 por defecto
+            index=3, # SPI-12 por defecto
             key="spi_timescale_select",
             help="Determina el período de agregación de la precipitación (ej: SPI-6 usa los últimos 6 meses)."
         )
     with col2:
         classification_scheme = st.radio("Esquema de Clasificación:", ["Sequía/Humedad"], disabled=True)
         
+    # --- LÓGICA DE PREPARACIÓN DE LA SERIE DE TIEMPO ---
+    # 1. Filtrar los datos procesados/interpolados solo para la estación seleccionada
     df_station = st.session_state.df_monthly_processed[st.session_state.df_monthly_processed[Config.STATION_NAME_COL] == station_to_analyze].copy()
     
-    # CRITICAL CORRECTION: Ensure DatetimeIndex and full time series
+    # 2. Convertir a serie de tiempo con frecuencia mensual (DatetimeIndex)
     df_station.set_index(Config.DATE_COL, inplace=True)
     df_station.sort_index(inplace=True)
-    df_station = df_station.asfreq('MS') # Asegura un índice de tiempo continuo
+    # Reindexar con frecuencia 'MS' para manejar series de tiempo
+    df_station = df_station.asfreq('MS') 
     
+    # 3. Quitar NaNs (los que quedan después de la interpolación o fuera del rango original)
+    # Seleccionamos la columna de precipitación para obtener el pd.Series que necesita calculate_spi
+    precip_series = df_station[Config.PRECIPITATION_COL].copy().dropna()
+
     # Se verifica que haya suficientes datos (mínimo 20 años de datos para el ajuste, o al menos 2.5 * timescale)
     min_data_required = max(20 * 12, timescale * 2.5 + 12)
     
-    if len(df_station.dropna(subset=[Config.PRECIPITATION_COL])) < min_data_required:
-        st.warning(f"Se necesitan más datos históricos (se recomiendan al menos {min_data_required:.0f} meses o 20 años) para calcular el SPI-{timescale} de forma robusta.")
+    if len(precip_series) < min_data_required:
+        st.warning(f"Se necesitan más datos históricos (se recomiendan al menos {min_data_required:.0f} meses o 20 años) para calcular el SPI-{timescale} de forma robusta. Datos disponibles: {len(precip_series)} meses.")
         return
-
-    # Extracción de la serie de precipitación (es una Serie de Pandas con índice de fecha)
-    # Importante: Aquí se pasa la columna de precipitación como una Serie de Pandas
-    precip_series = df_station[Config.PRECIPITATION_COL].dropna()
 
     if precip_series.empty:
          st.warning("No hay datos de precipitación válidos para el cálculo del SPI en esta estación.")
@@ -1213,14 +1215,14 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
     # Cálculo del SPI
     with st.spinner(f"Calculando SPI-{timescale}..."):
         try:
-            # Se asegura que la serie de pandas sea pasada, no un numpy array.
+            # Se pasa el objeto pd.Series con DatetimeIndex
             spi_series = calculate_spi(precip_series, timescale)
         except Exception as e:
             st.error(f"Error al calcular el SPI: {e}. Vuelva a intentarlo o seleccione una escala de tiempo diferente.")
             return
 
     if spi_series is None or spi_series.empty:
-        st.warning("El cálculo del SPI no produjo resultados válidos.")
+        st.warning("El cálculo del SPI no produjo resultados válidos. Esto puede ocurrir si los datos restantes no son suficientes para el ajuste Gamma.")
         return
 
     spi_df = spi_series.to_frame(name=f"SPI-{timescale}")
