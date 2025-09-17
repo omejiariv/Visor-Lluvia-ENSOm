@@ -942,7 +942,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                                 <p><b>Municipio:</b> {station_data.get(Config.MUNICIPALITY_COL, 'N/A')}</p>
                                 <p><b>Altitud:</b> {station_data.get(Config.ALTITUDE_COL, 'N/A')} m</p>
                             """
-                            folium.Marker(location=[station_data[Config.LATITUDE_COL], station_data[Config.LONGITUDE_COL]], popup=html_popup).add_to(m)
+                            folium.Marker(location=[station_data[Config.LATITUDE_COL], station[Config.LONGITUDE_COL]], popup=html_popup).add_to(m)
                         
                         folium.LayerControl().add_to(m)
                         folium_static(m, height=700, width="100%")
@@ -1206,7 +1206,7 @@ def display_spi_analysis_subtab(df_monthly_filtered, station_to_analyze):
     # Cálculo del SPI
     with st.spinner(f"Calculando SPI-{timescale}..."):
         try:
-            # CORRECCIÓN: Se asegura que la serie de pandas sea pasada, no un numpy array.
+            # Se asegura que la serie de pandas sea pasada, no un numpy array.
             spi_series = calculate_spi(precip_series, timescale)
         except Exception as e:
             st.error(f"Error al calcular el SPI: {e}")
@@ -1447,7 +1447,6 @@ def display_anomalies_tab(df_long, df_monthly_filtered, stations_for_analysis):
                 secos = df_extremos.nsmallest(10, 'anomalia')[['fecha', Config.STATION_NAME_COL, 'anomalia', Config.PRECIPITATION_COL, 'precip_promedio_mes']]
                 st.dataframe(secos.rename(columns={Config.STATION_NAME_COL: 'Estación', 'anomalia': 'Anomalía (mm)', Config.PRECIPITATION_COL: 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}).round(0), use_container_width=True)
             with col2:
-                st.markdown("##### 10 Meses más Húmedos")
                 humedos = df_extremos.nlargest(10, 'anomalia')[['fecha', Config.STATION_NAME_COL, 'anomalia', Config.PRECIPITATION_COL, 'precip_promedio_mes']]
                 st.dataframe(humedos.rename(columns={Config.STATION_NAME_COL: 'Estación', 'anomalia': 'Anomalía (mm)', Config.PRECIPITATION_COL: 'Ppt. (mm)', 'precip_promedio_mes': 'Ppt. Media (mm)'}).round(0), use_container_width=True)
     else:
@@ -1467,45 +1466,72 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
         st.subheader("Matriz de Disponibilidad de Datos Anual")
         
         # Determinar el DataFrame base según el modo de análisis
-        df_base = st.session_state.df_monthly_processed if st.session_state.analysis_mode == "Completar series (interpolación)" else df_long
-        df_base_filtered = df_base[df_base[Config.STATION_NAME_COL].isin(stations_for_analysis)].copy()
+        df_base_raw = st.session_state.df_monthly_processed.copy()
         
-        # Eliminar NaN o 0 si el usuario lo seleccionó
-        if st.session_state.exclude_na:
-            df_base_filtered.dropna(subset=[Config.PRECIPITATION_COL], inplace=True)
-        if st.session_state.exclude_zeros:
-            df_base_filtered = df_base_filtered[df_base_filtered[Config.PRECIPITATION_COL] > 0]
-
-        # Contar el número de meses con datos
-        monthly_counts = df_base_filtered.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).agg(
-            count_total=(Config.PRECIPITATION_COL, 'count')
-        ).reset_index()
-        
-        # Asignar vista y colores basados en la selección de modo
+        # Controles de vista (solo si la interpolación está activada)
         if st.session_state.analysis_mode == "Completar series (interpolación)":
+            view_mode = st.radio("Seleccione la vista de la matriz:", 
+                                 ("Porcentaje de Datos Originales", 
+                                  "Porcentaje de Datos Totales (Original + Completado)",
+                                  "Porcentaje de Datos Completados (Interpolados)"), 
+                                 horizontal=True)
             
-            view_mode = st.radio("Seleccione la vista de la matriz:", ("Porcentaje de Datos Originales", "Porcentaje de Datos Totales (Original + Completado)"), horizontal=True)
+            df_base_filtered = df_base_raw[df_base_raw[Config.STATION_NAME_COL].isin(stations_for_analysis)].copy()
             
-            if view_mode == "Porcentaje de Datos Totales (Original + Completado)":
-                monthly_counts['porc_value'] = (monthly_counts['count_total'] / 12) * 100
-                heatmap_df = monthly_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
+            if view_mode == "Porcentaje de Datos Completados (Interpolados)":
+                df_counts = df_base_filtered[df_base_filtered[Config.ORIGIN_COL] == 'Completado'].groupby(
+                    [Config.STATION_NAME_COL, Config.YEAR_COL]
+                ).size().reset_index(name='count_completed')
+                
+                # Merge con la cuadrícula completa de estaciones/años
+                all_months_count = df_base_filtered.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='total_months')
+                df_merged = pd.merge(all_months_count, df_counts, on=[Config.STATION_NAME_COL, Config.YEAR_COL], how='left').fillna(0)
+                
+                df_merged['porc_value'] = (df_merged['count_completed'] / 12) * 100
+                heatmap_df = df_merged.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
+                color_scale = "Reds"
+                title_text = "Porcentaje de Datos Completados (Interpolados)"
+            
+            elif view_mode == "Porcentaje de Datos Totales (Original + Completado)":
+                # Contar el total de meses *disponibles* (que es casi siempre 12 si la interpolación funciona)
+                df_counts = df_base_filtered.groupby(
+                    [Config.STATION_NAME_COL, Config.YEAR_COL]
+                ).size().reset_index(name='count_total')
+                df_counts['porc_value'] = (df_counts['count_total'] / 12) * 100
+                heatmap_df = df_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
                 color_scale = "Blues"
                 title_text = "Disponibilidad Promedio de Datos Totales (Originales + Completados)"
             
             else: # Porcentaje de Datos Originales
                 df_original_filtered = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)]
-                original_data_counts = df_original_filtered.groupby([Config.STATION_NAME_COL, Config.YEAR_COL]).size().reset_index(name='count_original')
-                original_data_counts['porc_value'] = (original_data_counts['count_original'] / 12) * 100
-                heatmap_df = original_data_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
+                df_counts = df_original_filtered.groupby(
+                    [Config.STATION_NAME_COL, Config.YEAR_COL]
+                ).size().reset_index(name='count_original')
+                df_counts['porc_value'] = (df_counts['count_original'] / 12) * 100
+                heatmap_df = df_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
                 color_scale = "Greens"
                 title_text = "Disponibilidad Promedio de Datos Originales"
-        
-        else: # Usar datos originales
-            monthly_counts['porc_value'] = (monthly_counts['count_total'] / 12) * 100
-            heatmap_df = monthly_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
+
+        else: # Usar datos originales (Modo por defecto)
+            df_base_filtered = df_long[df_long[Config.STATION_NAME_COL].isin(stations_for_analysis)].copy()
+            df_counts = df_base_filtered.groupby(
+                [Config.STATION_NAME_COL, Config.YEAR_COL]
+            ).size().reset_index(name='count_total')
+            df_counts['porc_value'] = (df_counts['count_total'] / 12) * 100
+            heatmap_df = df_counts.pivot(index=Config.STATION_NAME_COL, columns=Config.YEAR_COL, values='porc_value').fillna(0)
             color_scale = "Greens"
             title_text = "Disponibilidad Promedio de Datos Originales"
-
+            
+        # --------------------
+        # Aplicación de filtros de exclusión para cálculo de la métrica (si aplica)
+        # --------------------
+        if st.session_state.exclude_na:
+            heatmap_df = heatmap_df.loc[:, ~heatmap_df.isnull().all()].dropna(how='all')
+        if st.session_state.exclude_zeros:
+            # Los ceros se manejan mejor en el filtrado mensual/anual, pero aquí se muestra la disponibilidad
+            pass
+        # --------------------
+        
         if not heatmap_df.empty:
             avg_availability = heatmap_df.stack().mean()
             logo_col, metric_col = st.columns([1, 5])
