@@ -16,6 +16,7 @@ import tempfile
 import os
 import io
 import numpy as np
+import warnings # Importado para manejar advertencias de SPI
 from pykrige.ok import OrdinaryKriging
 from scipy import stats
 from scipy.stats import gamma, norm
@@ -27,6 +28,10 @@ from prophet.plot import plot_plotly
 import branca.colormap as cm
 import base64
 import pymannkendall as mk
+
+# Desactivar UserWarning de scipy/statsmodels que son comunes durante el fitting de distribución
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ---
 # Constantes y Configuración Centralizada
@@ -942,7 +947,7 @@ def display_advanced_maps_tab(gdf_filtered, df_anual_melted, stations_for_analys
                                 <p><b>Municipio:</b> {station_data.get(Config.MUNICIPALITY_COL, 'N/A')}</p>
                                 <p><b>Altitud:</b> {station_data.get(Config.ALTITUDE_COL, 'N/A')} m</p>
                             """
-                            folium.Marker(location=[station_data[Config.LATITUDE_COL], station[Config.LONGITUDE_COL]], popup=html_popup).add_to(m)
+                            folium.Marker(location=[station_data[Config.LATITUDE_COL], station_data[Config.LONGITUDE_COL]], popup=html_popup).add_to(m)
                         
                         folium.LayerControl().add_to(m)
                         folium_static(m, height=700, width="100%")
@@ -1470,6 +1475,7 @@ def display_stats_tab(df_long, df_anual_melted, df_monthly_filtered, stations_fo
         
         # Controles de vista (solo si la interpolación está activada)
         if st.session_state.analysis_mode == "Completar series (interpolación)":
+            
             view_mode = st.radio("Seleccione la vista de la matriz:", 
                                  ("Porcentaje de Datos Originales", 
                                   "Porcentaje de Datos Totales (Original + Completado)",
